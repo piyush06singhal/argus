@@ -1,0 +1,160 @@
+"""ARGUS Data Retention Policy Service.
+
+Enforces configurable retention policies on timestamped/lifecycle metadata.
+Each table (events, logs, metrics, traces) has a configurable number of days;
+records older than the threshold are hard-deleted.
+
+Phase 1 §22: data retention policies on existing timestamp/lifecycle metadata.
+"""
+from __future__ import annotations
+
+import logging
+from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
+from typing import Dict
+
+from sqlalchemy import delete, func, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.config import get_settings
+from app.models.ingestion import (
+    ConfigurationChangeEvent,
+    HealthCheckEvent,
+    IngestionFailure,
+)
+from app.models.observability import (
+    LogRecord,
+    MetricRecord,
+    ObservabilityEvent,
+    SpanRecord,
+    TraceRecord,
+)
+
+logger = logging.getLogger(__name__)
+settings = get_settings()
+
+
+@dataclass
+class RetentionResult:
+    """Outcome of a single retention sweep."""
+
+    table: str
+    deleted: int = 0
+    threshold_days: int = 0
+    cutoff: datetime | None = None
+
+
+@dataclass
+class RetentionSummary:
+    """Aggregated outcome across all tables."""
+
+    results: list[RetentionResult] = None  # type: ignore[assignment]
+    total_deleted: int = 0
+
+    def __post_init__(self) -> None:
+        if self.results is None:
+            self.results = []
+
+    def add(self, r: RetentionResult) -> None:
+        self.results.append(r)
+        self.total_deleted += r.deleted
+
+
+# Mapping of table → (model, timestamp_column, retention_days)
+_RETENTION_TABLES: dict[str, tuple[type, type, int]] = {
+    "observability_events": (ObservabilityEvent, ObservabilityEvent.timestamp, settings.RETENTION_EVENTS),
+    "log_records": (LogRecord, LogRecord.timestamp, settings.RETENTION_LOGS),
+    "metric_records": (MetricRecord, MetricRecord.timestamp, settings.RETENTION_METRICS),
+    "traces": (TraceRecord, TraceRecord.start_time, settings.RETENTION_TRACES),
+    # Spans follow the same retention as their parent traces.
+    "spans": (SpanRecord, SpanRecord.start_time, settings.RETENTION_TRACES),
+    # Configuration and health events share the log retention window.
+    "configuration_change_events": (ConfigurationChangeEvent, ConfigurationChangeEvent.timestamp, settings.RETENTION_LOGS),
+    "health_check_events": (HealthCheckEvent, HealthCheckEvent.timestamp, settings.RETENTION_LOGS),
+    # Dead-letter records: shorter window — operational, not archival.
+    "ingestion_failures": (IngestionFailure, IngestionFailure.failed_at, 30),
+}
+
+
+class RetentionService:
+    """Enforce data retention policies.
+
+    Usage::
+
+        service = RetentionService(db)
+        summary = await service.run_sweep()
+    """
+
+    def __init__(self, db: AsyncSession):
+        self._db = db
+
+    async def run_sweep(
+        self, *, overrides: Dict[str, int] | None = None
+    ) -> RetentionSummary:
+        """Delete records older than their retention threshold.
+
+        Args:
+            overrides: Optional mapping of table_name → retention_days to
+                       temporarily override the config defaults (useful for
+                       admin endpoints and tests).
+        """
+        summary = RetentionSummary()
+        overrides = overrides or {}
+
+        for table_name, (model, ts_col, default_days) in _RETENTION_TABLES.items():
+            days = overrides.get(table_name, default_days)
+            cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+
+            # Count first so we can report what we're about to delete.
+            count_q = select(func.count()).select_from(model).where(ts_col < cutoff)
+            count_result = await self._db.execute(count_q)
+            count = count_result.scalar() or 0
+
+            if count > 0:
+                delete_q = delete(model).where(ts_col < cutoff)
+                await self._db.execute(delete_q)
+                await self._db.flush()
+                logger.info(f"Retention: deleted {count} rows from {table_name} (older than {days}d)")
+
+            summary.add(RetentionResult(
+                table=table_name,
+                deleted=count,
+                threshold_days=days,
+                cutoff=cutoff,
+            ))
+
+        return summary
+
+    async def preview(
+        self, *, overrides: Dict[str, int] | None = None
+    ) -> RetentionSummary:
+        """Preview what *would* be deleted without modifying data.
+
+        Same as ``run_sweep`` but never executes DELETE — dry run only.
+        """
+        summary = RetentionSummary()
+        overrides = overrides or {}
+
+        for table_name, (model, ts_col, default_days) in _RETENTION_TABLES.items():
+            days = overrides.get(table_name, default_days)
+            cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+
+            count_q = select(func.count()).select_from(model).where(ts_col < cutoff)
+            count_result = await self._db.execute(count_q)
+            count = count_result.scalar() or 0
+
+            summary.add(RetentionResult(
+                table=table_name,
+                deleted=count,
+                threshold_days=days,
+                cutoff=cutoff,
+            ))
+
+        return summary
+
+    async def get_policy(self) -> Dict[str, int]:
+        """Return the current retention policy (table → days)."""
+        return {
+            table_name: default_days
+            for table_name, (_, _, default_days) in _RETENTION_TABLES.items()
+        }

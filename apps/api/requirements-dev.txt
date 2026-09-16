@@ -1,0 +1,4 @@
+-r requirements.txt
+
+# Testing with SQLite
+aiosqlite==0.20.0
