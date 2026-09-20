@@ -1,4 +1,5 @@
 """Tests for system components and dependencies."""
+
 from __future__ import annotations
 
 
@@ -189,5 +190,3 @@ class TestComponents:
             },
         )
         assert health.status_code == 201
-
-    

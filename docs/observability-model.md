@@ -86,6 +86,17 @@ Retention policies layer on the timestamps and lifecycle metadata present from P
 
 Sweeps never use unbounded queries — they are bounded by policy on the same indexed timestamp columns the list endpoints use.
 
+## 5b. Where ingestion meets the graph (Phase 2)
+
+Persisting spans/trace events enqueues a Redis `graph_extract` job. The worker
+extracts typed relationships (CALLS, READS_FROM, …) from recent span trees and
+trace-carrying events and runs graph reconciliation — the Software Knowledge
+Graph stays current with observed runtime behavior without blocking ingestion.
+Extraction is deterministic (parent/child span walks + service-name resolution
+through the component registry); edges carry `source=TRACE`/`LOG` provenance
+and never overwrite configured relationships. See
+[software-knowledge-graph.md](software-knowledge-graph.md).
+
 ## 6. Querying
 
 List endpoints support filters aligned to the normalization model:

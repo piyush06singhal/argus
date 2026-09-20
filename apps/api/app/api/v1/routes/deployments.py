@@ -1,4 +1,5 @@
 """ARGUS Deployment Routes."""
+
 from __future__ import annotations
 
 import uuid
@@ -55,7 +56,9 @@ async def list_deployments(
         count_query = count_query.where(DeploymentEvent.project_id == project_id)
     if environment_id:
         query = query.where(DeploymentEvent.environment_id == environment_id)
-        count_query = count_query.where(DeploymentEvent.environment_id == environment_id)
+        count_query = count_query.where(
+            DeploymentEvent.environment_id == environment_id
+        )
     if component_id:
         query = query.where(DeploymentEvent.component_id == component_id)
         count_query = count_query.where(DeploymentEvent.component_id == component_id)
@@ -133,9 +136,7 @@ async def list_project_deployments(
     db: AsyncSession = Depends(get_db),
 ) -> DeploymentList:
     """List deployments for a specific project."""
-    query = select(DeploymentEvent).where(
-        DeploymentEvent.project_id == project_id
-    )
+    query = select(DeploymentEvent).where(DeploymentEvent.project_id == project_id)
     count_query = select(func.count(DeploymentEvent.id)).where(
         DeploymentEvent.project_id == project_id
     )

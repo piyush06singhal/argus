@@ -8,6 +8,7 @@ Covers:
   - Oversized payload / label cardinality guards (§27)
   - Corrupt queue job handling (graceful drop, no loop breakage)
 """
+
 from __future__ import annotations
 
 import json
@@ -47,7 +48,9 @@ class TestProcessEventJobE2E:
     async def test_end_to_end_job_persists_event(self, db_engine) -> None:
         from app.services.worker_runner import process_event_job
 
-        factory = async_sessionmaker(db_engine, class_=AsyncSession, expire_on_commit=False)
+        factory = async_sessionmaker(
+            db_engine, class_=AsyncSession, expire_on_commit=False
+        )
         project_id = str(uuid.uuid4())
 
         accepted = await process_event_job(
@@ -57,21 +60,25 @@ class TestProcessEventJobE2E:
                 "project_id": project_id,
                 "environment_id": None,
                 "source_id": None,
-                "events": [{
-                    "source_type": "WEBHOOK",
-                    "source_name": "e2e-test",
-                    "timestamp": "2026-01-01T12:00:00Z",
-                    "event_type": "SYSTEM_EVENT",
-                    "payload": {"message": "e2e pipeline test"},
-                    "metadata": {"origin": "test"},
-                }],
+                "events": [
+                    {
+                        "source_type": "WEBHOOK",
+                        "source_name": "e2e-test",
+                        "timestamp": "2026-01-01T12:00:00Z",
+                        "event_type": "SYSTEM_EVENT",
+                        "payload": {"message": "e2e pipeline test"},
+                        "metadata": {"origin": "test"},
+                    }
+                ],
             },
         )
         assert accepted == 1
 
         async with factory() as session:
             result = await session.execute(
-                select(ObservabilityEvent).where(ObservabilityEvent.project_id == uuid.UUID(project_id))
+                select(ObservabilityEvent).where(
+                    ObservabilityEvent.project_id == uuid.UUID(project_id)
+                )
             )
             event = result.scalar_one_or_none()
             assert event is not None
@@ -82,38 +89,48 @@ class TestProcessEventJobE2E:
     async def test_job_unknown_kind_dead_letters(self, db_engine) -> None:
         from app.services.worker_runner import process_event_job
 
-        factory = async_sessionmaker(db_engine, class_=AsyncSession, expire_on_commit=False)
+        factory = async_sessionmaker(
+            db_engine, class_=AsyncSession, expire_on_commit=False
+        )
         with pytest.raises(NotImplementedError, match="No pipeline provisioned"):
             await process_event_job(factory, kind="trace", payload={})
 
     async def test_job_missing_project_id_raises(self, db_engine) -> None:
         from app.services.worker_runner import process_event_job
 
-        factory = async_sessionmaker(db_engine, class_=AsyncSession, expire_on_commit=False)
+        factory = async_sessionmaker(
+            db_engine, class_=AsyncSession, expire_on_commit=False
+        )
         with pytest.raises(ValueError, match="missing required project_id"):
             await process_event_job(factory, kind="event", payload={"events": [{}]})
 
     async def test_job_secret_in_payload_raises(self, db_engine) -> None:
         from app.services.worker_runner import process_event_job
 
-        factory = async_sessionmaker(db_engine, class_=AsyncSession, expire_on_commit=False)
+        factory = async_sessionmaker(
+            db_engine, class_=AsyncSession, expire_on_commit=False
+        )
         with pytest.raises(ValueError, match="not allowed"):
             await process_event_job(
                 factory,
                 kind="event",
                 payload={
                     "project_id": str(uuid.uuid4()),
-                    "events": [{
-                        "source_type": "WEBHOOK",
-                        "source_name": "s",
-                        "timestamp": "2026-01-01T12:00:00Z",
-                        "event_type": "SYSTEM_EVENT",
-                        "payload": {"token": "secret123"},
-                    }],
+                    "events": [
+                        {
+                            "source_type": "WEBHOOK",
+                            "source_name": "s",
+                            "timestamp": "2026-01-01T12:00:00Z",
+                            "event_type": "SYSTEM_EVENT",
+                            "payload": {"token": "secret123"},
+                        }
+                    ],
                 },
             )
 
-    async def test_batch_savepoint_isolates_failures(self, db_session: AsyncSession) -> None:
+    async def test_batch_savepoint_isolates_failures(
+        self, db_session: AsyncSession
+    ) -> None:
         """A mid-batch DB failure must not poison the rest (§44, §20).
 
         Regression for a live finding: a foreign-key / flush error used to
@@ -126,7 +143,9 @@ class TestProcessEventJobE2E:
 
         project_id = uuid.uuid4()
         pipeline = IngestionPipeline(
-            source=MockObservabilitySource(), db=db_session, project_id=project_id,
+            source=MockObservabilitySource(),
+            db=db_session,
+            project_id=project_id,
         )
 
         calls = {"n": 0}
@@ -156,7 +175,9 @@ class TestProcessEventJobE2E:
         assert isinstance(result.failures[0], str)
 
         # Both good events persisted; the failed one did NOT — and is dead-lettered.
-        persisted = (await db_session.execute(select(ObservabilityEvent))).scalars().all()
+        persisted = (
+            (await db_session.execute(select(ObservabilityEvent))).scalars().all()
+        )
         assert len(persisted) == 2
         dl = (await db_session.execute(select(IngestionFailure))).scalars().all()
         assert len(dl) == 1
@@ -171,20 +192,26 @@ class TestSourceScopedWebhook:
 
     def test_webhook_for_existing_source(self, client: TestClient) -> None:
         project = _create_project(client)
-        resp = client.post("/api/v1/ingestion/sources", json={
-            "project_id": project["id"],
-            "name": f"src-{uuid.uuid4().hex[:6]}",
-            "source_type": "OTEL",
-            "configuration": {},
-        })
+        resp = client.post(
+            "/api/v1/ingestion/sources",
+            json={
+                "project_id": project["id"],
+                "name": f"src-{uuid.uuid4().hex[:6]}",
+                "source_type": "OTEL",
+                "configuration": {},
+            },
+        )
         assert resp.status_code == 201
         source_id = resp.json()["id"]
 
-        resp = client.post(f"/api/v1/ingestion/webhooks/{source_id}", json={
-            "event_type": "LOG",
-            "timestamp": "2026-01-01T12:00:00Z",
-            "payload": {"message": "src-scoped webhook"},
-        })
+        resp = client.post(
+            f"/api/v1/ingestion/webhooks/{source_id}",
+            json={
+                "event_type": "LOG",
+                "timestamp": "2026-01-01T12:00:00Z",
+                "payload": {"message": "src-scoped webhook"},
+            },
+        )
         assert resp.status_code == 202
         body = resp.json()
         assert body["received"] is True
@@ -192,19 +219,25 @@ class TestSourceScopedWebhook:
 
     def test_webhook_for_missing_source_404(self, client: TestClient) -> None:
         fake_source_id = str(uuid.uuid4())
-        resp = client.post(f"/api/v1/ingestion/webhooks/{fake_source_id}", json={
-            "event_type": "LOG",
-            "timestamp": "2026-01-01T12:00:00Z",
-            "payload": {},
-        })
+        resp = client.post(
+            f"/api/v1/ingestion/webhooks/{fake_source_id}",
+            json={
+                "event_type": "LOG",
+                "timestamp": "2026-01-01T12:00:00Z",
+                "payload": {},
+            },
+        )
         assert resp.status_code == 404
 
     def test_webhook_requires_project_or_source(self, client: TestClient) -> None:
-        resp = client.post("/api/v1/ingestion/webhook", json={
-            "event_type": "LOG",
-            "timestamp": "2026-01-01T12:00:00Z",
-            "payload": {},
-        })
+        resp = client.post(
+            "/api/v1/ingestion/webhook",
+            json={
+                "event_type": "LOG",
+                "timestamp": "2026-01-01T12:00:00Z",
+                "payload": {},
+            },
+        )
         assert resp.status_code == 422
 
 
@@ -216,14 +249,17 @@ class TestGetEventById:
 
     def test_get_existing_event(self, client: TestClient) -> None:
         project = _create_project(client)
-        resp = client.post("/api/v1/observability/events", json={
-            "project_id": project["id"],
-            "timestamp": "2026-01-01T12:00:00Z",
-            "source": "unit-test",
-            "event_type": "SYSTEM_EVENT",
-            "severity": "INFO",
-            "payload": {"test": True},
-        })
+        resp = client.post(
+            "/api/v1/observability/events",
+            json={
+                "project_id": project["id"],
+                "timestamp": "2026-01-01T12:00:00Z",
+                "source": "unit-test",
+                "event_type": "SYSTEM_EVENT",
+                "severity": "INFO",
+                "payload": {"test": True},
+            },
+        )
         assert resp.status_code == 201
         event_id = resp.json()["id"]
 
@@ -245,57 +281,72 @@ class TestDirectWriteSecretRejection:
 
     def test_event_secret_rejected(self, client: TestClient) -> None:
         project = _create_project(client)
-        resp = client.post("/api/v1/observability/events", json={
-            "project_id": project["id"],
-            "timestamp": "2026-01-01T12:00:00Z",
-            "source": "test",
-            "event_type": "SYSTEM_EVENT",
-            "payload": {"api_key": "sk-live-abc123"},
-        })
+        resp = client.post(
+            "/api/v1/observability/events",
+            json={
+                "project_id": project["id"],
+                "timestamp": "2026-01-01T12:00:00Z",
+                "source": "test",
+                "event_type": "SYSTEM_EVENT",
+                "payload": {"api_key": "sk-live-abc123"},
+            },
+        )
         assert resp.status_code == 422
         assert "not allowed" in resp.json()["detail"]
 
     def test_log_secret_rejected(self, client: TestClient) -> None:
         project = _create_project(client)
-        resp = client.post("/api/v1/observability/logs", json={
-            "project_id": project["id"],
-            "timestamp": "2026-01-01T12:00:00Z",
-            "level": "INFO",
-            "message": "ok",
-            "metadata": {"password": "hunter2"},
-        })
+        resp = client.post(
+            "/api/v1/observability/logs",
+            json={
+                "project_id": project["id"],
+                "timestamp": "2026-01-01T12:00:00Z",
+                "level": "INFO",
+                "message": "ok",
+                "metadata": {"password": "hunter2"},
+            },
+        )
         assert resp.status_code == 422
 
     def test_metric_secret_rejected(self, client: TestClient) -> None:
         project = _create_project(client)
-        resp = client.post("/api/v1/observability/metrics", json={
-            "project_id": project["id"],
-            "timestamp": "2026-01-01T12:00:00Z",
-            "metric_name": "cpu_usage",
-            "metric_type": "GAUGE",
-            "value": 42.0,
-            "metadata": {"auth_token": "bearer xyz"},
-        })
+        resp = client.post(
+            "/api/v1/observability/metrics",
+            json={
+                "project_id": project["id"],
+                "timestamp": "2026-01-01T12:00:00Z",
+                "metric_name": "cpu_usage",
+                "metric_type": "GAUGE",
+                "value": 42.0,
+                "metadata": {"auth_token": "bearer xyz"},
+            },
+        )
         assert resp.status_code == 422
 
     def test_trace_secret_rejected(self, client: TestClient) -> None:
         project = _create_project(client)
-        resp = client.post("/api/v1/observability/traces", json={
-            "project_id": project["id"],
-            "trace_id": uuid.uuid4().hex,
-            "metadata": {"secret": "do-not-ingest"},
-        })
+        resp = client.post(
+            "/api/v1/observability/traces",
+            json={
+                "project_id": project["id"],
+                "trace_id": uuid.uuid4().hex,
+                "metadata": {"secret": "do-not-ingest"},
+            },
+        )
         assert resp.status_code == 422
 
     def test_span_secret_rejected(self, client: TestClient) -> None:
         project = _create_project(client)
-        resp = client.post("/api/v1/observability/traces/spans", json={
-            "trace_id": uuid.uuid4().hex,
-            "span_id": uuid.uuid4().hex,
-            "project_id": project["id"],
-            "start_time": "2026-01-01T12:00:00Z",
-            "metadata": {"private_key": "-----BEGIN RSA PRIVATE KEY-----"},
-        })
+        resp = client.post(
+            "/api/v1/observability/traces/spans",
+            json={
+                "trace_id": uuid.uuid4().hex,
+                "span_id": uuid.uuid4().hex,
+                "project_id": project["id"],
+                "start_time": "2026-01-01T12:00:00Z",
+                "metadata": {"private_key": "-----BEGIN RSA PRIVATE KEY-----"},
+            },
+        )
         assert resp.status_code == 422
 
 
@@ -307,12 +358,15 @@ class TestPayloadLimits:
 
     def test_log_message_oversized_422(self, client: TestClient) -> None:
         project = _create_project(client)
-        resp = client.post("/api/v1/observability/logs", json={
-            "project_id": project["id"],
-            "timestamp": "2026-01-01T12:00:00Z",
-            "level": "INFO",
-            "message": "x" * 8193,  # MAX_LOG_MESSAGE_LENGTH = 8192
-        })
+        resp = client.post(
+            "/api/v1/observability/logs",
+            json={
+                "project_id": project["id"],
+                "timestamp": "2026-01-01T12:00:00Z",
+                "level": "INFO",
+                "message": "x" * 8193,  # MAX_LOG_MESSAGE_LENGTH = 8192
+            },
+        )
         assert resp.status_code == 422
         assert "exceeds limit" in resp.json()["detail"]
 
@@ -320,30 +374,39 @@ class TestPayloadLimits:
         project = _create_project(client)
         # Plain text with spaces — deliberately NOT a base64/hex/JWT pattern so
         # the redactor leaves the value intact and the size check has to fire.
-        bulky = ("lorem ipsum dolor sit amet " * 500)  # ~12.5k chars
+        bulky = "lorem ipsum dolor sit amet " * 500  # ~12.5k chars
         assert len(bulky) > 10000  # MAX_METADATA_LENGTH = 10000
-        resp = client.post("/api/v1/observability/logs", json={
-            "project_id": project["id"],
-            "timestamp": "2026-01-01T12:00:00Z",
-            "level": "INFO",
-            "message": "ok",
-            "metadata": {"bulk": bulky},
-        })
+        resp = client.post(
+            "/api/v1/observability/logs",
+            json={
+                "project_id": project["id"],
+                "timestamp": "2026-01-01T12:00:00Z",
+                "level": "INFO",
+                "message": "ok",
+                "metadata": {"bulk": bulky},
+            },
+        )
         assert resp.status_code == 422
 
     def test_metric_label_cardinality_guard(self, client: TestClient) -> None:
         project = _create_project(client)
         labels = {f"key{i}": f"val{i}" for i in range(33)}  # MAX_METRIC_LABELS = 32
-        resp = client.post("/api/v1/observability/metrics", json={
-            "project_id": project["id"],
-            "timestamp": "2026-01-01T12:00:00Z",
-            "metric_name": "requests_total",
-            "metric_type": "COUNTER",
-            "value": 1,
-            "labels": labels,
-        })
+        resp = client.post(
+            "/api/v1/observability/metrics",
+            json={
+                "project_id": project["id"],
+                "timestamp": "2026-01-01T12:00:00Z",
+                "metric_name": "requests_total",
+                "metric_type": "COUNTER",
+                "value": 1,
+                "labels": labels,
+            },
+        )
         assert resp.status_code == 422
-        assert "label" in resp.json()["detail"].lower() or "cardinality" in resp.json()["detail"].lower()
+        assert (
+            "label" in resp.json()["detail"].lower()
+            or "cardinality" in resp.json()["detail"].lower()
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -357,11 +420,16 @@ class TestCorruptQueueJob:
 
         queue = IngestionQueue()
         # Fake the Redis client to return a corrupt payload without a broker.
-        fake_responses = iter([
-            ("argus:ingest:events", "{not valid json"),
-            ("argus:ingest:events", '{"kind": "event", "payload": {"ok": 1}, "_retries": 0}'),
-            None,
-        ])
+        fake_responses = iter(
+            [
+                ("argus:ingest:events", "{not valid json"),
+                (
+                    "argus:ingest:events",
+                    '{"kind": "event", "payload": {"ok": 1}, "_retries": 0}',
+                ),
+                None,
+            ]
+        )
 
         class FakeRedis:
             async def blpop(self, queue, timeout=0):
@@ -370,9 +438,19 @@ class TestCorruptQueueJob:
                 except StopIteration:
                     return None
 
+            async def lpop(self, queue):
+                try:
+                    return next(fake_responses)[1]
+                except StopIteration:
+                    return None
+
         with patch.object(queue, "_client", return_value=FakeRedis()):
             # Corrupt entry is consumed & dropped; the next call returns the good job.
-            assert await queue.pop() == {"kind": "event", "payload": {"ok": 1}, "_retries": 0}
+            assert await queue.pop() == {
+                "kind": "event",
+                "payload": {"ok": 1},
+                "_retries": 0,
+            }
             assert await queue.pop() is None  # queue fully drained
 
     async def test_worker_survives_corrupt_job(self, db_engine) -> None:
@@ -384,7 +462,9 @@ class TestCorruptQueueJob:
         async def process(kind, payload):
             processed.append(payload)
 
-        factory = async_sessionmaker(db_engine, class_=AsyncSession, expire_on_commit=False)
+        factory = async_sessionmaker(
+            db_engine, class_=AsyncSession, expire_on_commit=False
+        )
 
         good_job = {"kind": "event", "payload": {"source_id": "good"}, "_retries": 0}
         # Redis hands us JSON strings, not dicts.
@@ -397,6 +477,11 @@ class TestCorruptQueueJob:
                 if not items:
                     return None
                 return (queue, items.pop(0))
+
+            async def lpop(self, queue):
+                if not items:
+                    return None
+                return items.pop(0)
 
         with patch.object(queue, "_client", return_value=FakeRedis()):
             worker = IngestionWorker(
@@ -423,12 +508,15 @@ class TestWebhookEnumEdgeCase:
 
     def test_webhook_returns_event_type_string(self, client: TestClient) -> None:
         project = _create_project(client)
-        resp = client.post("/api/v1/ingestion/webhook", json={
-            "event_type": "LOG",
-            "timestamp": "2026-01-01T12:00:00Z",
-            "payload": {"message": "enum test"},
-            "project_id": project["id"],
-        })
+        resp = client.post(
+            "/api/v1/ingestion/webhook",
+            json={
+                "event_type": "LOG",
+                "timestamp": "2026-01-01T12:00:00Z",
+                "payload": {"message": "enum test"},
+                "project_id": project["id"],
+            },
+        )
         assert resp.status_code == 202
         body = resp.json()
         assert body["event_type"] == "LOG"

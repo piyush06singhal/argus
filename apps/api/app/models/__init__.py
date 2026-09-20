@@ -1,6 +1,12 @@
 """ARGUS Models."""
+
 from app.models.base import BaseModel, TimestampMixin
-from app.models.project import SoftwareProject, Environment, ProjectStatus, EnvironmentType
+from app.models.project import (
+    SoftwareProject,
+    Environment,
+    ProjectStatus,
+    EnvironmentType,
+)
 from app.models.system import (
     SystemComponent,
     ComponentDependency,
@@ -22,9 +28,26 @@ from app.models.observability import (
 from app.models.incident import (
     Incident,
     IncidentEvidence,
+    IncidentTimelineEvent,
     IncidentSeverity,
     IncidentStatus,
     EvidenceType,
+    TimelineEventType,
+)
+from app.models.anomaly import (
+    Anomaly,
+    AnomalyObservation,
+    AnomalyRule,
+    AnomalyBaseline,
+    AnomalyFingerprint,
+    AnomalySuppression,
+    MaintenanceWindow,
+    AnomalyType,
+    AnomalySeverity,
+    AnomalyStatus,
+    AnomalySource,
+    BaselineStrategy,
+    RuleCondition,
 )
 from app.models.deployment import (
     DeploymentEvent,
@@ -39,6 +62,39 @@ from app.models.ingestion import (
     HealthCheckEvent,
     HealthStatus,
     IngestionFailure,
+)
+from app.models.graph import (
+    GraphNode,
+    GraphEdge,
+    GraphSnapshot,
+    GraphNodeAlias,
+    GraphDiscoveryRecord,
+    GraphReconciliationRun,
+    GraphDataQualityRecord,
+    ServiceEndpoint,
+    ComponentOwner,
+    GraphNodeType,
+    GraphEdgeType,
+    GraphEdgeSource,
+    GraphEdgeStatus,
+    GraphNodeStatus,
+    GraphCriticality,
+    DiscoveredComponentStatus,
+    DataQualitySeverity,
+    ReconciliationStatus,
+)
+from app.models.causal import (
+    AnalysisStatus,
+    CandidateStatus,
+    CandidateType,
+    CausalAnalysis,
+    CausalEvidence,
+    CausalEvidenceCategory,
+    CausalRelationship,
+    CausalRelationshipType,
+    ConfidenceLevel,
+    EvidencePolarity,
+    RootCauseCandidate,
 )
 
 __all__ = [
@@ -69,9 +125,37 @@ __all__ = [
     # Incidents
     "Incident",
     "IncidentEvidence",
+    "IncidentTimelineEvent",
     "IncidentSeverity",
     "IncidentStatus",
     "EvidenceType",
+    "TimelineEventType",
+    # Causal analysis (Phase 4)
+    "AnalysisStatus",
+    "CandidateStatus",
+    "CandidateType",
+    "CausalAnalysis",
+    "CausalEvidence",
+    "CausalEvidenceCategory",
+    "CausalRelationship",
+    "CausalRelationshipType",
+    "ConfidenceLevel",
+    "EvidencePolarity",
+    "RootCauseCandidate",
+    # Anomalies & incident intelligence (Phase 3)
+    "Anomaly",
+    "AnomalyObservation",
+    "AnomalyRule",
+    "AnomalyBaseline",
+    "AnomalyFingerprint",
+    "AnomalySuppression",
+    "MaintenanceWindow",
+    "AnomalyType",
+    "AnomalySeverity",
+    "AnomalyStatus",
+    "AnomalySource",
+    "BaselineStrategy",
+    "RuleCondition",
     # Deployments
     "DeploymentEvent",
     "CodeRepository",
@@ -84,4 +168,23 @@ __all__ = [
     "HealthCheckEvent",
     "HealthStatus",
     "IngestionFailure",
+    # Software knowledge graph
+    "GraphNode",
+    "GraphEdge",
+    "GraphSnapshot",
+    "GraphNodeAlias",
+    "GraphDiscoveryRecord",
+    "GraphReconciliationRun",
+    "GraphDataQualityRecord",
+    "ServiceEndpoint",
+    "ComponentOwner",
+    "GraphNodeType",
+    "GraphEdgeType",
+    "GraphEdgeSource",
+    "GraphEdgeStatus",
+    "GraphNodeStatus",
+    "GraphCriticality",
+    "DiscoveredComponentStatus",
+    "DataQualitySeverity",
+    "ReconciliationStatus",
 ]

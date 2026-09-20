@@ -1,4 +1,5 @@
 """ARGUS Project Models."""
+
 from __future__ import annotations
 
 import enum
@@ -6,7 +7,7 @@ import uuid
 from typing import TYPE_CHECKING, List, Optional
 
 from sqlalchemy import String, Text, Enum, ForeignKey
-from sqlalchemy.dialects.postgresql import UUID
+from app.models.base import Guid as UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import BaseModel, JSONType
@@ -20,6 +21,7 @@ if TYPE_CHECKING:
 
 class ProjectStatus(str, enum.Enum):
     """Project lifecycle status."""
+
     ACTIVE = "ACTIVE"
     PAUSED = "PAUSED"
     ARCHIVED = "ARCHIVED"
@@ -27,6 +29,7 @@ class ProjectStatus(str, enum.Enum):
 
 class EnvironmentType(str, enum.Enum):
     """Environment types."""
+
     DEVELOPMENT = "DEVELOPMENT"
     TEST = "TEST"
     STAGING = "STAGING"
@@ -40,15 +43,21 @@ class SoftwareProject(BaseModel):
     __tablename__ = "projects"
 
     name: Mapped[str] = mapped_column(String(255), nullable=False)
-    slug: Mapped[str] = mapped_column(String(255), unique=True, nullable=False, index=True)
+    slug: Mapped[str] = mapped_column(
+        String(255), unique=True, nullable=False, index=True
+    )
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     status: Mapped[ProjectStatus] = mapped_column(
         Enum(ProjectStatus), default=ProjectStatus.ACTIVE, nullable=False
     )
     repository_url: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
-    repository_provider: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    repository_provider: Mapped[Optional[str]] = mapped_column(
+        String(50), nullable=True
+    )
     default_branch: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
-    metadata_: Mapped[Optional[dict]] = mapped_column("metadata", JSONType, nullable=True)
+    metadata_: Mapped[Optional[dict]] = mapped_column(
+        "metadata", JSONType, nullable=True
+    )
 
     # Relationships
     environments: Mapped[List["Environment"]] = relationship(
@@ -85,7 +94,9 @@ class Environment(BaseModel):
     )
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     is_active: Mapped[bool] = mapped_column(default=True, nullable=False)
-    metadata_: Mapped[Optional[dict]] = mapped_column("metadata", JSONType, nullable=True)
+    metadata_: Mapped[Optional[dict]] = mapped_column(
+        "metadata", JSONType, nullable=True
+    )
 
     # Relationships
     project: Mapped["SoftwareProject"] = relationship(

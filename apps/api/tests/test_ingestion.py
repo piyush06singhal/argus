@@ -1,4 +1,5 @@
 """Tests for the ingestion pipeline and event normalizer."""
+
 from __future__ import annotations
 
 import uuid

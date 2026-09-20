@@ -1,4 +1,5 @@
 """ARGUS Alembic Configuration."""
+
 import asyncio
 from logging.config import fileConfig
 

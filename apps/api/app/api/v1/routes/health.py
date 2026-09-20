@@ -1,4 +1,5 @@
 """ARGUS Health Routes."""
+
 from __future__ import annotations
 
 import asyncio
@@ -64,17 +65,21 @@ async def health_dependencies(db: AsyncSession = Depends(get_db)) -> dict:
         start_time = datetime.now(timezone.utc)
         await db.execute(select(1))
         latency = (datetime.now(timezone.utc) - start_time).total_seconds() * 1000
-        dependencies.append(DependencyHealth(
-            name="postgresql",
-            status="healthy",
-            latency_ms=latency,
-        ))
+        dependencies.append(
+            DependencyHealth(
+                name="postgresql",
+                status="healthy",
+                latency_ms=latency,
+            )
+        )
     except Exception as e:
-        dependencies.append(DependencyHealth(
-            name="postgresql",
-            status="unhealthy",
-            error=str(e),
-        ))
+        dependencies.append(
+            DependencyHealth(
+                name="postgresql",
+                status="unhealthy",
+                error=str(e),
+            )
+        )
 
     # Check Redis via TCP connect + PING (no full client required in health check)
     try:
@@ -90,13 +95,25 @@ async def health_dependencies(db: AsyncSession = Depends(get_db)) -> dict:
         await writer.wait_closed()
         latency = (datetime.now(timezone.utc) - start_time).total_seconds() * 1000
         if data and data.startswith(b"+PONG"):
-            dependencies.append(DependencyHealth(name="redis", status="healthy", latency_ms=latency))
+            dependencies.append(
+                DependencyHealth(name="redis", status="healthy", latency_ms=latency)
+            )
         else:
-            dependencies.append(DependencyHealth(name="redis", status="unhealthy", error="unexpected PING response"))
+            dependencies.append(
+                DependencyHealth(
+                    name="redis", status="unhealthy", error="unexpected PING response"
+                )
+            )
     except asyncio.TimeoutError:
-        dependencies.append(DependencyHealth(name="redis", status="unhealthy", error="Redis PING timed out"))
+        dependencies.append(
+            DependencyHealth(
+                name="redis", status="unhealthy", error="Redis PING timed out"
+            )
+        )
     except (ConnectionRefusedError, OSError) as e:
-        dependencies.append(DependencyHealth(name="redis", status="unhealthy", error=str(e)))
+        dependencies.append(
+            DependencyHealth(name="redis", status="unhealthy", error=str(e))
+        )
 
     overall_status = "healthy"
     for dep in dependencies:

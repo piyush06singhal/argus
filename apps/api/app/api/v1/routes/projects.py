@@ -1,4 +1,5 @@
 """ARGUS Project Routes."""
+
 from __future__ import annotations
 
 import uuid
@@ -31,7 +32,9 @@ async def create_project(
         select(SoftwareProject).where(SoftwareProject.slug == project_data.slug)
     )
     if existing.scalar_one_or_none():
-        raise HTTPException(status_code=409, detail="Project with this slug already exists")
+        raise HTTPException(
+            status_code=409, detail="Project with this slug already exists"
+        )
 
     project = SoftwareProject(**project_data.model_dump())
     db.add(project)

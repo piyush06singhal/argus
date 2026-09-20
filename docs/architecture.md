@@ -102,7 +102,46 @@ ingestion (Phase 1)
 otlp (Phase 1, protojson camelCase + snake_case §17)
   POST      /otlp/v1/traces | logs | metrics
 
-prometheus (Phase 1, §40)
+graph (Phase 2 — Software Knowledge Graph)
+  GET       /projects/{id}/graph                        (nodes + edges payload)
+  GET       /projects/{id}/graph/nodes | edges          (paginated, filterable)
+  GET       /projects/{id}/graph/search?q=              (nodes/endpoints/repos/aliases)
+  GET       /projects/{id}/graph/paths                  (bounded BFS, both endpoints
+                                                         must share the project)
+  GET/POST  /projects/{id}/graph/snapshots              (list / create)
+  GET       /graph/snapshots/{id}
+  GET       /graph/snapshots/{a}/diff/{b}               (set-level diff)
+  GET       /projects/{id}/graph/environments/compare   (structural env diff)
+  POST      /projects/{id}/graph/reconcile              (mirror canonical state)
+  GET       /projects/{id}/graph/health                 (quality aggregation + ok)
+  GET       /projects/{id}/graph/discovery              (PENDING suggestions)
+  POST      /projects/{id}/graph/discovery/{rid}/register | ignore
+  GET       /projects/{id}/graph/data-quality
+  GET       /projects/{id}/graph/endpoints
+  GET       /components/{id}/graph/dependencies | dependents | neighbors
+  GET       /components/{id}/graph/impact               (Dependency Impact)
+  GET/POST  /components/{id}/endpoints
+  GET/PUT   /components/{id}/owner
+  GET/POST  /components/{id}/aliases
+
+anomalies & incidents (Phase 3 — Anomaly & Incident Intelligence)
+  GET       /anomalies                          (filter by project/env/component/type/
+                                                 severity/status/source/metric/incident/fingerprint)
+  GET       /anomalies/{id}                     (detail + observations + explanation §52)
+  POST      /anomalies/{id}/acknowledge | resolve
+  GET/POST  /anomaly-rules                      (validated rule CRUD)
+  GET/PATCH /anomaly-rules/{id}
+  GET/POST  /anomaly-suppressions               (auditable suppression rules)
+  GET/POST  /maintenance-windows                 (§43)
+  POST      /projects/{id}/anomalies/detect      (one bounded detect + correlate pass)
+  GET       /projects/{id}/reliability-metrics   (§44, MTTA/MTTR with definitions)
+  GET       /projects/{id}/incident-dashboard    (§36 aggregates + series)
+  GET       /incidents/{id}/timeline | anomalies | components | graph
+  GET       /incidents/{id}/deployments | configuration-changes | summary
+  POST      /incidents/{id}/acknowledge | investigate | mitigate | resolve | reopen
+  POST      /incidents/{id}/timeline             (NOTE only — facts are derived)
+
+prometheus (Phase 1, §40; Phase 3 series added in §44)
   GET       /metrics                       (argus_* exporter)
 
 health
@@ -138,6 +177,8 @@ Event-heavy list endpoints share one contract:
 - 404s are explicit (`"Incident not found"`)
 
 ## 5. Data layer
+
+The Software Knowledge Graph (Phase 2) is a **materialized overlay** over the canonical tables: `graph_nodes`/`graph_edges` reference canonical entities via `entity_kind` + `entity_id` (unique per project) — no duplicate component/dependency representations, no separate graph database. See [docs/software-knowledge-graph.md](software-knowledge-graph.md).
 
 See [docs/data-model.md](docs/data-model.md) for the full entity-relationship model. Highlights:
 
@@ -183,7 +224,37 @@ The `app/services/engines.py` module defines abstract engine interfaces that lat
 | Verification      | Tests whether proposed changes fix the issue |
 | Remediation       | Executes approved changes |
 
-In Phase 0 these are interfaces (`NotImplementedError`) so the architecture cannot quietly collapse into a single monolith later. A `MockAIProvider` stands in for tests.
+These remain separate services, not one AI monolith. `AnomalyDetector` and
+`IncidentCorrelator` are now implemented by real, deterministic engines —
+`AnomalyDetectionService` and `IncidentCorrelationEngine` — which is why the
+correlation layer can be unit-tested without a model in the loop. The remaining
+interfaces (causal engine, reproduction, debugger, fix generator, verification,
+remediation) stay abstract: they raise `NotImplementedError`, so Phase 4+ cannot
+start by accident.
+
+### 7.1 Phase 3 detection & correlation pipeline
+
+```
+Ingested telemetry (Phase 1)
+      │  POST /observability/*  → enqueue anomaly_detect
+      │  scheduled sweep (ANOMALY_SWEEP_INTERVAL_SECONDS)
+      ▼
+Baseline engine  ──►  Deterministic detectors  ──►  Anomalies
+(STATIC | ROLLING)     (pure functions, stored        (fingerprinted,
+                        reasons, no AI scores)         deduplicated,
+                                                       suppression-aware)
+      ▼
+Correlation engine  ──►  Incident manager  ──►  Timeline / Evidence /
+(shared evidence,        (lifecycle state      Blast radius / Context /
+ graph adjacency,         machine, dedup        Deterministic summary
+ window + span cap)       by fingerprint)
+      ▼
+Phase 2 knowledge graph context  ──►  API  ──►  Incident Intelligence UI
+```
+
+Ingestion hooks and the periodic sweep both call the same idempotent service, so
+they cannot double-count: fingerprints and the `anomaly_fingerprints` registry
+make a second evaluation an update rather than a new record.
 
 ## 8. Security boundaries
 

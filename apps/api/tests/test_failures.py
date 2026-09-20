@@ -1,4 +1,5 @@
 """Failure and edge-case tests for deterministic fault handling."""
+
 from __future__ import annotations
 
 import uuid

@@ -3,6 +3,7 @@
 Aggregates live health of registered observability sources plus dead-letter
 and throughput counters for the ingestion health surface.
 """
+
 from __future__ import annotations
 
 import uuid
@@ -26,7 +27,9 @@ class IngestionStatsService:
     def __init__(self, db: AsyncSession):
         self._db = db
 
-    async def list_sources(self, *, project_id: Optional[uuid.UUID] = None) -> list[ObservabilitySource]:
+    async def list_sources(
+        self, *, project_id: Optional[uuid.UUID] = None
+    ) -> list[ObservabilitySource]:
         stmt = select(ObservabilitySource).order_by(ObservabilitySource.name)
         if project_id:
             stmt = stmt.where(ObservabilitySource.project_id == project_id)
@@ -44,7 +47,11 @@ class IngestionStatsService:
 
         status_counts: dict[str, int] = {}
         for source in sources:
-            key = source.status.value if hasattr(source.status, "value") else str(source.status)
+            key = (
+                source.status.value
+                if hasattr(source.status, "value")
+                else str(source.status)
+            )
             status_counts[key] = status_counts.get(key, 0) + 1
 
         # Dead-letter and throughput counts, optionally project-scoped.
@@ -79,7 +86,11 @@ class IngestionStatsService:
         project_id: Optional[uuid.UUID] = None,
         limit: int = 50,
     ) -> list[IngestionFailure]:
-        stmt = select(IngestionFailure).order_by(IngestionFailure.failed_at.desc()).limit(limit)
+        stmt = (
+            select(IngestionFailure)
+            .order_by(IngestionFailure.failed_at.desc())
+            .limit(limit)
+        )
         if project_id:
             stmt = stmt.where(IngestionFailure.project_id == project_id)
         return list((await self._db.execute(stmt)).scalars().all())
@@ -109,8 +120,12 @@ class IngestionStatsService:
                 {
                     "id": str(source.id),
                     "name": source.name,
-                    "source_type": source.source_type.value if hasattr(source.source_type, "value") else str(source.source_type),
-                    "status": source.status.value if hasattr(source.status, "value") else str(source.status),
+                    "source_type": source.source_type.value
+                    if hasattr(source.source_type, "value")
+                    else str(source.source_type),
+                    "status": source.status.value
+                    if hasattr(source.status, "value")
+                    else str(source.status),
                     "events_7d": events,
                     "error_count": source.error_count,
                     "consecutive_errors": source.consecutive_errors,

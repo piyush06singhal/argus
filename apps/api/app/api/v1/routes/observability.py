@@ -1,4 +1,5 @@
 """ARGUS Observability Routes."""
+
 from __future__ import annotations
 
 import uuid
@@ -18,12 +19,39 @@ from app.models.observability import (
     SpanRecord,
     TraceRecord,
 )
+from app.services.queue import enqueue_anomaly_detect, enqueue_graph_extract
 from app.services.redaction import RedactionEngine
+from app.schemas.observability import (
+    LogRecordCreate,
+    LogRecordList,
+    LogRecordResponse,
+    MetricRecordCreate,
+    MetricRecordList,
+    MetricRecordResponse,
+    ObservabilityEventCreate,
+    ObservabilityEventList,
+    ObservabilityEventResponse,
+    SpanRecordCreate,
+    SpanRecordResponse,
+    TraceRecordCreate,
+    TraceRecordList,
+    TraceRecordResponse,
+    TraceWithSpans,
+)
 
 # Forbidden keys that are never accepted at the ingestion boundary (§46).
 _FORBIDDEN_PAYLOAD_KEYS = {
-    "password", "passwd", "pwd", "secret", "api_key", "apikey",
-    "access_token", "auth_token", "bearer", "private_key", "token",
+    "password",
+    "passwd",
+    "pwd",
+    "secret",
+    "api_key",
+    "apikey",
+    "access_token",
+    "auth_token",
+    "bearer",
+    "private_key",
+    "token",
 }
 
 _redaction = RedactionEngine()
@@ -43,7 +71,9 @@ def _reject_secrets(payload: Optional[dict]) -> None:
             )
 
 
-def _sanitize_dict(value: Optional[dict], *, ctx: str, max_keys: int = 0) -> Dict[str, Any]:
+def _sanitize_dict(
+    value: Optional[dict], *, ctx: str, max_keys: int = 0
+) -> Dict[str, Any]:
     """Reject forbidden keys, redact sensitive values, enforce size limits (§27, §46).
 
     Returns a *sanitized copy*; the caller's dict is never mutated.
@@ -74,23 +104,7 @@ def _truncate_or_reject_message(message: str) -> str:
             detail=f"Log message exceeds limit ({_settings.MAX_LOG_MESSAGE_LENGTH} chars)",
         )
     return message
-from app.schemas.observability import (
-    LogRecordCreate,
-    LogRecordList,
-    LogRecordResponse,
-    MetricRecordCreate,
-    MetricRecordList,
-    MetricRecordResponse,
-    ObservabilityEventCreate,
-    ObservabilityEventList,
-    ObservabilityEventResponse,
-    SpanRecordCreate,
-    SpanRecordResponse,
-    TraceRecordCreate,
-    TraceRecordList,
-    TraceRecordResponse,
-    TraceWithSpans,
-)
+
 
 router = APIRouter(prefix="/observability", tags=["Observability"])
 
@@ -133,7 +147,9 @@ async def list_events(
         count_query = count_query.where(ObservabilityEvent.project_id == project_id)
     if environment_id:
         query = query.where(ObservabilityEvent.environment_id == environment_id)
-        count_query = count_query.where(ObservabilityEvent.environment_id == environment_id)
+        count_query = count_query.where(
+            ObservabilityEvent.environment_id == environment_id
+        )
     if event_type:
         query = query.where(ObservabilityEvent.event_type == event_type)
         count_query = count_query.where(ObservabilityEvent.event_type == event_type)
@@ -191,6 +207,11 @@ async def create_log(
     db.add(log)
     await db.flush()
     await db.refresh(log)
+    # Post-ingest hook (Phase 3 §20): queue anomaly detection. Ids only; queue
+    # unavailability degrades to the scheduled sweep and never fails ingestion.
+    await enqueue_anomaly_detect(
+        project_id=log.project_id, environment_id=log.environment_id
+    )
     return log
 
 
@@ -262,6 +283,9 @@ async def create_metric(
     db.add(metric)
     await db.flush()
     await db.refresh(metric)
+    await enqueue_anomaly_detect(
+        project_id=metric.project_id, environment_id=metric.environment_id
+    )
     return metric
 
 
@@ -325,7 +349,9 @@ async def create_trace(
         select(TraceRecord).where(TraceRecord.trace_id == trace_data.trace_id)
     )
     if existing.scalar_one_or_none():
-        raise HTTPException(status_code=409, detail="Trace with this trace_id already exists")
+        raise HTTPException(
+            status_code=409, detail="Trace with this trace_id already exists"
+        )
 
     data = trace_data.model_dump()
     data["metadata_"] = _sanitize_dict(data.get("metadata_"), ctx="trace metadata")
@@ -333,6 +359,9 @@ async def create_trace(
     db.add(trace)
     await db.flush()
     await db.refresh(trace)
+    await enqueue_anomaly_detect(
+        project_id=trace.project_id, environment_id=trace.environment_id
+    )
     return trace
 
 
@@ -347,7 +376,9 @@ async def create_span(
         select(SpanRecord).where(SpanRecord.span_id == span_data.span_id)
     )
     if existing.scalar_one_or_none():
-        raise HTTPException(status_code=409, detail="Span with this span_id already exists")
+        raise HTTPException(
+            status_code=409, detail="Span with this span_id already exists"
+        )
 
     data = span_data.model_dump()
     data["metadata_"] = _sanitize_dict(data.get("metadata_"), ctx="span metadata")
@@ -355,6 +386,16 @@ async def create_span(
     db.add(span)
     await db.flush()
     await db.refresh(span)
+    # Post-ingest hook (Phase 2 §38): queue a graph-extract job — payload is
+    # ids only; never blocks or fails the ingestion on queue unavailability.
+    # SpanRecord carries no environment column, so scoping happens at extract.
+    await enqueue_graph_extract(project_id=span.project_id, environment_id=None)
+    # Deliberately no anomaly-detection hook here: no detector reads spans
+    # (detection consumes metrics, logs, traces and health checks, all of which
+    # carry ``environment_id`` and are hooked at their own ingest points), so a
+    # per-span enqueue could only ever duplicate work — and one trace would push
+    # hundreds of identical detection jobs. Spans still feed the Phase 2
+    # structural graph above, and the scheduled sweep covers every environment.
     return span
 
 

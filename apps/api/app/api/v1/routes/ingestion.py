@@ -8,13 +8,14 @@ Covers the Phase 1 ingestion surface:
   - Ingestion stats / dead-letter inspection (§45)
   - Mock source runner for development/demo
 """
+
 from __future__ import annotations
 
 import uuid
 from datetime import datetime
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from starlette.responses import JSONResponse
 from pydantic import Field
 from sqlalchemy import func, select
@@ -30,9 +31,9 @@ from app.models.ingestion import (
     IngestionFailure,
     ObservabilitySource,
     ObservabilitySourceCategory,
-    ObservabilitySourceStatus,
 )
 from app.models.observability import EventType
+from app.services.queue import enqueue_anomaly_detect
 from app.schemas.base import BaseSchema
 from app.schemas.ingestion import (
     ConfigurationChangeEventCreate,
@@ -61,8 +62,17 @@ QUEUE_NAME_HINT = "argus:ingest:events"
 
 # Keys that the API refuses to accept in source configuration / event payloads.
 _FORBIDDEN_PAYLOAD_KEYS = {
-    "password", "passwd", "pwd", "secret", "api_key", "apikey",
-    "access_token", "auth_token", "bearer", "private_key", "token",
+    "password",
+    "passwd",
+    "pwd",
+    "secret",
+    "api_key",
+    "apikey",
+    "access_token",
+    "auth_token",
+    "bearer",
+    "private_key",
+    "token",
 }
 
 
@@ -163,7 +173,7 @@ async def delete_source(
 async def enqueue_batch(
     envelope: _BatchEnvelope,
     db: AsyncSession = Depends(get_db),
-) -> dict:
+) -> Response:
     """Enqueue a batch for background processing (§37).
 
     Returns 202 when accepted into the queue. If the broker is unreachable the
@@ -176,7 +186,9 @@ async def enqueue_batch(
         kind="event",
         payload={
             "project_id": str(envelope.project_id),
-            "environment_id": str(envelope.environment_id) if envelope.environment_id else None,
+            "environment_id": str(envelope.environment_id)
+            if envelope.environment_id
+            else None,
             "source_id": envelope.source_id,
             "events": [e.model_dump(mode="json") for e in envelope.events],
         },
@@ -212,7 +224,10 @@ async def enqueue_batch(
                 **result.__dict__,
             },
         )
-    return {"queued": True, "queue": QUEUE_NAME_HINT, "job_kind": "event"}
+    return JSONResponse(
+        status_code=202,
+        content={"queued": True, "queue": QUEUE_NAME_HINT, "job_kind": "event"},
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -277,6 +292,11 @@ async def ingest_batch(
         environment_id=envelope.environment_id,
     )
     result = await pipeline.ingest_batch(raw_events, source_id=envelope.source_id)
+    # Phase 3 §20: queue detection for the accepted batch (ids only).
+    if result.accepted:
+        await enqueue_anomaly_detect(
+            project_id=envelope.project_id, environment_id=envelope.environment_id
+        )
     return _BatchResponse(
         accepted=result.accepted,
         duplicates=result.duplicates,
@@ -288,7 +308,9 @@ async def ingest_batch(
 # ---------------------------------------------------------------------------
 # Configuration change events (§14)
 # ---------------------------------------------------------------------------
-@router.post("/config-changes", response_model=ConfigurationChangeEventResponse, status_code=201)
+@router.post(
+    "/config-changes", response_model=ConfigurationChangeEventResponse, status_code=201
+)
 async def create_config_change(
     data: ConfigurationChangeEventCreate,
     db: AsyncSession = Depends(get_db),
@@ -319,10 +341,14 @@ async def list_config_changes(
         count_stmt = count_stmt.where(ConfigurationChangeEvent.project_id == project_id)
     if environment_id:
         stmt = stmt.where(ConfigurationChangeEvent.environment_id == environment_id)
-        count_stmt = count_stmt.where(ConfigurationChangeEvent.environment_id == environment_id)
+        count_stmt = count_stmt.where(
+            ConfigurationChangeEvent.environment_id == environment_id
+        )
     if component_id:
         stmt = stmt.where(ConfigurationChangeEvent.component_id == component_id)
-        count_stmt = count_stmt.where(ConfigurationChangeEvent.component_id == component_id)
+        count_stmt = count_stmt.where(
+            ConfigurationChangeEvent.component_id == component_id
+        )
     if start_time:
         stmt = stmt.where(ConfigurationChangeEvent.timestamp >= start_time)
         count_stmt = count_stmt.where(ConfigurationChangeEvent.timestamp >= start_time)
@@ -331,11 +357,17 @@ async def list_config_changes(
         count_stmt = count_stmt.where(ConfigurationChangeEvent.timestamp <= end_time)
 
     total = (await db.execute(count_stmt)).scalar() or 0
-    stmt = stmt.order_by(ConfigurationChangeEvent.timestamp.desc()).offset((page - 1) * page_size).limit(page_size)
+    stmt = (
+        stmt.order_by(ConfigurationChangeEvent.timestamp.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+    )
     items = (await db.execute(stmt)).scalars().all()
     return ConfigurationChangeEventList(
         items=[ConfigurationChangeEventResponse.model_validate(i) for i in items],
-        total=total, page=page, page_size=page_size,
+        total=total,
+        page=page,
+        page_size=page_size,
         total_pages=(total + page_size - 1) // page_size if total else 0,
     )
 
@@ -353,6 +385,10 @@ async def create_health_check(
     db.add(event)
     await db.flush()
     await db.refresh(event)
+    # Phase 3 §15/§20: health transitions are detection input.
+    await enqueue_anomaly_detect(
+        project_id=event.project_id, environment_id=event.environment_id
+    )
     return event
 
 
@@ -390,11 +426,17 @@ async def list_health_checks(
         count_stmt = count_stmt.where(HealthCheckEvent.timestamp <= end_time)
 
     total = (await db.execute(count_stmt)).scalar() or 0
-    stmt = stmt.order_by(HealthCheckEvent.timestamp.desc()).offset((page - 1) * page_size).limit(page_size)
+    stmt = (
+        stmt.order_by(HealthCheckEvent.timestamp.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+    )
     items = (await db.execute(stmt)).scalars().all()
     return HealthCheckEventList(
         items=[HealthCheckEventResponse.model_validate(i) for i in items],
-        total=total, page=page, page_size=page_size,
+        total=total,
+        page=page,
+        page_size=page_size,
         total_pages=(total + page_size - 1) // page_size if total else 0,
     )
 
@@ -483,13 +525,21 @@ async def _enqueue_webhook(
         try:
             parsed_source_id = uuid.UUID(str(source_id))
         except (ValueError, TypeError, AttributeError):
-            raise HTTPException(status_code=404, detail=f"Source '{source_id}' not found")
+            raise HTTPException(
+                status_code=404, detail=f"Source '{source_id}' not found"
+            )
         source = await db.get(ObservabilitySource, parsed_source_id)
         if source is None:
-            raise HTTPException(status_code=404, detail=f"Source '{source_id}' not found")
+            raise HTTPException(
+                status_code=404, detail=f"Source '{source_id}' not found"
+            )
         project_id = project_id or source.project_id
         source_name = source_name or source.name
-        source_type = source.source_type.value if hasattr(source.source_type, "value") else str(source.source_type)
+        source_type = (
+            source.source_type.value
+            if hasattr(source.source_type, "value")
+            else str(source.source_type)
+        )
 
     if project_id is None:
         raise HTTPException(
@@ -499,7 +549,11 @@ async def _enqueue_webhook(
 
     # use_enum_values=True means ``envelope.event_type`` is already the enum's
     # string value; ``str()`` is safe for both enum instances and plain strings.
-    event_type = str(envelope.event_type.value) if hasattr(envelope.event_type, "value") else str(envelope.event_type)
+    event_type = (
+        str(envelope.event_type.value)
+        if hasattr(envelope.event_type, "value")
+        else str(envelope.event_type)
+    )
 
     job = make_job(
         kind="event",
@@ -507,14 +561,16 @@ async def _enqueue_webhook(
             "project_id": str(project_id),
             "environment_id": None,
             "source_id": source_id,
-            "events": [{
-                "source_type": source_type,
-                "source_name": source_name or "webhook",
-                "timestamp": envelope.timestamp.isoformat(),
-                "event_type": event_type,
-                "payload": envelope.payload,
-                "metadata": envelope.metadata,
-            }],
+            "events": [
+                {
+                    "source_type": source_type,
+                    "source_name": source_name or "webhook",
+                    "timestamp": envelope.timestamp.isoformat(),
+                    "event_type": event_type,
+                    "payload": envelope.payload,
+                    "metadata": envelope.metadata,
+                }
+            ],
         },
     )
 
@@ -596,10 +652,10 @@ class _RetentionSummary(BaseSchema):
 @router.get("/retention/policy")
 async def get_retention_policy() -> dict:
     """Return the current retention policy (table → days)."""
-    from app.services.retention import RetentionService
 
     # Return static policy — no db needed
     from app.core.config import get_settings
+
     s = get_settings()
     return {
         "observability_events": s.RETENTION_EVENTS,
@@ -623,9 +679,14 @@ async def retention_preview(
     service = RetentionService(db)
     summary = await service.preview()
     return _RetentionSummary(
-        results=[_RetentionResult(
-            table=r.table, deleted=r.deleted, threshold_days=r.threshold_days,
-        ) for r in summary.results],
+        results=[
+            _RetentionResult(
+                table=r.table,
+                deleted=r.deleted,
+                threshold_days=r.threshold_days,
+            )
+            for r in summary.results
+        ],
         total_deleted=summary.total_deleted,
     )
 
@@ -640,9 +701,14 @@ async def retention_sweep(
     service = RetentionService(db)
     summary = await service.run_sweep()
     return _RetentionSummary(
-        results=[_RetentionResult(
-            table=r.table, deleted=r.deleted, threshold_days=r.threshold_days,
-        ) for r in summary.results],
+        results=[
+            _RetentionResult(
+                table=r.table,
+                deleted=r.deleted,
+                threshold_days=r.threshold_days,
+            )
+            for r in summary.results
+        ],
         total_deleted=summary.total_deleted,
     )
 
@@ -688,12 +754,15 @@ async def validate_trace(
     return _TraceValidationResult(
         trace_id=result.trace_id,
         total_spans=result.total_spans,
-        orphan_spans=[_OrphanSpan(
-            span_id=o.span_id,
-            trace_id=o.trace_id,
-            parent_span_id=o.parent_span_id,
-            operation=o.operation,
-        ) for o in result.orphan_spans],
+        orphan_spans=[
+            _OrphanSpan(
+                span_id=o.span_id,
+                trace_id=o.trace_id,
+                parent_span_id=o.parent_span_id,
+                operation=o.operation,
+            )
+            for o in result.orphan_spans
+        ],
         missing_trace_record=result.missing_trace_record,
         duration_anomalies=result.duration_anomalies,
         is_valid=result.is_valid,
@@ -732,9 +801,12 @@ async def find_orphan_spans(
 
     validator = TraceValidator(db)
     orphans = await validator.find_orphan_spans(project_id, limit=limit)
-    return [_OrphanSpan(
-        span_id=o.span_id,
-        trace_id=o.trace_id,
-        parent_span_id=o.parent_span_id,
-        operation=o.operation,
-    ) for o in orphans]
+    return [
+        _OrphanSpan(
+            span_id=o.span_id,
+            trace_id=o.trace_id,
+            parent_span_id=o.parent_span_id,
+            operation=o.operation,
+        )
+        for o in orphans
+    ]

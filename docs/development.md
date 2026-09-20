@@ -115,8 +115,20 @@ pytest
 | `test_phase1_features.py`   | Phase 1 APIs: source registry, health/config events, OTLP (camelCase + snake_case), retention, trace validation, redaction, dead-letter, stats |
 | `test_phase1_ingestion.py`  | async queue/worker, retries, backoff, dead-lettering, SAVEPOINT batch isolation |
 | `test_phase1_worker_e2e.py` | live worker end-to-end persistence                                |
+| `test_phase2_graph_models.py` | graph enums/models, registry, aliases, owners, snapshots        |
+| `test_phase2_graph_schemas.py` | graph Pydantic schemas, validation bounds                       |
+| `test_phase2_trace_discovery.py` | span-tree → CALLS/READS_FROM extraction, edge policy          |
+| `test_phase2_reconciler.py` | mirror, evidence precedence, stale policy, discovery hook         |
+| `test_phase2_queries.py`    | dependencies/dependents/neighbors/paths, bounded traversal, env compare |
+| `test_phase2_environments.py` | environment comparison semantics                                 |
+| `test_phase2_snapshots.py`  | snapshot versioning + set-level diffs                             |
+| `test_phase2_data_quality.py` | validator checks + health aggregation                            |
+| `test_phase2_api.py`        | graph REST surface: scoping, filters, search, impact, endpoints, 404/422 |
+| `test_phase2_worker.py`     | `graph_extract` job + ingestion hooks (native spans + OTLP events) |
 
-A live end-to-end smoke gate (`infrastructure/e2e-smoke-phase1.sh`) additionally exercises 46 checks against the running compose stack — sync ingestion, both async drain paths (webhook → Redis → worker and batch queue), OTLP protojson, Prometheus `/metrics`, secret rejection at every ingestion boundary, retention, and the web UI.
+A live end-to-end smoke gate (`infrastructure/e2e-smoke-phase1.sh`) additionally exercises 46 checks against the running compose stack — sync ingestion, both async drain paths (webhook → Redis → worker and batch queue), OTLP protojson, Prometheus `/metrics`, secret rejection at every ingestion boundary, retention, and the web UI. The Phase 2 gate (`infrastructure/e2e-smoke-phase2.sh`) verifies the live knowledge graph: reconcile, dependencies/dependents, paths, impact, environment comparison, snapshots, search, endpoints, health, provenance, and the async `graph_extract` hook.
+
+Frontend tests run with vitest (`cd apps/web && npm test`) and cover the deterministic graph layout + provenance presentation helpers. The graph benchmark (`infrastructure/graph-benchmark.py`, run from `apps/api`) reports retrieval/traversal/path/impact timings at 100/500 and 1000/5000 scale.
 
 Tests use a **file-backed SQLite** database (shared across the TestClient event loop) and truncate all tables before each test for isolation. See `tests/conftest.py`.
 

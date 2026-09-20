@@ -1,4 +1,5 @@
 """Tests for incidents and incident evidence."""
+
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -65,11 +66,21 @@ class TestIncidents:
         ts = datetime.now(timezone.utc).isoformat()
         client.post(
             "/api/v1/incidents",
-            json={"project_id": s["project"]["id"], "title": "A", "severity": "LOW", "detected_at": ts},
+            json={
+                "project_id": s["project"]["id"],
+                "title": "A",
+                "severity": "LOW",
+                "detected_at": ts,
+            },
         )
         client.post(
             "/api/v1/incidents",
-            json={"project_id": s["project"]["id"], "title": "B", "severity": "CRITICAL", "detected_at": ts},
+            json={
+                "project_id": s["project"]["id"],
+                "title": "B",
+                "severity": "CRITICAL",
+                "detected_at": ts,
+            },
         )
 
         response = client.get("/api/v1/incidents?severity=CRITICAL")

@@ -7,6 +7,7 @@ Phase 1 §20/§21/§30:
   - ComponentResolver / EnvironmentResolver: bind telemetry to the knowledge
     graph by service-name / source-name heuristics.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -16,7 +17,7 @@ from typing import Any, Optional
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.project import Environment, SoftwareProject
+from app.models.project import Environment
 from app.models.system import SystemComponent
 
 
@@ -59,7 +60,9 @@ class EventFingerprint:
         return hashlib.sha256(body).hexdigest()
 
     @staticmethod
-    def _stable_content(payload: dict[str, Any] | None, stable_keys: Optional[list[str]]) -> bytes:
+    def _stable_content(
+        payload: dict[str, Any] | None, stable_keys: Optional[list[str]]
+    ) -> bytes:
         """Serialize a stable subset of the payload for hashing.
 
         Only the listed stable_keys (or, when absent, all keys whose value
@@ -91,6 +94,7 @@ class CorrelationEngine:
 
     def __init__(self) -> None:
         import asyncio
+
         self._lock = asyncio.Lock()
         # anchor -> correlation_id
         self._anchors: dict[str, str] = {}

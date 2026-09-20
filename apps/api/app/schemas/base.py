@@ -1,4 +1,5 @@
 """ARGUS Base Schemas."""
+
 from __future__ import annotations
 
 import uuid
@@ -64,7 +65,9 @@ class PaginatedResponse(PaginationMeta, Generic[T]):
     items: List[T]
 
     @classmethod
-    def create(cls, items: List[T], total: int, page: int, page_size: int) -> "PaginatedResponse[T]":
+    def create(
+        cls, items: List[T], total: int, page: int, page_size: int
+    ) -> "PaginatedResponse[T]":
         total_pages = (total + page_size - 1) // page_size if page_size > 0 else 0
         return cls(
             items=items,

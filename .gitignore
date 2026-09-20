@@ -24,6 +24,7 @@ node_modules/
 .next/
 out/
 .nuxt/
+*.tsbuildinfo
 
 # IDE
 .vscode/
@@ -59,3 +60,7 @@ coverage.xml
 # Temporary
 tmp/
 temp/
+
+# Local agent/tooling metadata (never part of the project)
+.freebuff/
+.claude/

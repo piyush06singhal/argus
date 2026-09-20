@@ -6,15 +6,15 @@ broken parent-child chains, and duration anomalies.
 
 Phase 1 §20: orphan span handling.
 """
+
 from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime
-from typing import Dict, List, Optional, Set
+from typing import List, Optional, Set
 from uuid import UUID
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.observability import SpanRecord, TraceRecord
@@ -105,7 +105,6 @@ class TraceValidator:
 
         # Build lookup: span_id → SpanRecord
         span_ids: Set[str] = {s.span_id for s in spans}
-        span_map: Dict[str, SpanRecord] = {s.span_id: s for s in spans}
 
         # Detect orphan spans
         for span in spans:
@@ -122,7 +121,10 @@ class TraceValidator:
         # Duration anomaly: a span whose duration exceeds the trace duration
         if trace and trace.duration_ms is not None:
             for span in spans:
-                if span.duration_ms is not None and span.duration_ms > trace.duration_ms * 1.1:
+                if (
+                    span.duration_ms is not None
+                    and span.duration_ms > trace.duration_ms * 1.1
+                ):
                     result.duration_anomalies.append(
                         f"Span {span.span_id} duration {span.duration_ms:.1f}ms "
                         f"exceeds trace duration {trace.duration_ms:.1f}ms"

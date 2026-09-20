@@ -5,6 +5,7 @@ metrics and feeds them through the standard ARGUS ingestion pipeline.
 
 Phase 1 §17: OTLP ingestion adapter.
 """
+
 from __future__ import annotations
 
 import uuid
@@ -20,6 +21,7 @@ from app.core.sources import MockObservabilitySource
 from app.schemas.base import BaseSchema
 from app.services.ingestion import IngestionPipeline
 from app.services.otlp_adapter import OTLPAdapter
+from app.services.queue import enqueue_anomaly_detect, enqueue_graph_extract
 
 router = APIRouter(prefix="/otlp", tags=["OTLP"])
 
@@ -101,6 +103,15 @@ async def ingest_otlp_traces(
         environment_id=body.environment_id,
     )
     result = await pipeline.ingest_batch(raw_events)
+    # Post-ingest hook (Phase 2 §38): queue graph extraction for accepted spans.
+    if result.accepted:
+        await enqueue_graph_extract(
+            project_id=body.project_id, environment_id=body.environment_id
+        )
+        # Phase 3 §20: detection shares the same post-ingest boundary.
+        await enqueue_anomaly_detect(
+            project_id=body.project_id, environment_id=body.environment_id
+        )
     return _OTLPResponse(
         accepted=result.accepted,
         duplicates=result.duplicates,
@@ -128,6 +139,11 @@ async def ingest_otlp_logs(
         environment_id=body.environment_id,
     )
     result = await pipeline.ingest_batch(raw_events)
+    # Phase 3 §20: logs feed log-pattern and error-rate detection.
+    if result.accepted:
+        await enqueue_anomaly_detect(
+            project_id=body.project_id, environment_id=body.environment_id
+        )
     return _OTLPResponse(
         accepted=result.accepted,
         duplicates=result.duplicates,
@@ -155,6 +171,11 @@ async def ingest_otlp_metrics(
         environment_id=body.environment_id,
     )
     result = await pipeline.ingest_batch(raw_events)
+    # Phase 3 §20: metrics feed threshold/deviation/z-score detection.
+    if result.accepted:
+        await enqueue_anomaly_detect(
+            project_id=body.project_id, environment_id=body.environment_id
+        )
     return _OTLPResponse(
         accepted=result.accepted,
         duplicates=result.duplicates,

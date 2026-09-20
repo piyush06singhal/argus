@@ -4,6 +4,7 @@ Centralizes richer read paths used by the observability API (§22, §32):
 cross-source search over logs/metrics/traces/events with time-bucketed
 aggregates, and trace-heatmap helpers for the trace browser.
 """
+
 from __future__ import annotations
 
 import uuid
@@ -50,12 +51,8 @@ class ObservabilityQueryService:
             count = count.where(ObservabilityEvent.project_id == project_id)
         if query:
             like = f"%{query}%"
-            stmt = stmt.where(
-                cast(ObservabilityEvent.payload, Text).ilike(like)
-            )
-            count = count.where(
-                cast(ObservabilityEvent.payload, Text).ilike(like)
-            )
+            stmt = stmt.where(cast(ObservabilityEvent.payload, Text).ilike(like))
+            count = count.where(cast(ObservabilityEvent.payload, Text).ilike(like))
         if event_type:
             stmt = stmt.where(ObservabilityEvent.event_type == event_type)
             count = count.where(ObservabilityEvent.event_type == event_type)
@@ -95,10 +92,10 @@ class ObservabilityQueryService:
         ]:
             count = (
                 await self._db.execute(
-                    select(func.count(model.id)).where(
-                        model.project_id == project_id,
-                        model.timestamp >= start_time,
-                        model.timestamp <= end_time,
+                    select(func.count(model.id)).where(  # type: ignore[attr-defined]
+                        model.project_id == project_id,  # type: ignore[attr-defined]
+                        model.timestamp >= start_time,  # type: ignore[attr-defined]
+                        model.timestamp <= end_time,  # type: ignore[attr-defined]
                     )
                 )
             ).scalar()
@@ -129,7 +126,11 @@ class ObservabilityQueryService:
 
         distribution: dict[str, int] = {}
         for severity, count in (await self._db.execute(stmt)).all():
-            key = severity.value if hasattr(severity, "value") else str(severity or "UNKNOWN")
+            key = (
+                severity.value
+                if hasattr(severity, "value")
+                else str(severity or "UNKNOWN")
+            )
             distribution[key] = count
         # Normalize logs too.
         log_stmt = (

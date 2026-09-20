@@ -10,6 +10,7 @@ Design:
   - Always returns a *new* dict — never mutates the caller's data.
   - Nested dicts and lists are recursively redacted.
 """
+
 from __future__ import annotations
 
 import re
@@ -77,9 +78,15 @@ class RedactionEngine:
     def _looks_like_secret(value: str) -> bool:
         if len(value) < 20:
             return False
-        return bool(_JWT_RE.search(value) or _LONG_BASE64_RE.fullmatch(value) or _LONG_HEX_RE.fullmatch(value))
+        return bool(
+            _JWT_RE.search(value)
+            or _LONG_BASE64_RE.fullmatch(value)
+            or _LONG_HEX_RE.fullmatch(value)
+        )
 
-    def payload_summary(self, payload: dict[str, Any] | None, max_keys: int = 10) -> dict[str, Any]:
+    def payload_summary(
+        self, payload: dict[str, Any] | None, max_keys: int = 10
+    ) -> dict[str, Any]:
         """Return a redacted, key-only summary for dead-letter storage.
 
         Only key names and types are preserved — values are replaced with

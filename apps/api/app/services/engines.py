@@ -3,11 +3,11 @@
 These are conceptual interfaces for future phases. They define contracts
 but contain NO implementations. Do not implement advanced intelligence here.
 """
+
 from __future__ import annotations
 
 import abc
 from dataclasses import dataclass, field
-from datetime import datetime
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
@@ -15,23 +15,20 @@ from uuid import UUID
 # ---------------------------------------------------------------------------
 # Future Engine Interface Contracts
 # ---------------------------------------------------------------------------
-
-
-@dataclass
-class Anomaly:
-    """An anomalous behavior detected in observability data."""
-    id: str
-    component_id: Optional[UUID] = None
-    metric_name: Optional[str] = None
-    severity: str = "unknown"
-    score: float = 0.0
-    description: str = ""
-    detected_at: datetime = field(default_factory=datetime.now)
+#
+# Phase 3 note: anomaly detection and incident correlation are no longer
+# "future" interfaces — they are implemented as concrete, deterministic
+# services (``app/services/anomaly_detection.py``,
+# ``app/services/incident_correlation.py``) which subclass the ABCs below.
+# The Phase 0 stub ``Anomaly`` dataclass was removed: the canonical anomaly is
+# the ORM model ``app.models.anomaly.Anomaly``, and keeping a second type with
+# that name would have shadowed it across the codebase.
 
 
 @dataclass
 class RootCauseHypothesis:
     """A probable root cause hypothesis."""
+
     id: str
     component_id: Optional[UUID] = None
     confidence: float = 0.0
@@ -41,21 +38,31 @@ class RootCauseHypothesis:
 
 
 class AnomalyDetector(abc.ABC):
-    """Detects anomalies in observability data.
+    """Detects anomalies in observability data (Phase 3).
 
-    Future Phase 3. Not implemented in Phase 0.
+    Implemented by ``AnomalyDetectionService`` — deterministic and explainable.
+    Returns domain anomaly records; it never returns a causal claim.
     """
-    async def detect(self, events: List[Any]) -> List[Anomaly]:
-        raise NotImplementedError("AnomalyDetector is a future Phase 3 interface")
+
+    @abc.abstractmethod
+    async def detect(self, events: List[Any]) -> List[Any]:
+        """Return the anomalies observed in ``events`` (possibly empty)."""
+        raise NotImplementedError
 
 
 class IncidentCorrelator(abc.ABC):
-    """Correlates anomalies into incidents.
+    """Correlates anomalies into incidents (Phase 3).
 
-    Future Phase 3. Not implemented in Phase 0.
+    Implemented by ``IncidentCorrelationEngine``. Correlation *groups* anomalies
+    that share supporting evidence and returns the groups with their rationale;
+    persisting them as incidents is the incident manager's job. It never
+    establishes causation.
     """
-    async def correlate(self, anomalies: List[Anomaly]) -> Optional[UUID]:
-        raise NotImplementedError("IncidentCorrelator is a future Phase 3 interface")
+
+    @abc.abstractmethod
+    async def correlate(self, anomalies: List[Any]) -> List[Any]:
+        """Return the anomaly clusters that belong together."""
+        raise NotImplementedError
 
 
 class RootCauseAnalyzer(abc.ABC):
@@ -63,6 +70,7 @@ class RootCauseAnalyzer(abc.ABC):
 
     Future Phase 4. Not implemented in Phase 0.
     """
+
     async def analyze(self, incident_id: UUID) -> List[RootCauseHypothesis]:
         raise NotImplementedError("RootCauseAnalyzer is a future Phase 4 interface")
 
@@ -72,6 +80,7 @@ class CausalAnalysisEngine(abc.ABC):
 
     Future Phase 4. Not implemented in Phase 0.
     """
+
     async def evaluate(self, cause_id: str, effect_id: str) -> float:
         raise NotImplementedError("CausalAnalysisEngine is a future Phase 4 interface")
 
@@ -81,8 +90,11 @@ class FailureReproductionEngine(abc.ABC):
 
     Future Phase 5. Not implemented in Phase 0.
     """
+
     async def reproduce(self, incident_id: UUID) -> Dict[str, Any]:
-        raise NotImplementedError("FailureReproductionEngine is a future Phase 5 interface")
+        raise NotImplementedError(
+            "FailureReproductionEngine is a future Phase 5 interface"
+        )
 
 
 class CodeAnalyzer(abc.ABC):
@@ -90,7 +102,10 @@ class CodeAnalyzer(abc.ABC):
 
     Future Phase 6. Not implemented in Phase 0.
     """
-    async def analyze(self, repository_id: UUID, commit_sha: Optional[str] = None) -> Dict[str, Any]:
+
+    async def analyze(
+        self, repository_id: UUID, commit_sha: Optional[str] = None
+    ) -> Dict[str, Any]:
         raise NotImplementedError("CodeAnalyzer is a future Phase 6 interface")
 
 
@@ -99,7 +114,10 @@ class FixGenerator(abc.ABC):
 
     Future Phase 7. Not implemented in Phase 0.
     """
-    async def generate_fix(self, hypothesis: RootCauseHypothesis) -> List[Dict[str, Any]]:
+
+    async def generate_fix(
+        self, hypothesis: RootCauseHypothesis
+    ) -> List[Dict[str, Any]]:
         raise NotImplementedError("FixGenerator is a future Phase 7 interface")
 
 
@@ -108,6 +126,7 @@ class PatchVerifier(abc.ABC):
 
     Future Phase 7. Not implemented in Phase 0.
     """
+
     async def verify(self, fix_id: str) -> Dict[str, Any]:
         raise NotImplementedError("PatchVerifier is a future Phase 7 interface")
 
@@ -117,6 +136,7 @@ class ReliabilityPredictor(abc.ABC):
 
     Future Phase 8. Not implemented in Phase 0.
     """
+
     async def predict(self, project_id: UUID) -> Dict[str, Any]:
         raise NotImplementedError("ReliabilityPredictor is a future Phase 8 interface")
 
@@ -126,6 +146,7 @@ class RemediationEngine(abc.ABC):
 
     Future Phase 9. Not implemented in Phase 0.
     """
+
     async def propose(self, incident_id: UUID) -> List[Dict[str, Any]]:
         raise NotImplementedError("RemediationEngine is a future Phase 9 interface")
 
@@ -135,6 +156,7 @@ class LearningEngine(abc.ABC):
 
     Future Phase 10. Not implemented in Phase 0.
     """
+
     async def learn(self, incident_id: UUID) -> None:
         raise NotImplementedError("LearningEngine is a future Phase 10 interface")
 
@@ -157,7 +179,9 @@ class AIModelProvider(abc.ABC):
         raise NotImplementedError
 
     @abc.abstractmethod
-    async def complete_structured(self, prompt: str, response_schema: Dict[str, Any], **kwargs: Any) -> Dict[str, Any]:
+    async def complete_structured(
+        self, prompt: str, response_schema: Dict[str, Any], **kwargs: Any
+    ) -> Dict[str, Any]:
         """Generate structured output against a schema."""
         raise NotImplementedError
 
@@ -178,8 +202,13 @@ class MockAIProvider(AIModelProvider):
     async def complete(self, prompt: str, **kwargs: Any) -> str:
         return f"[mock-ai] deterministic placeholder: {prompt[:80]}…"
 
-    async def complete_structured(self, prompt: str, response_schema: Dict[str, Any], **kwargs: Any) -> Dict[str, Any]:
-        return {"mock": True, "note": "Structured output not available from mock provider"}
+    async def complete_structured(
+        self, prompt: str, response_schema: Dict[str, Any], **kwargs: Any
+    ) -> Dict[str, Any]:
+        return {
+            "mock": True,
+            "note": "Structured output not available from mock provider",
+        }
 
     async def embed(self, text: str) -> List[float]:
         return [0.0, 0.0, 0.0]

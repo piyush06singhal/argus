@@ -1,4 +1,5 @@
 """ARGUS Ingestion Schemas."""
+
 from __future__ import annotations
 
 import uuid

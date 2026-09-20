@@ -1,4 +1,5 @@
 """ARGUS Observability Event Normalization."""
+
 from __future__ import annotations
 
 import logging
@@ -34,14 +35,26 @@ class ObservabilityNormalizer:
     def __init__(self, db: AsyncSession):
         self._db = db
 
-    async def normalize(self, raw: RawObservabilityEvent, project_id: UUID, environment_id: Optional[UUID] = None) -> ObservabilityEvent:
+    async def normalize(
+        self,
+        raw: RawObservabilityEvent,
+        project_id: UUID,
+        environment_id: Optional[UUID] = None,
+    ) -> ObservabilityEvent:
         """Normalize a single raw event into an ObservabilityEvent."""
         # Validate required payload fields. Case-insensitive so adapters that
         # deliver UPPERCASE source kinds (e.g. the webhook path's ``WEBHOOK``)
         # normalize cleanly; the allowlist still bounds what we accept.
         if raw.source_type.lower() not in (
-            "log", "metric", "trace", "system", "deployment", "health",
-            "configuration", "mock", "webhook",
+            "log",
+            "metric",
+            "trace",
+            "system",
+            "deployment",
+            "health",
+            "configuration",
+            "mock",
+            "webhook",
         ):
             raise NormalizationError(
                 f"Unknown source type: {raw.source_type}",
@@ -88,7 +101,12 @@ class ObservabilityNormalizer:
         self._db.add(event)
         return event
 
-    async def normalize_batch(self, events: List[RawObservabilityEvent], project_id: UUID, environment_id: Optional[UUID] = None) -> List[ObservabilityEvent]:
+    async def normalize_batch(
+        self,
+        events: List[RawObservabilityEvent],
+        project_id: UUID,
+        environment_id: Optional[UUID] = None,
+    ) -> List[ObservabilityEvent]:
         """Normalize a batch of raw events."""
         normalized = []
         for raw in events:

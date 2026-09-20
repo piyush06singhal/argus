@@ -1,4 +1,5 @@
 """ARGUS Test Configuration."""
+
 from __future__ import annotations
 
 import asyncio
@@ -53,7 +54,8 @@ def event_loop():
 async def db_engine():
     """Create a file-backed SQLite database engine shared across the session."""
     engine = create_async_engine(
-        TEST_DATABASE_URL, echo=False,
+        TEST_DATABASE_URL,
+        echo=False,
         connect_args={"timeout": 30},
     )
     async with engine.begin() as conn:
@@ -74,7 +76,9 @@ async def _clean_tables(db_engine):
 @pytest_asyncio.fixture
 async def db_session(db_engine) -> AsyncGenerator[AsyncSession, None]:
     """Create a test database session."""
-    session_factory = async_sessionmaker(db_engine, class_=AsyncSession, expire_on_commit=False)
+    session_factory = async_sessionmaker(
+        db_engine, class_=AsyncSession, expire_on_commit=False
+    )
     async with session_factory() as session:
         yield session
 
@@ -83,7 +87,9 @@ async def db_session(db_engine) -> AsyncGenerator[AsyncSession, None]:
 def client(db_engine) -> Generator[TestClient, None, None]:
     """Create a FastAPI test client wired to the test database."""
 
-    session_factory = async_sessionmaker(db_engine, class_=AsyncSession, expire_on_commit=False)
+    session_factory = async_sessionmaker(
+        db_engine, class_=AsyncSession, expire_on_commit=False
+    )
 
     async def override_get_db() -> AsyncGenerator[AsyncSession, None]:
         async with session_factory() as session:

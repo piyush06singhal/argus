@@ -6,6 +6,7 @@ Resolve (component/environment) → Normalize → Correlate → Dedup → Persis
 Every event that fails validation or dedup handling is counted and surfaced;
 nothing is silently dropped. Deduplicated events are counted separately.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -13,7 +14,7 @@ import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import List, Optional
-from uuid import UUID, uuid4
+from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -89,7 +90,9 @@ class IngestionPipeline:
         )
         self._registry_source = result.scalar_one_or_none()
 
-    async def _record_source_signal(self, *, success: bool, event_count: int = 0, error: str | None = None) -> None:
+    async def _record_source_signal(
+        self, *, success: bool, event_count: int = 0, error: str | None = None
+    ) -> None:
         """Update the persistent source health signal (§45)."""
         if self._registry_source is None:
             return
@@ -109,14 +112,21 @@ class IngestionPipeline:
             elif source.consecutive_errors >= 1:
                 source.status = ObservabilitySourceStatus.DEGRADED
 
-    async def _dead_letter(self, raw: RawObservabilityEvent, error: Exception, retry_count: int) -> None:
+    async def _dead_letter(
+        self, raw: RawObservabilityEvent, error: Exception, retry_count: int
+    ) -> None:
         """Persist a failed event to the dead-letter store (§44)."""
         from app.services.ingestion_helpers import EventFingerprint
 
         # If the session's transaction was rolled back by the original error,
         # recover it before we attempt any further DB work, so dead-lettering a
         # failed event never itself fails on a poisoned session.
-        if self._db.in_transaction() and not self._db.get_transaction().is_active:
+        transaction = self._db.get_transaction()
+        if (
+            self._db.in_transaction()
+            and transaction is not None
+            and not transaction.is_active
+        ):
             await self._db.rollback()
 
         summary = self._redactor.payload_summary(raw.payload)
@@ -153,7 +163,9 @@ class IngestionPipeline:
             failure.failed_at = datetime.utcnow()
             failure.error_message = str(error)[:2000]
 
-    async def ingest_one(self, raw: RawObservabilityEvent, *, source_id: Optional[str] = None) -> bool:
+    async def ingest_one(
+        self, raw: RawObservabilityEvent, *, source_id: Optional[str] = None
+    ) -> bool:
         """Ingest a single raw event.
 
         Returns ``True`` when accepted, ``False`` when it was a duplicate.
@@ -166,11 +178,16 @@ class IngestionPipeline:
 
         # 2. Resolve knowledge-graph references.
         component_id = await self._component_resolver.resolve(
-            project_id=self._project_id, payload=safe_payload, source=f"{raw.source_type}:{raw.source_name}"
+            project_id=self._project_id,
+            payload=safe_payload,
+            source=f"{raw.source_type}:{raw.source_name}",
         )
-        environment_id = await self._environment_resolver.resolve(
-            project_id=self._project_id, payload=safe_payload
-        ) or self._environment_id
+        environment_id = (
+            await self._environment_resolver.resolve(
+                project_id=self._project_id, payload=safe_payload
+            )
+            or self._environment_id
+        )
 
         # 3. Normalize into the canonical event (with the redacted payload).
         safe_raw = RawObservabilityEvent(
@@ -215,7 +232,12 @@ class IngestionPipeline:
         await self._db.flush()
         return True
 
-    async def ingest_batch(self, raw_events: List[RawObservabilityEvent], *, source_id: Optional[str] = None) -> IngestionResult:
+    async def ingest_batch(
+        self,
+        raw_events: List[RawObservabilityEvent],
+        *,
+        source_id: Optional[str] = None,
+    ) -> IngestionResult:
         """Ingest a batch of raw events; returns counts per outcome.
 
         Each event runs in its own SAVEPOINT (``begin_nested``) so a DB-level
@@ -236,7 +258,9 @@ class IngestionPipeline:
             except Exception as e:
                 logger.error(f"Ingestion failure (event {raw.source_type}): {e}")
                 result.failed += 1
-                result.failures.append(f"{raw.source_type}:{raw.source_name} → {type(e).__name__}")
+                result.failures.append(
+                    f"{raw.source_type}:{raw.source_name} → {type(e).__name__}"
+                )
                 try:
                     await self._dead_letter(raw, e, retry_count=1)
                 except Exception as dl_e:
@@ -249,7 +273,9 @@ class IngestionPipeline:
         await self._db.commit()
         return result
 
-    async def poll_and_ingest(self, lookback_minutes: int = 5, *, source_id: Optional[str] = None) -> IngestionResult:
+    async def poll_and_ingest(
+        self, lookback_minutes: int = 5, *, source_id: Optional[str] = None
+    ) -> IngestionResult:
         """Poll the source for new events and ingest them."""
         end_time = datetime.utcnow()
         start_time = end_time - timedelta(minutes=lookback_minutes)
@@ -268,7 +294,9 @@ class IngestionPipeline:
             try:
                 result = await self.poll_and_ingest()
                 if result.accepted > 0:
-                    logger.info(f"Ingested {result.accepted} events from {self._source.name}")
+                    logger.info(
+                        f"Ingested {result.accepted} events from {self._source.name}"
+                    )
             except Exception as e:
                 logger.error(f"Continuous ingestion error: {e}")
             await asyncio.sleep(interval_seconds)

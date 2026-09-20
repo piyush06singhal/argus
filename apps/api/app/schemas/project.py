@@ -1,4 +1,5 @@
 """ARGUS Project Schemas."""
+
 from __future__ import annotations
 
 import uuid

@@ -1,4 +1,5 @@
 """ARGUS API - Main Application."""
+
 from __future__ import annotations
 
 import asyncio
@@ -13,6 +14,7 @@ from app.api.v1.routes import api_v1_router
 from app.api.v1.routes.health import router as health_router
 from app.core.config import get_settings
 from app.core.database import async_session_factory, close_db, init_db
+from app.services.anomaly_sweep import sweep_forever
 from app.services.worker_runner import make_worker
 
 settings = get_settings()
@@ -33,9 +35,26 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         worker = make_worker(async_session_factory)
         worker_task = asyncio.create_task(worker.run_forever())
 
+    # Scheduled detection sweep (Phase 3 §20). The ingest hook handles
+    # responsiveness; this covers sparse/late telemetry and any ingestion path
+    # without a hook. Skipped under ``test`` so tests never race a timer.
+    sweep_task: Optional[asyncio.Task] = None
+    if (
+        not settings.is_testing
+        and settings.ANOMALY_DETECTION_ENABLED
+        and settings.ANOMALY_SWEEP_ENABLED
+    ):
+        sweep_task = asyncio.create_task(sweep_forever(async_session_factory))
+
     yield
 
     # Shutdown
+    if sweep_task is not None:
+        sweep_task.cancel()
+        try:
+            await sweep_task
+        except asyncio.CancelledError:
+            pass
     if worker is not None and worker_task is not None:
         worker.stop()
         worker_task.cancel()
@@ -80,7 +99,7 @@ async def global_exception_handler(request: Request, exc: Exception) -> JSONResp
 
 # Prometheus scrape endpoint at root (standard Prometheus convention) and
 # versioned under /api/v1 (included in api_v1_router).
-from app.api.v1.routes.metrics_export import router as prometheus_router
+from app.api.v1.routes.metrics_export import router as prometheus_router  # noqa: E402
 
 # Include routers
 app.include_router(health_router)

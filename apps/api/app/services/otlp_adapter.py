@@ -7,6 +7,7 @@ the existing ingestion pipeline.
 Only the JSON transport is supported (not gRPC/protobuf).  The adapter is
 stateless and deterministic — all side-effects happen in the pipeline.
 """
+
 from __future__ import annotations
 
 import logging
@@ -22,6 +23,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Public schemas for the OTLP JSON payload
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class OTLPSpan:
@@ -81,12 +83,30 @@ class OTLPBatch:
 # ---------------------------------------------------------------------------
 
 _SEVERITY_MAP: Dict[int, str] = {
-    1: "TRACE", 2: "TRACE", 3: "TRACE", 4: "TRACE",
-    5: "DEBUG", 6: "DEBUG", 7: "DEBUG", 8: "DEBUG",
-    9: "INFO", 10: "INFO", 11: "INFO", 12: "INFO", 13: "INFO",
-    14: "WARN", 15: "WARN", 16: "WARN",
-    17: "ERROR", 18: "ERROR", 19: "ERROR",
-    20: "FATAL", 21: "FATAL", 22: "FATAL", 23: "FATAL", 24: "FATAL",
+    1: "TRACE",
+    2: "TRACE",
+    3: "TRACE",
+    4: "TRACE",
+    5: "DEBUG",
+    6: "DEBUG",
+    7: "DEBUG",
+    8: "DEBUG",
+    9: "INFO",
+    10: "INFO",
+    11: "INFO",
+    12: "INFO",
+    13: "INFO",
+    14: "WARN",
+    15: "WARN",
+    16: "WARN",
+    17: "ERROR",
+    18: "ERROR",
+    19: "ERROR",
+    20: "FATAL",
+    21: "FATAL",
+    22: "FATAL",
+    23: "FATAL",
+    24: "FATAL",
 }
 
 _SEV_TO_ARGUS: Dict[str, str] = {
@@ -130,8 +150,16 @@ def _any_value(obj: Any) -> Any:
     """Pull a value from an OTLP ``AnyValue`` (camelCase or snake_case)."""
     if not isinstance(obj, dict):
         return obj
-    for scalar in ("string_value", "stringValue", "int_value", "intValue",
-                   "double_value", "doubleValue", "bool_value", "boolValue"):
+    for scalar in (
+        "string_value",
+        "stringValue",
+        "int_value",
+        "intValue",
+        "double_value",
+        "doubleValue",
+        "bool_value",
+        "boolValue",
+    ):
         if scalar in obj:
             return obj[scalar]
     for collection in ("array_value", "arrayValue", "kvlist_value", "kvlistValue"):
@@ -172,6 +200,7 @@ def _attributes_to_dict(attrs: Any) -> Dict[str, Any]:
 # Public adapter
 # ---------------------------------------------------------------------------
 
+
 class OTLPAdapter:
     """Convert OTLP/JSON payloads to ``RawObservabilityEvent`` instances.
 
@@ -203,7 +232,7 @@ class OTLPAdapter:
             # older collectors and the original ARGUS tests.
             spans = list(_pick(rs, "spans") or [])
             if not spans:
-                for scope in (rs.get("scope_spans", rs.get("scopeSpans", [])) or []):
+                for scope in rs.get("scope_spans", rs.get("scopeSpans", [])) or []:
                     spans.extend(_pick(scope, "spans") or [])
 
             for span_data in spans:
@@ -221,7 +250,10 @@ class OTLPAdapter:
                         "kind": span.kind,
                         "start_time": span.start_time_unix_nano,
                         "end_time": span.end_time_unix_nano,
-                        "duration_ms": (span.end_time_unix_nano - span.start_time_unix_nano) / 1e6,
+                        "duration_ms": (
+                            span.end_time_unix_nano - span.start_time_unix_nano
+                        )
+                        / 1e6,
                         "status_code": span.status_code,
                         "status_message": span.status_message,
                         "attributes": span.attributes,
@@ -254,7 +286,7 @@ class OTLPAdapter:
             # flat log_records is also accepted for older collectors.
             records = list(_pick(rl, "log_records", "logRecords") or [])
             if not records:
-                for scope in (rl.get("scope_logs", rl.get("scopeLogs", [])) or []):
+                for scope in rl.get("scope_logs", rl.get("scopeLogs", [])) or []:
                     records.extend(_pick(scope, "log_records", "logRecords") or [])
 
             for lr_data in records:
@@ -300,11 +332,31 @@ class OTLPAdapter:
             for metric_data in rm.get("metrics", []):
                 metric = self._parse_metric(metric_data, resource)
 
-                for dp in (metric.data_points if isinstance(metric.data_points, list) else []):
-                    ts_ns = _pick(dp, "start_time_unix_nano", "startTimeUnixNano",
-                                  "time_unix_nano", "timeUnixNano") or 0
-                    value = _pick(dp, "as_double", "asDouble", "as_int", "asInt",
-                                  "as_gauge", "asGauge") or 0
+                for dp in (
+                    metric.data_points if isinstance(metric.data_points, list) else []
+                ):
+                    ts_ns = (
+                        _pick(
+                            dp,
+                            "start_time_unix_nano",
+                            "startTimeUnixNano",
+                            "time_unix_nano",
+                            "timeUnixNano",
+                        )
+                        or 0
+                    )
+                    value = (
+                        _pick(
+                            dp,
+                            "as_double",
+                            "asDouble",
+                            "as_int",
+                            "asInt",
+                            "as_gauge",
+                            "asGauge",
+                        )
+                        or 0
+                    )
                     attr_pairs = _pick(dp, "attributes", "attributes") or {}
                     # Histogram and Summary have complex shapes — extract count/sum
                     if metric.metric_type in ("Histogram", "Summary"):
@@ -313,7 +365,9 @@ class OTLPAdapter:
                     raw = RawObservabilityEvent(
                         source_type="metric",
                         source_name=service_name,
-                        timestamp=_ns_to_datetime(ts_ns) if ts_ns else datetime.now(tz=timezone.utc),
+                        timestamp=_ns_to_datetime(ts_ns)
+                        if ts_ns
+                        else datetime.now(tz=timezone.utc),
                         event_type="METRIC",
                         payload={
                             "metric_name": metric.name,
@@ -333,11 +387,17 @@ class OTLPAdapter:
     # ------------------------------------------------------------------
     # Private parsers
     # ------------------------------------------------------------------
-    def _parse_span(self, span_data: Dict[str, Any], resource: Dict[str, Any]) -> OTLPSpan:
+    def _parse_span(
+        self, span_data: Dict[str, Any], resource: Dict[str, Any]
+    ) -> OTLPSpan:
         status = span_data.get("status", {}) or {}
         kind_map = {
-            0: "UNSPECIFIED", 1: "INTERNAL", 2: "SERVER",
-            3: "CLIENT", 4: "PRODUCER", 5: "CONSUMER",
+            0: "UNSPECIFIED",
+            1: "INTERNAL",
+            2: "SERVER",
+            3: "CLIENT",
+            4: "PRODUCER",
+            5: "CONSUMER",
         }
         kind_num = span_data.get("kind", 0)
 
@@ -362,14 +422,18 @@ class OTLPAdapter:
             end_time_unix_nano=end_ns,
             attributes=_attributes_to_dict(span_data.get("attributes", [])),
             status_code={
-                0: "UNSET", 1: "OK", 2: "ERROR",
+                0: "UNSET",
+                1: "OK",
+                2: "ERROR",
             }.get(status.get("code", 0), "UNSET"),
             status_message=status.get("message", ""),
             events=span_data.get("events", []),
             resource=resource,
         )
 
-    def _parse_log_record(self, lr_data: Dict[str, Any], resource: Dict[str, Any]) -> OTLPLogRecord:
+    def _parse_log_record(
+        self, lr_data: Dict[str, Any], resource: Dict[str, Any]
+    ) -> OTLPLogRecord:
         # Body can be a raw string or an AnyValue ({stringValue: ...}).
         body_value = _any_value(_pick(lr_data, "body"))
         if isinstance(body_value, (str, int, float, bool)):
@@ -379,12 +443,21 @@ class OTLPAdapter:
 
         # Extract trace_id / span_id — top-level fields or attributes.
         attrs = _attributes_to_dict(lr_data.get("attributes", []))
-        trace_id = _pick(lr_data, "trace_id", "traceId") or attrs.get("trace_id") or attrs.get("traceId")
-        span_id = _pick(lr_data, "span_id", "spanId") or attrs.get("span_id") or attrs.get("spanId")
+        trace_id = (
+            _pick(lr_data, "trace_id", "traceId")
+            or attrs.get("trace_id")
+            or attrs.get("traceId")
+        )
+        span_id = (
+            _pick(lr_data, "span_id", "spanId")
+            or attrs.get("span_id")
+            or attrs.get("spanId")
+        )
 
         return OTLPLogRecord(
             time_unix_nano=_pick(lr_data, "time_unix_nano", "timeUnixNano") or 0,
-            severity_number=_pick(lr_data, "severity_number", "severityNumber") or 9,  # default INFO
+            severity_number=_pick(lr_data, "severity_number", "severityNumber")
+            or 9,  # default INFO
             severity_text=_pick(lr_data, "severity_text", "severityText") or "INFO",
             body=body,
             attributes=attrs,
@@ -393,7 +466,9 @@ class OTLPAdapter:
             span_id=span_id,
         )
 
-    def _parse_metric(self, metric_data: Dict[str, Any], resource: Dict[str, Any]) -> OTLPMetric:
+    def _parse_metric(
+        self, metric_data: Dict[str, Any], resource: Dict[str, Any]
+    ) -> OTLPMetric:
         data_points: List[Dict[str, Any]] = []
         metric_type = "Gauge"
 
@@ -405,10 +480,14 @@ class OTLPAdapter:
             data_points = _pick(metric_data["sum"], "data_points", "dataPoints") or []
         elif "histogram" in metric_data:
             metric_type = "Histogram"
-            data_points = _pick(metric_data["histogram"], "data_points", "dataPoints") or []
+            data_points = (
+                _pick(metric_data["histogram"], "data_points", "dataPoints") or []
+            )
         elif "summary" in metric_data:
             metric_type = "Summary"
-            data_points = _pick(metric_data["summary"], "data_points", "dataPoints") or []
+            data_points = (
+                _pick(metric_data["summary"], "data_points", "dataPoints") or []
+            )
 
         return OTLPMetric(
             name=metric_data.get("name", ""),

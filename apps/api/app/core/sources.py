@@ -1,4 +1,5 @@
 """ARGUS Observability Source Abstraction."""
+
 from __future__ import annotations
 
 import abc
@@ -35,7 +36,9 @@ class ObservabilitySource(abc.ABC):
         raise NotImplementedError
 
     @abc.abstractmethod
-    async def fetch_events(self, start_time: datetime, end_time: datetime) -> List[RawObservabilityEvent]:
+    async def fetch_events(
+        self, start_time: datetime, end_time: datetime
+    ) -> List[RawObservabilityEvent]:
         """Fetch events from the source between the given timestamps."""
         raise NotImplementedError
 
@@ -62,7 +65,9 @@ class MockObservabilitySource(ObservabilitySource):
         """Mock is always healthy."""
         return True
 
-    async def fetch_events(self, start_time: datetime, end_time: datetime) -> List[RawObservabilityEvent]:
+    async def fetch_events(
+        self, start_time: datetime, end_time: datetime
+    ) -> List[RawObservabilityEvent]:
         """Generate deterministic sample events."""
         # Return a single simple event for testing purposes.
         # Real sample data is seeded via the seed_data.py script.
@@ -88,6 +93,8 @@ class MockAIProvider:
         """Return a deterministic placeholder response."""
         return f"[mock-response] received prompt: {prompt[:100]}..."
 
-    async def complete_structured(self, prompt: str, schema: Dict[str, Any]) -> Dict[str, Any]:
+    async def complete_structured(
+        self, prompt: str, schema: Dict[str, Any]
+    ) -> Dict[str, Any]:
         """Return a deterministic placeholder structured response."""
         return {"mock": True, "prompt_processed": True}

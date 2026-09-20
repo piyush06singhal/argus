@@ -6,17 +6,21 @@ records older than the threshold are hard-deleted.
 
 Phase 1 §22: data retention policies on existing timestamp/lifecycle metadata.
 """
+
 from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Dict
+from typing import Any, Dict
 
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import InstrumentedAttribute
 
 from app.core.config import get_settings
+from app.models.anomaly import Anomaly, AnomalyObservation
+from app.models.incident import Incident, IncidentTimelineEvent
 from app.models.ingestion import (
     ConfigurationChangeEvent,
     HealthCheckEvent,
@@ -61,18 +65,48 @@ class RetentionSummary:
 
 
 # Mapping of table → (model, timestamp_column, retention_days)
-_RETENTION_TABLES: dict[str, tuple[type, type, int]] = {
-    "observability_events": (ObservabilityEvent, ObservabilityEvent.timestamp, settings.RETENTION_EVENTS),
+_RETENTION_TABLES: dict[str, tuple[Any, InstrumentedAttribute[Any], int]] = {
+    "observability_events": (
+        ObservabilityEvent,
+        ObservabilityEvent.timestamp,
+        settings.RETENTION_EVENTS,
+    ),
     "log_records": (LogRecord, LogRecord.timestamp, settings.RETENTION_LOGS),
-    "metric_records": (MetricRecord, MetricRecord.timestamp, settings.RETENTION_METRICS),
+    "metric_records": (
+        MetricRecord,
+        MetricRecord.timestamp,
+        settings.RETENTION_METRICS,
+    ),
     "traces": (TraceRecord, TraceRecord.start_time, settings.RETENTION_TRACES),
     # Spans follow the same retention as their parent traces.
     "spans": (SpanRecord, SpanRecord.start_time, settings.RETENTION_TRACES),
     # Configuration and health events share the log retention window.
-    "configuration_change_events": (ConfigurationChangeEvent, ConfigurationChangeEvent.timestamp, settings.RETENTION_LOGS),
-    "health_check_events": (HealthCheckEvent, HealthCheckEvent.timestamp, settings.RETENTION_LOGS),
+    "configuration_change_events": (
+        ConfigurationChangeEvent,
+        ConfigurationChangeEvent.timestamp,
+        settings.RETENTION_LOGS,
+    ),
+    "health_check_events": (
+        HealthCheckEvent,
+        HealthCheckEvent.timestamp,
+        settings.RETENTION_LOGS,
+    ),
     # Dead-letter records: shorter window — operational, not archival.
     "ingestion_failures": (IngestionFailure, IngestionFailure.failed_at, 30),
+    # Phase 3: anomalies are swept on their retention window; incidents are
+    # kept far longer because they are the historical record humans rely on.
+    "anomalies": (Anomaly, Anomaly.detected_at, settings.RETENTION_ANOMALIES),
+    "anomaly_observations": (
+        AnomalyObservation,
+        AnomalyObservation.observed_at,
+        settings.RETENTION_ANOMALIES,
+    ),
+    "incidents": (Incident, Incident.detected_at, settings.RETENTION_INCIDENTS),
+    "incident_timeline_events": (
+        IncidentTimelineEvent,
+        IncidentTimelineEvent.occurred_at,
+        settings.RETENTION_INCIDENTS,
+    ),
 }
 
 
@@ -106,22 +140,26 @@ class RetentionService:
             cutoff = datetime.now(timezone.utc) - timedelta(days=days)
 
             # Count first so we can report what we're about to delete.
-            count_q = select(func.count()).select_from(model).where(ts_col < cutoff)
+            count_q = select(func.count()).select_from(model).where(ts_col < cutoff)  # type: ignore[attr-defined]
             count_result = await self._db.execute(count_q)
             count = count_result.scalar() or 0
 
             if count > 0:
-                delete_q = delete(model).where(ts_col < cutoff)
+                delete_q = delete(model).where(ts_col < cutoff)  # type: ignore[attr-defined]
                 await self._db.execute(delete_q)
                 await self._db.flush()
-                logger.info(f"Retention: deleted {count} rows from {table_name} (older than {days}d)")
+                logger.info(
+                    f"Retention: deleted {count} rows from {table_name} (older than {days}d)"
+                )
 
-            summary.add(RetentionResult(
-                table=table_name,
-                deleted=count,
-                threshold_days=days,
-                cutoff=cutoff,
-            ))
+            summary.add(
+                RetentionResult(
+                    table=table_name,
+                    deleted=count,
+                    threshold_days=days,
+                    cutoff=cutoff,
+                )
+            )
 
         return summary
 
@@ -139,16 +177,18 @@ class RetentionService:
             days = overrides.get(table_name, default_days)
             cutoff = datetime.now(timezone.utc) - timedelta(days=days)
 
-            count_q = select(func.count()).select_from(model).where(ts_col < cutoff)
+            count_q = select(func.count()).select_from(model).where(ts_col < cutoff)  # type: ignore[attr-defined]
             count_result = await self._db.execute(count_q)
             count = count_result.scalar() or 0
 
-            summary.add(RetentionResult(
-                table=table_name,
-                deleted=count,
-                threshold_days=days,
-                cutoff=cutoff,
-            ))
+            summary.add(
+                RetentionResult(
+                    table=table_name,
+                    deleted=count,
+                    threshold_days=days,
+                    cutoff=cutoff,
+                )
+            )
 
         return summary
 

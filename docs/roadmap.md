@@ -29,26 +29,65 @@ OTLP traces/logs/metrics, retention policy & sweep, trace validation, source reg
 health-check events, webhook, batch ingest, dead-letter inspection, ingestion stats, OTLP camelCase + snake_case, secret rejection at every boundary, event retrieval by id, pagination, web UI pages); 168 unit/integration
 tests green.
 
-## Phase 2 — Software Knowledge Graph
+## Phase 2 — Software Knowledge Graph ✅
 
-- Materialize the system map: components, dependencies, ownership, blast radius
-- Versioned architecture snapshots
-- Component health rollup across environments
-- Impact graph for changes (which components does this deployment reach?)
+- ✅ Materialized graph overlay over PostgreSQL (`graph_nodes`/`graph_edges` mirror canonical entities via `entity_kind`/`entity_id` — no duplicate representations, no graph database)
+- ✅ Typed nodes (§7 categories projected from `ComponentCategory`), typed edges (CONTAINS/DEPENDS_ON/CALLS/READS_FROM/WRITES_TO/PUBLISHES_TO/CONSUMES_FROM/DEPLOYED_AS/IMPLEMENTS/…), provenance (`source`), and confidence (evidence strength, never causality)
+- ✅ Component registry: identity resolution, explicit aliases, ownership (team/contact/repository owner), criticality (explicit only)
+- ✅ Service endpoints with deterministic path-template normalization (`/api/checkout/{id}`)
+- ✅ Discovery engine: weak evidence → PENDING suggestion records; explicit registration required to create nodes
+- ✅ Trace→graph extraction (CALLS/READS_FROM from span trees + trace-carrying events), deployment edges, repository IMPLEMENTS edges
+- ✅ Reconciliation that mirrors canonical state, appends evidence to `metadata.sources[]`, and **never deletes** (stale policy instead)
+- ✅ Graph snapshots with set-level diffs; temporal foundation (`first_seen_at`/`last_seen_at`/status)
+- ✅ Bounded query service: dependencies/dependents (direct + transitive), neighbors, shortest path (depth ≤ 25, nodes ≤ 2000), environment comparison
+- ✅ Dependency Impact analyzer (downstream reachability, labeled "Dependency Impact" — not failure prediction)
+- ✅ Data-quality checks + `/graph/health` aggregation (orphans, duplicates, unresolved deps, conflicts)
+- ✅ Async ingestion hook: trace/span ingestion enqueues `graph_extract`; worker extracts + reconciles
+- ✅ System Map rewritten as a real graph explorer (SVG, filters/search/selection/provenance legend) + Impact, Environments, Snapshots, Quality panels
+- ✅ Security: project-scoped endpoints server-side, clamped traversal bounds, redacted metadata
+- ✅ 356 unit/integration tests (188 new Phase 2 tests; Phase 0/1 suites unchanged) + 13 vitest frontend tests; benchmark at 100/500 and 1000/5000 scale (`infrastructure/graph-benchmark.py`)
 
-## Phase 3 — Anomaly & Incident Intelligence
+See [docs/software-knowledge-graph.md](software-knowledge-graph.md) for the full design and [docs/phase2-implementation-report.md](phase2-implementation-report.md) for the delivery report.
 
-- Baseline learning and anomaly detection on normalized metrics
-- Incident detection heuristics and grouping
-- Evidence ranking (which log/metric/trace is most relevant)
-- Alerting and notification wiring
+## Phase 3 — Anomaly & Incident Intelligence ✅
 
-## Phase 4 — Root Cause & Causal Analysis
+- ✅ Deterministic baselines (STATIC + ROLLING: mean/median/stddev/min/max/p50/p95/p99) with explicit `INSUFFICIENT_DATA` handling — missing data is never treated as failure
+- ✅ Detectors: threshold, baseline deviation, z-score, rate change, error rate, latency ratio, log-pattern spike, trace-failure rate, health transition — all pure, explainable functions with stored reasons
+- ✅ Anomaly fingerprinting + deduplication registry + cooldown/persistence gating (one evolving anomaly, not one per sample)
+- ✅ Explainable severity engine (magnitude, criticality, duration, blast radius) — every level records its inputs
+- ✅ Graph-aware incident correlation with false-merge protection, a capped cluster span, and a stored rationale for every grouping
+- ✅ Incident lifecycle with a validated state machine (409 on illegal transitions), auto-resolve, and reopen-on-recurrence; timeline, structured evidence with relevance reasons, and observed blast-radius classification
+- ✅ Temporal context for deployments and configuration changes (`is_context_only`, explicit non-causality wording) and deterministic summaries generated from stored evidence only
+- ✅ Auditable suppression rules and maintenance windows — anomalies are recorded, never silently dropped; deactivated via PATCH rather than deleted, so the record that detection was quiet survives
+- ✅ Reliability metrics + Prometheus series (MTTA/MTTR with stated definitions), incident dashboard, anomaly center, incident investigation UI, Phase 2 graph-context overlay
+- ✅ Project/environment ownership validation on every route (out-of-scope ids are 404, never data), bounded queries and pagination throughout
+- ✅ Deterministic "ARGUS Checkout Latency Incident" demo that runs the real detection + correlation pipeline
+- ✅ Exact scope everywhere it matters: `environment_id=None` means environment-less, never "all environments", so one environment's telemetry can never fire another's anomaly or join its incident
+- ✅ 687 unit/integration tests + 25 vitest frontend tests; live Phase 3 smoke gate (103 checks, re-runnable); detection benchmark (`infrastructure/anomaly-benchmark.py`)
 
-- Causal reasoning over evidence correlations (events ↔ logs ↔ metrics ↔ traces ↔ deployments)
-- Hypothesis generation and ranking
-- Present **possible causes**, never certainty
-- Bounded: no actions, diagnostics only
+See [docs/phase-3.md](phase-3.md) for the full design and [docs/phase3-implementation-report.md](phase3-implementation-report.md) for the delivery report.
+
+**Explicitly not included:** root-cause causal inference, automated diagnosis, reproduction, or remediation — those are Phase 4 and beyond.
+
+## Phase 4 — Root Cause & Causal Analysis ✅
+
+- ✅ Causal reasoning over stored evidence (events ↔ logs ↔ metrics ↔ traces ↔ deployments ↔ the Phase 2 knowledge graph) — no graph database, no new infrastructure
+- ✅ Hypothesis generation and ranking from evidence only: bounded candidate set, one hypothesis per component, no candidate type assumed before the evidence is read
+- ✅ Temporal analysis (ordering, gaps, simultaneity, persistence, recovery ordering) with `before ≠ caused` enforced as code
+- ✅ **Directional** evidence from stored span trees; propagation order derived from when failures concluded, so nested failures cannot be inverted
+- ✅ A causal graph whose every edge names the facts that justify it, and a validator that rejects impossible arrows
+- ✅ Change analysis that refuses a deployment which happened *after* onset — recorded as `TEMPORAL_CONTRADICTION`, penalised, and given no causal edge
+- ✅ Documented deterministic scoring (temporal, trace, dependency, propagation, change, recovery, resource, minus contradiction penalty) with **confidence kept separate from score**: `HIGH`/`MEDIUM`/`LOW`/`INSUFFICIENT`, never a probability
+- ✅ Alternative hypotheses with supporting *and* contradicting evidence, and an explicit reason each one's confidence differs
+- ✅ `UNKNOWN` at `INSUFFICIENT` is a first-class answer, with the missing evidence enumerated — ARGUS declines rather than guesses
+- ✅ Versioned re-analysis (`POST /analyze`, idempotent; `force=true` appends) with history preserving what changed between versions
+- ✅ Frontend investigation workspace: causal-graph explorer, evidence inspector (*why does ARGUS believe this edge exists?*), timeline synchronization, alternatives, history
+- ✅ Project/environment isolation on every route; every traversal, window, candidate, edge and evidence list is bounded by configuration
+- ✅ 761 unit/integration tests + 55 vitest frontend tests; live Phase 4 smoke gate (70 checks, re-runnable; covers the browser views and proves several systems can be analysed side by side without contaminating each other)
+
+See [docs/phase-4.md](phase-4.md) for the full design and [docs/phase4-implementation-report.md](phase4-implementation-report.md) for the delivery report.
+
+**Explicitly not included:** reproduction, automatic debugging, patch generation or application, autonomous remediation, self-healing, predictive forecasting. Phase 4 is *analyze, explain, hypothesize, validate, trace causality* — not *reproduce, fix, deploy*. Its output is an **evidence-supported hypothesis**, never proof.
 
 ## Phase 5 — Failure Reproduction Engine
 

@@ -1,4 +1,5 @@
 """ARGUS Core Dependencies."""
+
 from __future__ import annotations
 
 import socket
@@ -6,7 +7,6 @@ import uuid
 from typing import Optional
 
 from fastapi import Depends, Header, Request
-
 
 
 def get_client_ip(request: Request) -> Optional[str]:

@@ -1,10 +1,10 @@
 """Tests for project lifecycle and API endpoints."""
+
 from __future__ import annotations
 
 import uuid
 
 from fastapi.testclient import TestClient
-
 
 
 class TestProjectCrud:

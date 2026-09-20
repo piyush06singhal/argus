@@ -1,6 +1,7 @@
 """Phase 1 tests: OTLP ingestion, Prometheus scrape, data retention,
 trace cross-reference validation, orphan span detection.
 """
+
 from __future__ import annotations
 
 import uuid
@@ -8,13 +9,6 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import select
-
-from app.models.observability import (
-    ObservabilityEvent,
-    SpanRecord,
-    TraceRecord,
-)
 
 
 _TS = datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
@@ -51,7 +45,10 @@ class TestOTLPAdapter:
                 {
                     "resource": {
                         "attributes": [
-                            {"key": "service.name", "value": {"string_value": "api-gw"}},
+                            {
+                                "key": "service.name",
+                                "value": {"string_value": "api-gw"},
+                            },
                         ]
                     },
                     "spans": [
@@ -76,7 +73,10 @@ class TestOTLPAdapter:
                             "start_time_unix_nano": 1704110400020000000,
                             "end_time_unix_nano": 1704110400080000000,
                             "attributes": [
-                                {"key": "db.statement", "value": {"string_value": "SELECT *"}},
+                                {
+                                    "key": "db.statement",
+                                    "value": {"string_value": "SELECT *"},
+                                },
                             ],
                             "status": {"code": 1, "message": ""},
                             "events": [],
@@ -114,7 +114,10 @@ class TestOTLPAdapter:
                 {
                     "resource": {
                         "attributes": [
-                            {"key": "service.name", "value": {"string_value": "payment-svc"}},
+                            {
+                                "key": "service.name",
+                                "value": {"string_value": "payment-svc"},
+                            },
                         ]
                     },
                     "log_records": [
@@ -165,7 +168,10 @@ class TestOTLPAdapter:
                                         "start_time_unix_nano": 1704110400000000000,
                                         "as_double": 42.5,
                                         "attributes": [
-                                            {"key": "method", "value": {"string_value": "GET"}},
+                                            {
+                                                "key": "method",
+                                                "value": {"string_value": "GET"},
+                                            },
                                         ],
                                     }
                                 ]
@@ -231,71 +237,113 @@ def test_convert_spec_conformant_camelcase() -> None:
     adapter = OTLPAdapter()
 
     # --- traces (camelCase span fields) ---
-    traces = adapter.convert_spans({
-        "resource_spans": [{
-            "resource": {"attributes": [
-                {"key": "service.name", "value": {"stringValue": "cart-svc"}},
-            ]},
-            "spans": [{
-                "traceId": "4bf92f3577b34da6a3ce929d0e0e4736",
-                "spanId": "00f067aa0ba902b7",
-                "parentSpanId": "",
-                "name": "process request",
-                "kind": 2,
-                # protojson encodes uint64 nanos as base-10 *strings*, not numbers.
-                "startTimeUnixNano": "1704110400000000000",
-                "endTimeUnixNano": "1704110400050000000",
-                "attributes": [],
-                "events": [],
-            }],
-        }],
-    })
+    traces = adapter.convert_spans(
+        {
+            "resource_spans": [
+                {
+                    "resource": {
+                        "attributes": [
+                            {
+                                "key": "service.name",
+                                "value": {"stringValue": "cart-svc"},
+                            },
+                        ]
+                    },
+                    "spans": [
+                        {
+                            "traceId": "4bf92f3577b34da6a3ce929d0e0e4736",
+                            "spanId": "00f067aa0ba902b7",
+                            "parentSpanId": "",
+                            "name": "process request",
+                            "kind": 2,
+                            # protojson encodes uint64 nanos as base-10 *strings*, not numbers.
+                            "startTimeUnixNano": "1704110400000000000",
+                            "endTimeUnixNano": "1704110400050000000",
+                            "attributes": [],
+                            "events": [],
+                        }
+                    ],
+                }
+            ],
+        }
+    )
     assert len(traces) == 1
     assert traces[0].payload["trace_id"] == "4bf92f3577b34da6a3ce929d0e0e4736"
     assert traces[0].payload["span_id"] == "00f067aa0ba902b7"
     assert traces[0].payload["duration_ms"] == 50.0  # 50ms between ns timestamps
 
     # --- logs nested under scopeLogs[].logRecords (protojson shape) ---
-    logs = adapter.convert_logs({
-        "resource_logs": [{
-            "resource": {"attributes": [
-                {"key": "service.name", "value": {"stringValue": "cart-svc"}},
-            ]},
-            "scopeLogs": [{
-                "logRecords": [{
-                    "timeUnixNano": "1704110400000000000",
-                    "severityNumber": 17,
-                    "severityText": "ERROR",
-                    "body": {"stringValue": "checkout failed"},
-                    "attributes": [{"key": "http.method", "value": {"stringValue": "POST"}}],
-                }],
-            }],
-        }],
-    })
+    logs = adapter.convert_logs(
+        {
+            "resource_logs": [
+                {
+                    "resource": {
+                        "attributes": [
+                            {
+                                "key": "service.name",
+                                "value": {"stringValue": "cart-svc"},
+                            },
+                        ]
+                    },
+                    "scopeLogs": [
+                        {
+                            "logRecords": [
+                                {
+                                    "timeUnixNano": "1704110400000000000",
+                                    "severityNumber": 17,
+                                    "severityText": "ERROR",
+                                    "body": {"stringValue": "checkout failed"},
+                                    "attributes": [
+                                        {
+                                            "key": "http.method",
+                                            "value": {"stringValue": "POST"},
+                                        }
+                                    ],
+                                }
+                            ],
+                        }
+                    ],
+                }
+            ],
+        }
+    )
     assert len(logs) == 1
     assert logs[0].payload["severity"] == "ERROR"
     assert logs[0].payload["message"] == "checkout failed"
     assert logs[0].payload["attributes"]["http.method"] == "POST"
 
     # --- metrics (dataPoints / asDouble camelCase) ---
-    metrics = adapter.convert_metrics({
-        "resource_metrics": [{
-            "resource": {"attributes": [
-                {"key": "service.name", "value": {"stringValue": "cart-svc"}},
-            ]},
-            "metrics": [{
-                "name": "cart_checkout_duration",
-                "unit": "ms",
-                "gauge": {
-                    "dataPoints": [{
-                        "startTimeUnixNano": "1704110400000000000",
-                        "timeUnixNano": "1704110400050000000",
-                        "asDouble": 8.5,
-                    }],
-                },
-            }],
-        }],
-    })
+    metrics = adapter.convert_metrics(
+        {
+            "resource_metrics": [
+                {
+                    "resource": {
+                        "attributes": [
+                            {
+                                "key": "service.name",
+                                "value": {"stringValue": "cart-svc"},
+                            },
+                        ]
+                    },
+                    "metrics": [
+                        {
+                            "name": "cart_checkout_duration",
+                            "unit": "ms",
+                            "gauge": {
+                                "dataPoints": [
+                                    {
+                                        "startTimeUnixNano": "1704110400000000000",
+                                        "timeUnixNano": "1704110400050000000",
+                                        "asDouble": 8.5,
+                                    }
+                                ],
+                            },
+                        }
+                    ],
+                }
+            ],
+        }
+    )
     assert len(metrics) == 1
     assert metrics[0].payload["metric_name"] == "cart_checkout_duration"
     assert metrics[0].payload["value"] == 8.5
@@ -310,6 +358,7 @@ class TestOTLPRoutes:
     def test_ingest_otlp_traces(self) -> None:
         client = TestClient.__new__(TestClient)
         from app.main import app
+
         client = TestClient(app)
         project = _create_project(client)
         project_id = project["id"]
@@ -320,7 +369,10 @@ class TestOTLPRoutes:
                 {
                     "resource": {
                         "attributes": [
-                            {"key": "service.name", "value": {"string_value": "test-svc"}},
+                            {
+                                "key": "service.name",
+                                "value": {"string_value": "test-svc"},
+                            },
                         ]
                     },
                     "spans": [
@@ -349,6 +401,7 @@ class TestOTLPRoutes:
 
     def test_ingest_otlp_logs(self) -> None:
         from app.main import app
+
         client = TestClient(app)
         project = _create_project(client)
         project_id = project["id"]
@@ -379,6 +432,7 @@ class TestOTLPRoutes:
 
     def test_ingest_otlp_metrics(self) -> None:
         from app.main import app
+
         client = TestClient(app)
         project = _create_project(client)
         project_id = project["id"]
@@ -423,6 +477,7 @@ class TestOTLPRoutes:
         and ARGUS multi-tenancy fields accept the camelCase ``projectId``.
         """
         from app.main import app
+
         client = TestClient(app)
         project = _create_project(client)
         project_id = project["id"]
@@ -434,7 +489,10 @@ class TestOTLPRoutes:
                 {
                     "resource": {
                         "attributes": [
-                            {"key": "service.name", "value": {"stringValue": "camel-svc"}},
+                            {
+                                "key": "service.name",
+                                "value": {"stringValue": "camel-svc"},
+                            },
                         ]
                     },
                     "scopeSpans": [
@@ -489,6 +547,7 @@ class TestOTLPRoutes:
     def test_ingest_otlp_logs_protojson_camel_case(self) -> None:
         """§17: camelCase OTLP log records (string nanos) accepted."""
         from app.main import app
+
         client = TestClient(app)
         project = _create_project(client)
         project_id = project["id"]
@@ -521,14 +580,18 @@ class TestOTLPRoutes:
 
     def test_ingest_otlp_traces_empty(self) -> None:
         from app.main import app
+
         client = TestClient(app)
         project = _create_project(client)
         project_id = project["id"]
 
-        resp = client.post("/api/v1/otlp/v1/traces", json={
-            "project_id": project_id,
-            "resource_spans": [],
-        })
+        resp = client.post(
+            "/api/v1/otlp/v1/traces",
+            json={
+                "project_id": project_id,
+                "resource_spans": [],
+            },
+        )
         assert resp.status_code == 200
         assert resp.json()["accepted"] == 0
 
@@ -541,6 +604,7 @@ class TestPrometheusScrape:
 
     def test_metrics_endpoint_returns_text(self) -> None:
         from app.main import app
+
         client = TestClient(app)
 
         resp = client.get("/metrics")
@@ -551,6 +615,7 @@ class TestPrometheusScrape:
 
     def test_metrics_endpoint_includes_expected_metrics(self) -> None:
         from app.main import app
+
         client = TestClient(app)
 
         resp = client.get("/metrics")
@@ -564,6 +629,7 @@ class TestPrometheusScrape:
 
     def test_metrics_with_project_filter(self) -> None:
         from app.main import app
+
         client = TestClient(app)
         project = _create_project(client)
 
@@ -574,6 +640,7 @@ class TestPrometheusScrape:
     def test_metrics_always_reachable(self) -> None:
         """The /metrics endpoint must never error (Prometheus needs a stable target)."""
         from app.main import app
+
         client = TestClient(app)
 
         resp = client.get("/metrics")
@@ -582,7 +649,7 @@ class TestPrometheusScrape:
         lines = resp.text.strip().split("\n")
         assert len(lines) > 0
         # Must contain HELP/TYPE metadata
-        help_lines = [l for l in lines if l.startswith("# HELP")]
+        help_lines = [line for line in lines if line.startswith("# HELP")]
         assert len(help_lines) > 0
 
 
@@ -594,6 +661,7 @@ class TestRetentionPolicy:
 
     def test_retention_policy_endpoint(self) -> None:
         from app.main import app
+
         client = TestClient(app)
 
         resp = client.get("/api/v1/ingestion/retention/policy")
@@ -609,6 +677,7 @@ class TestRetentionPolicy:
 
     def test_retention_preview_empty_db(self) -> None:
         from app.main import app
+
         client = TestClient(app)
 
         resp = client.get("/api/v1/ingestion/retention/preview")
@@ -619,6 +688,7 @@ class TestRetentionPolicy:
 
     def test_retention_sweep_empty_db(self) -> None:
         from app.main import app
+
         client = TestClient(app)
 
         resp = client.post("/api/v1/ingestion/retention/sweep")
@@ -629,69 +699,85 @@ class TestRetentionPolicy:
     def test_retention_preview_shows_old_data(self) -> None:
         """Insert an event dated far in the past, verify preview finds it."""
         from app.main import app
+
         client = TestClient(app)
         project = _create_project(client)
         project_id = project["id"]
 
         # Insert an event dated 200 days ago (exceeds default 90d retention)
         old_ts = (datetime.now(tz=timezone.utc) - timedelta(days=200)).isoformat()
-        resp = client.post("/api/v1/observability/events", json={
-            "project_id": project_id,
-            "timestamp": old_ts,
-            "source": "retention-test",
-            "event_type": "SYSTEM_EVENT",
-            "payload": {"message": "old event"},
-        })
+        resp = client.post(
+            "/api/v1/observability/events",
+            json={
+                "project_id": project_id,
+                "timestamp": old_ts,
+                "source": "retention-test",
+                "event_type": "SYSTEM_EVENT",
+                "payload": {"message": "old event"},
+            },
+        )
         assert resp.status_code == 201
 
         # Preview should show 1 event to delete
         resp = client.get("/api/v1/ingestion/retention/preview")
         assert resp.status_code == 200
         data = resp.json()
-        events_row = next(r for r in data["results"] if r["table"] == "observability_events")
+        events_row = next(
+            r for r in data["results"] if r["table"] == "observability_events"
+        )
         assert events_row["deleted"] >= 1
 
     def test_retention_sweep_deletes_old_data(self) -> None:
         """Insert an event dated far in the past, sweep should remove it."""
         from app.main import app
+
         client = TestClient(app)
         project = _create_project(client)
         project_id = project["id"]
 
         # Insert an event dated 200 days ago
         old_ts = (datetime.now(tz=timezone.utc) - timedelta(days=200)).isoformat()
-        resp = client.post("/api/v1/observability/events", json={
-            "project_id": project_id,
-            "timestamp": old_ts,
-            "source": "retention-test",
-            "event_type": "SYSTEM_EVENT",
-            "payload": {"message": "old event to delete"},
-        })
+        resp = client.post(
+            "/api/v1/observability/events",
+            json={
+                "project_id": project_id,
+                "timestamp": old_ts,
+                "source": "retention-test",
+                "event_type": "SYSTEM_EVENT",
+                "payload": {"message": "old event to delete"},
+            },
+        )
         assert resp.status_code == 201
 
         # Sweep
         resp = client.post("/api/v1/ingestion/retention/sweep")
         assert resp.status_code == 200
         data = resp.json()
-        events_row = next(r for r in data["results"] if r["table"] == "observability_events")
+        events_row = next(
+            r for r in data["results"] if r["table"] == "observability_events"
+        )
         assert events_row["deleted"] >= 1
 
     def test_retention_keeps_recent_data(self) -> None:
         """Recent data should survive a retention sweep."""
         from app.main import app
+
         client = TestClient(app)
         project = _create_project(client)
         project_id = project["id"]
 
         # Insert a recent event
         recent_ts = (datetime.now(tz=timezone.utc) - timedelta(days=1)).isoformat()
-        resp = client.post("/api/v1/observability/events", json={
-            "project_id": project_id,
-            "timestamp": recent_ts,
-            "source": "retention-test",
-            "event_type": "SYSTEM_EVENT",
-            "payload": {"message": "recent event"},
-        })
+        resp = client.post(
+            "/api/v1/observability/events",
+            json={
+                "project_id": project_id,
+                "timestamp": recent_ts,
+                "source": "retention-test",
+                "event_type": "SYSTEM_EVENT",
+                "payload": {"message": "recent event"},
+            },
+        )
         assert resp.status_code == 201
 
         # Sweep should not delete recent data
@@ -713,47 +799,63 @@ class TestTraceValidation:
     def _create_trace_and_spans(self, client: TestClient, project_id: str) -> dict:
         """Helper: create a trace with parent + child spans."""
         # Create trace
-        resp = client.post("/api/v1/observability/traces", json={
-            "project_id": project_id,
-            "trace_id": "trace-val-001",
-            "name": "test-trace",
-            "start_time": _TS.isoformat(),
-            "end_time": (datetime(2026, 1, 1, 12, 0, 0, 100000, tzinfo=timezone.utc)).isoformat(),
-            "duration_ms": 0.1,
-            "status": "OK",
-        })
+        resp = client.post(
+            "/api/v1/observability/traces",
+            json={
+                "project_id": project_id,
+                "trace_id": "trace-val-001",
+                "name": "test-trace",
+                "start_time": _TS.isoformat(),
+                "end_time": (
+                    datetime(2026, 1, 1, 12, 0, 0, 100000, tzinfo=timezone.utc)
+                ).isoformat(),
+                "duration_ms": 0.1,
+                "status": "OK",
+            },
+        )
         assert resp.status_code == 201
 
         # Create parent span
-        resp = client.post("/api/v1/observability/traces/spans", json={
-            "trace_id": "trace-val-001",
-            "span_id": "span-parent-001",
-            "parent_span_id": None,
-            "project_id": project_id,
-            "operation": "HTTP GET /users",
-            "start_time": _TS.isoformat(),
-            "end_time": (datetime(2026, 1, 1, 12, 0, 0, 80000, tzinfo=timezone.utc)).isoformat(),
-            "duration_ms": 0.08,
-            "status": "OK",
-        })
+        resp = client.post(
+            "/api/v1/observability/traces/spans",
+            json={
+                "trace_id": "trace-val-001",
+                "span_id": "span-parent-001",
+                "parent_span_id": None,
+                "project_id": project_id,
+                "operation": "HTTP GET /users",
+                "start_time": _TS.isoformat(),
+                "end_time": (
+                    datetime(2026, 1, 1, 12, 0, 0, 80000, tzinfo=timezone.utc)
+                ).isoformat(),
+                "duration_ms": 0.08,
+                "status": "OK",
+            },
+        )
         assert resp.status_code == 201
 
         # Create child span
-        resp = client.post("/api/v1/observability/traces/spans", json={
-            "trace_id": "trace-val-001",
-            "span_id": "span-child-001",
-            "parent_span_id": "span-parent-001",
-            "project_id": project_id,
-            "operation": "db.query",
-            "start_time": _TS.isoformat(),
-            "end_time": (datetime(2026, 1, 1, 12, 0, 0, 50000, tzinfo=timezone.utc)).isoformat(),
-            "duration_ms": 0.05,
-            "status": "OK",
-        })
+        resp = client.post(
+            "/api/v1/observability/traces/spans",
+            json={
+                "trace_id": "trace-val-001",
+                "span_id": "span-child-001",
+                "parent_span_id": "span-parent-001",
+                "project_id": project_id,
+                "operation": "db.query",
+                "start_time": _TS.isoformat(),
+                "end_time": (
+                    datetime(2026, 1, 1, 12, 0, 0, 50000, tzinfo=timezone.utc)
+                ).isoformat(),
+                "duration_ms": 0.05,
+                "status": "OK",
+            },
+        )
         assert resp.status_code == 201
 
     def test_validate_trace_valid(self) -> None:
         from app.main import app
+
         client = TestClient(app)
         project = _create_project(client)
 
@@ -770,29 +872,36 @@ class TestTraceValidation:
 
     def test_validate_trace_with_orphan(self) -> None:
         from app.main import app
+
         client = TestClient(app)
         project = _create_project(client)
 
         # Create trace
-        resp = client.post("/api/v1/observability/traces", json={
-            "project_id": project["id"],
-            "trace_id": "trace-orphan-001",
-            "name": "orphan-trace",
-            "start_time": _TS.isoformat(),
-            "status": "OK",
-        })
+        resp = client.post(
+            "/api/v1/observability/traces",
+            json={
+                "project_id": project["id"],
+                "trace_id": "trace-orphan-001",
+                "name": "orphan-trace",
+                "start_time": _TS.isoformat(),
+                "status": "OK",
+            },
+        )
         assert resp.status_code == 201
 
         # Create span with non-existent parent
-        resp = client.post("/api/v1/observability/traces/spans", json={
-            "trace_id": "trace-orphan-001",
-            "span_id": "orphan-span-001",
-            "parent_span_id": "nonexistent-parent",
-            "project_id": project["id"],
-            "operation": "orphan-op",
-            "start_time": _TS.isoformat(),
-            "status": "OK",
-        })
+        resp = client.post(
+            "/api/v1/observability/traces/spans",
+            json={
+                "trace_id": "trace-orphan-001",
+                "span_id": "orphan-span-001",
+                "parent_span_id": "nonexistent-parent",
+                "project_id": project["id"],
+                "operation": "orphan-op",
+                "start_time": _TS.isoformat(),
+                "status": "OK",
+            },
+        )
         assert resp.status_code == 201
 
         resp = client.get("/api/v1/ingestion/trace-validation/trace-orphan-001")
@@ -807,19 +916,23 @@ class TestTraceValidation:
     def test_validate_trace_missing_trace_record(self) -> None:
         """A trace_id with spans but no TraceRecord should be flagged."""
         from app.main import app
+
         client = TestClient(app)
         project = _create_project(client)
 
         # Create span referencing a trace that doesn't exist as a TraceRecord
-        resp = client.post("/api/v1/observability/traces/spans", json={
-            "trace_id": "trace-missing-record",
-            "span_id": "span-no-record",
-            "parent_span_id": None,
-            "project_id": project["id"],
-            "operation": "orphan-trace",
-            "start_time": _TS.isoformat(),
-            "status": "OK",
-        })
+        resp = client.post(
+            "/api/v1/observability/traces/spans",
+            json={
+                "trace_id": "trace-missing-record",
+                "span_id": "span-no-record",
+                "parent_span_id": None,
+                "project_id": project["id"],
+                "operation": "orphan-trace",
+                "start_time": _TS.isoformat(),
+                "status": "OK",
+            },
+        )
         assert resp.status_code == 201
 
         resp = client.get("/api/v1/ingestion/trace-validation/trace-missing-record")
@@ -830,6 +943,7 @@ class TestTraceValidation:
 
     def test_find_orphan_spans(self) -> None:
         from app.main import app
+
         client = TestClient(app)
         project = _create_project(client)
 
@@ -837,24 +951,30 @@ class TestTraceValidation:
         self._create_trace_and_spans(client, project["id"])
 
         # Create an orphan span
-        resp = client.post("/api/v1/observability/traces", json={
-            "project_id": project["id"],
-            "trace_id": "trace-orphan-list",
-            "name": "orphan-list-trace",
-            "start_time": _TS.isoformat(),
-            "status": "OK",
-        })
+        resp = client.post(
+            "/api/v1/observability/traces",
+            json={
+                "project_id": project["id"],
+                "trace_id": "trace-orphan-list",
+                "name": "orphan-list-trace",
+                "start_time": _TS.isoformat(),
+                "status": "OK",
+            },
+        )
         assert resp.status_code == 201
 
-        resp = client.post("/api/v1/observability/traces/spans", json={
-            "trace_id": "trace-orphan-list",
-            "span_id": "orphan-in-list",
-            "parent_span_id": "nonexistent-list-parent",
-            "project_id": project["id"],
-            "operation": "orphan-list-op",
-            "start_time": _TS.isoformat(),
-            "status": "OK",
-        })
+        resp = client.post(
+            "/api/v1/observability/traces/spans",
+            json={
+                "trace_id": "trace-orphan-list",
+                "span_id": "orphan-in-list",
+                "parent_span_id": "nonexistent-list-parent",
+                "project_id": project["id"],
+                "operation": "orphan-list-op",
+                "start_time": _TS.isoformat(),
+                "status": "OK",
+            },
+        )
         assert resp.status_code == 201
 
         resp = client.get(f"/api/v1/ingestion/orphan-spans/{project['id']}")
@@ -866,6 +986,7 @@ class TestTraceValidation:
 
     def test_validate_project_traces(self) -> None:
         from app.main import app
+
         client = TestClient(app)
         project = _create_project(client)
 

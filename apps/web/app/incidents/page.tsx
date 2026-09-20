@@ -1,36 +1,23 @@
 import Link from 'next/link';
+
+import { api, formatDate, type Incident } from '@/lib/api';
 import {
-  api,
-  formatDate,
-  type Incident,
-  type IncidentSeverity,
-  type IncidentStatus,
-} from '@/lib/api';
+  INCIDENT_STATUS_ORDER,
+  SEVERITY_ORDER,
+  SEVERITY_STYLES,
+  STATUS_STYLES,
+} from '@/lib/incidents';
 
-const SEVERITY_STYLES: Record<IncidentSeverity, string> = {
-  critical: 'bg-argus-error/15 text-argus-error',
-  major: 'bg-argus-warning/15 text-argus-warning',
-  minor: 'bg-argus-info/15 text-argus-info',
-  low: 'bg-argus-accent/15 text-argus-accent',
-};
-
-const STATUS_STYLES: Record<IncidentStatus, string> = {
-  detected: 'bg-argus-error/10 text-argus-error',
-  acknowledged: 'bg-argus-warning/10 text-argus-warning',
-  in_progress: 'bg-argus-info/10 text-argus-info',
-  resolved: 'bg-argus-success/10 text-argus-success',
-  closed: 'bg-slate-700/40 text-slate-400',
+export const metadata = {
+  title: 'Incidents',
 };
 
 interface IncidentsSearchParams {
   page?: string;
   severity?: string;
   status?: string;
+  project_id?: string;
 }
-
-export const metadata = {
-  title: 'Incidents',
-};
 
 export default async function IncidentsPage({
   searchParams,
@@ -39,34 +26,58 @@ export default async function IncidentsPage({
 }) {
   const rawPage = Number(searchParams.page);
   const page = Number.isInteger(rawPage) && rawPage > 0 ? rawPage : 1;
-  const severity = typeof searchParams.severity === 'string' ? searchParams.severity : '';
-  const status = typeof searchParams.status === 'string' ? searchParams.status : '';
+  const severity =
+    typeof searchParams.severity === 'string' ? searchParams.severity : '';
+  const status =
+    typeof searchParams.status === 'string' ? searchParams.status : '';
+  const projectId =
+    typeof searchParams.project_id === 'string' ? searchParams.project_id : '';
+
+  const buildHref = (overrides: {
+    page?: number;
+    severity?: string;
+    status?: string;
+  }) => {
+    const params = new URLSearchParams();
+    const nextSeverity = overrides.severity ?? severity;
+    const nextStatus = overrides.status ?? status;
+    if (overrides.page !== undefined) {
+      params.set('page', String(overrides.page));
+    }
+    if (nextSeverity !== '') params.set('severity', nextSeverity);
+    if (nextStatus !== '') params.set('status', nextStatus);
+    if (projectId !== '') params.set('project_id', projectId);
+    const qs = params.toString();
+    return qs ? `/incidents?${qs}` : '/incidents';
+  };
 
   try {
-    const data = await api.listIncidents({ page, pageSize: 20, severity, status });
-
-    const buildListHref = (overrides: { page?: number; severity?: string }) => {
-      const params = new URLSearchParams();
-      if (overrides.page !== undefined) {
-        params.set('page', String(overrides.page));
-      }
-      if (overrides.severity !== undefined && overrides.severity !== '') {
-        params.set('severity', overrides.severity);
-      }
-      if (status !== '') {
-        params.set('status', status);
-      }
-      const qs = params.toString();
-      return qs ? `/incidents?${qs}` : '/incidents';
-    };
+    const data = await api.listIncidents({
+      page,
+      pageSize: 20,
+      severity,
+      status,
+      projectId: projectId || undefined,
+    });
 
     return (
       <div className="space-y-6">
-        <div>
-          <h1 className="text-2xl font-semibold text-slate-100">Incidents</h1>
-          <p className="mt-1 text-sm text-slate-400">
-            {data.total} incident{data.total === 1 ? '' : 's'}
-          </p>
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-semibold text-slate-100">Incidents</h1>
+            <p className="mt-1 text-sm text-slate-400">
+              {data.total} incident{data.total === 1 ? '' : 's'} — correlated
+              anomaly groups, not determined root causes.
+            </p>
+          </div>
+          <div className="flex gap-3">
+            <Link href="/incidents/dashboard" className="btn-ghost">
+              Dashboard
+            </Link>
+            <Link href="/anomalies" className="btn-ghost">
+              Anomaly center
+            </Link>
+          </div>
         </div>
 
         <form
@@ -88,10 +99,11 @@ export default async function IncidentsPage({
               className="input"
             >
               <option value="">All severities</option>
-              <option value="critical">Critical</option>
-              <option value="major">Major</option>
-              <option value="minor">Minor</option>
-              <option value="low">Low</option>
+              {SEVERITY_ORDER.map((value) => (
+                <option key={value} value={value}>
+                  {value}
+                </option>
+              ))}
             </select>
           </div>
 
@@ -102,13 +114,18 @@ export default async function IncidentsPage({
             >
               Status
             </label>
-            <select id="status" name="status" defaultValue={status} className="input">
+            <select
+              id="status"
+              name="status"
+              defaultValue={status}
+              className="input"
+            >
               <option value="">All statuses</option>
-              <option value="detected">Detected</option>
-              <option value="acknowledged">Acknowledged</option>
-              <option value="in_progress">In progress</option>
-              <option value="resolved">Resolved</option>
-              <option value="closed">Closed</option>
+              {INCIDENT_STATUS_ORDER.map((value) => (
+                <option key={value} value={value}>
+                  {value}
+                </option>
+              ))}
             </select>
           </div>
 
@@ -116,7 +133,7 @@ export default async function IncidentsPage({
             Apply filters
           </button>
 
-          {(severity !== '' || status !== '') && (
+          {(severity !== '' || status !== '' || projectId !== '') && (
             <Link href="/incidents" className="btn-ghost">
               Clear filters
             </Link>
@@ -128,7 +145,7 @@ export default async function IncidentsPage({
             <p className="text-sm text-slate-400">
               {severity !== '' || status !== ''
                 ? 'No incidents match the selected filters.'
-                : 'No incidents recorded.'}
+                : 'No incidents recorded yet. Incidents appear when anomalies are correlated.'}
             </p>
           </div>
         ) : (
@@ -140,7 +157,7 @@ export default async function IncidentsPage({
                   <th className="px-4 py-3">Severity</th>
                   <th className="px-4 py-3">Status</th>
                   <th className="px-4 py-3">Detected</th>
-                  <th className="px-4 py-3">Project</th>
+                  <th className="px-4 py-3">Fingerprint</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800">
@@ -161,7 +178,7 @@ export default async function IncidentsPage({
                       <span
                         className={`badge ${
                           SEVERITY_STYLES[incident.severity] ??
-                          SEVERITY_STYLES.low
+                          SEVERITY_STYLES.LOW
                         }`}
                       >
                         {incident.severity}
@@ -170,8 +187,7 @@ export default async function IncidentsPage({
                     <td className="px-4 py-3">
                       <span
                         className={`badge ${
-                          STATUS_STYLES[incident.status] ??
-                          STATUS_STYLES.detected
+                          STATUS_STYLES[incident.status] ?? STATUS_STYLES.OPEN
                         }`}
                       >
                         {incident.status}
@@ -180,17 +196,10 @@ export default async function IncidentsPage({
                     <td className="px-4 py-3 text-slate-400">
                       {formatDate(incident.detected_at)}
                     </td>
-                    <td className="px-4 py-3 text-slate-500">
-                      {incident.project_id ? (
-                        <Link
-                          href={`/projects/${incident.project_id}`}
-                          className="font-mono text-xs text-slate-400 hover:text-argus-accent"
-                        >
-                          {incident.project_id}
-                        </Link>
-                      ) : (
-                        '—'
-                      )}
+                    <td className="px-4 py-3 font-mono text-xs text-slate-500">
+                      {incident.fingerprint
+                        ? `${incident.fingerprint.slice(0, 12)}…`
+                        : '—'}
                     </td>
                   </tr>
                 ))}
@@ -206,7 +215,10 @@ export default async function IncidentsPage({
             </p>
             <div className="flex gap-3">
               {page > 1 ? (
-                <Link href={buildListHref({ page: page - 1 })} className="btn-ghost">
+                <Link
+                  href={buildHref({ page: page - 1 })}
+                  className="btn-ghost"
+                >
                   Previous
                 </Link>
               ) : (
@@ -215,7 +227,10 @@ export default async function IncidentsPage({
                 </span>
               )}
               {page < data.total_pages ? (
-                <Link href={buildListHref({ page: page + 1 })} className="btn-primary">
+                <Link
+                  href={buildHref({ page: page + 1 })}
+                  className="btn-primary"
+                >
                   Next
                 </Link>
               ) : (
@@ -235,9 +250,7 @@ export default async function IncidentsPage({
       <div className="space-y-6">
         <div>
           <h1 className="text-2xl font-semibold text-slate-100">Incidents</h1>
-          <p className="mt-1 text-sm text-slate-400">
-            All recorded incidents
-          </p>
+          <p className="mt-1 text-sm text-slate-400">All recorded incidents</p>
         </div>
         <div className="card border-argus-error/40">
           <h2 className="font-medium text-argus-error">

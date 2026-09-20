@@ -1,4 +1,5 @@
 """ARGUS Component Routes."""
+
 from __future__ import annotations
 
 import uuid
@@ -45,7 +46,9 @@ async def list_components(
         count_query = count_query.where(SystemComponent.project_id == project_id)
     if environment_id:
         query = query.where(SystemComponent.environment_id == environment_id)
-        count_query = count_query.where(SystemComponent.environment_id == environment_id)
+        count_query = count_query.where(
+            SystemComponent.environment_id == environment_id
+        )
 
     total_result = await db.execute(count_query)
     total = total_result.scalar() or 0
@@ -118,7 +121,11 @@ async def delete_component(
 
 
 # Project-scoped component routes
-@router.post("/projects/{project_id}/components", response_model=ComponentResponse, status_code=201)
+@router.post(
+    "/projects/{project_id}/components",
+    response_model=ComponentResponse,
+    status_code=201,
+)
 async def create_project_component(
     project_id: uuid.UUID,
     component_data: ComponentCreate,
@@ -150,9 +157,7 @@ async def list_project_components(
     db: AsyncSession = Depends(get_db),
 ) -> ComponentList:
     """List components for a specific project."""
-    query = select(SystemComponent).where(
-        SystemComponent.project_id == project_id
-    )
+    query = select(SystemComponent).where(SystemComponent.project_id == project_id)
     count_query = select(func.count(SystemComponent.id)).where(
         SystemComponent.project_id == project_id
     )
@@ -174,7 +179,11 @@ async def list_project_components(
 
 
 # Dependency routes
-@router.post("/projects/{project_id}/dependencies", response_model=DependencyResponse, status_code=201)
+@router.post(
+    "/projects/{project_id}/dependencies",
+    response_model=DependencyResponse,
+    status_code=201,
+)
 async def create_dependency(
     project_id: uuid.UUID,
     dep_data: DependencyCreate,
@@ -196,9 +205,7 @@ async def list_dependencies(
     """List dependencies for a project."""
     # Get all components for the project
     components_result = await db.execute(
-        select(SystemComponent.id).where(
-            SystemComponent.project_id == project_id
-        )
+        select(SystemComponent.id).where(SystemComponent.project_id == project_id)
     )
     component_ids = list(components_result.scalars().all())
 
@@ -231,9 +238,7 @@ async def get_system_map(
     """Get the system map for a project."""
     # Get all components
     components_result = await db.execute(
-        select(SystemComponent).where(
-            SystemComponent.project_id == project_id
-        )
+        select(SystemComponent).where(SystemComponent.project_id == project_id)
     )
     components = components_result.scalars().all()
 

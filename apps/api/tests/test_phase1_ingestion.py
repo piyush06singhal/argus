@@ -1,14 +1,13 @@
 """Phase 1 tests: ingestion helpers, redaction, fingerprinting, dedup,
 source registry routes, batch ingestion, config/health events, stats.
 """
+
 from __future__ import annotations
 
 import re
 import uuid
 from datetime import datetime, timezone
 
-import pytest
-import pytest_asyncio
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -132,13 +131,17 @@ class TestEventFingerprint:
     def test_same_inputs_same_fingerprint(self) -> None:
         pid = uuid.uuid4()
         fp1 = EventFingerprint.compute(
-            project_id=pid, source="app:svc",
-            event_type="LOG", timestamp=_TS,
+            project_id=pid,
+            source="app:svc",
+            event_type="LOG",
+            timestamp=_TS,
             payload={"msg": "hello"},
         )
         fp2 = EventFingerprint.compute(
-            project_id=pid, source="app:svc",
-            event_type="LOG", timestamp=_TS,
+            project_id=pid,
+            source="app:svc",
+            event_type="LOG",
+            timestamp=_TS,
             payload={"msg": "hello"},
         )
         assert fp1 == fp2
@@ -146,13 +149,17 @@ class TestEventFingerprint:
     def test_different_project_different_fingerprint(self) -> None:
         pid1, pid2 = uuid.uuid4(), uuid.uuid4()
         fp1 = EventFingerprint.compute(
-            project_id=pid1, source="app:svc",
-            event_type="LOG", timestamp=_TS,
+            project_id=pid1,
+            source="app:svc",
+            event_type="LOG",
+            timestamp=_TS,
             payload={"msg": "hello"},
         )
         fp2 = EventFingerprint.compute(
-            project_id=pid2, source="app:svc",
-            event_type="LOG", timestamp=_TS,
+            project_id=pid2,
+            source="app:svc",
+            event_type="LOG",
+            timestamp=_TS,
             payload={"msg": "hello"},
         )
         assert fp1 != fp2
@@ -160,13 +167,17 @@ class TestEventFingerprint:
     def test_volatile_underscore_keys_excluded(self) -> None:
         pid = uuid.uuid4()
         fp1 = EventFingerprint.compute(
-            project_id=pid, source="app:svc",
-            event_type="LOG", timestamp=_TS,
+            project_id=pid,
+            source="app:svc",
+            event_type="LOG",
+            timestamp=_TS,
             payload={"msg": "hello", "_internal": "ignored"},
         )
         fp2 = EventFingerprint.compute(
-            project_id=pid, source="app:svc",
-            event_type="LOG", timestamp=_TS,
+            project_id=pid,
+            source="app:svc",
+            event_type="LOG",
+            timestamp=_TS,
             payload={"msg": "hello", "_internal": "changed"},
         )
         assert fp1 == fp2
@@ -174,14 +185,18 @@ class TestEventFingerprint:
     def test_stable_keys_override(self) -> None:
         pid = uuid.uuid4()
         fp1 = EventFingerprint.compute(
-            project_id=pid, source="app:svc",
-            event_type="LOG", timestamp=_TS,
+            project_id=pid,
+            source="app:svc",
+            event_type="LOG",
+            timestamp=_TS,
             payload={"msg": "hello", "latency_ms": 42.1},
             stable_keys=["msg"],
         )
         fp2 = EventFingerprint.compute(
-            project_id=pid, source="app:svc",
-            event_type="LOG", timestamp=_TS,
+            project_id=pid,
+            source="app:svc",
+            event_type="LOG",
+            timestamp=_TS,
             payload={"msg": "hello", "latency_ms": 99.9},
             stable_keys=["msg"],
         )
@@ -190,16 +205,20 @@ class TestEventFingerprint:
     def test_empty_payload(self) -> None:
         pid = uuid.uuid4()
         fp = EventFingerprint.compute(
-            project_id=pid, source="app:svc",
-            event_type="LOG", timestamp=_TS,
+            project_id=pid,
+            source="app:svc",
+            event_type="LOG",
+            timestamp=_TS,
             payload=None,
         )
         assert isinstance(fp, str) and len(fp) == 64
 
     def test_is_256bit_hex(self) -> None:
         fp = EventFingerprint.compute(
-            project_id=uuid.uuid4(), source="x",
-            event_type="LOG", timestamp=_TS,
+            project_id=uuid.uuid4(),
+            source="x",
+            event_type="LOG",
+            timestamp=_TS,
             payload={"k": "v"},
         )
         assert re.fullmatch(r"[0-9a-f]{64}", fp)
@@ -236,8 +255,12 @@ class TestCorrelationEngine:
 
     def test_deployment_id_links_events(self) -> None:
         engine = CorrelationEngine()
-        c1 = engine.correlate(request_id=None, trace_id=None, deployment_id="deploy-123")
-        c2 = engine.correlate(request_id=None, trace_id=None, deployment_id="deploy-123")
+        c1 = engine.correlate(
+            request_id=None, trace_id=None, deployment_id="deploy-123"
+        )
+        c2 = engine.correlate(
+            request_id=None, trace_id=None, deployment_id="deploy-123"
+        )
         assert c1 == c2
 
     def test_different_trace_ids_different_correlations(self) -> None:
@@ -251,7 +274,9 @@ class TestCorrelationEngine:
 # Ingestion pipeline dedup + persistence tests (service-level, use db_session)
 # ---------------------------------------------------------------------------
 class TestIngestionPipelineDedup:
-    async def test_dedup_rejects_duplicate_event(self, db_session: AsyncSession) -> None:
+    async def test_dedup_rejects_duplicate_event(
+        self, db_session: AsyncSession
+    ) -> None:
         from app.services.ingestion import IngestionPipeline
 
         project_id = uuid.uuid4()
@@ -261,8 +286,10 @@ class TestIngestionPipelineDedup:
             project_id=project_id,
         )
         raw = RawObservabilityEvent(
-            source_type="mock", source_name="dedup-test",
-            timestamp=_TS, event_type="SYSTEM_EVENT",
+            source_type="mock",
+            source_name="dedup-test",
+            timestamp=_TS,
+            event_type="SYSTEM_EVENT",
             payload={"message": "hello"},
         )
         r1 = await pipeline.ingest_batch([raw])
@@ -283,13 +310,17 @@ class TestIngestionPipelineDedup:
             project_id=project_id,
         )
         good = RawObservabilityEvent(
-            source_type="mock", source_name="test",
-            timestamp=_TS, event_type="SYSTEM_EVENT",
+            source_type="mock",
+            source_name="test",
+            timestamp=_TS,
+            event_type="SYSTEM_EVENT",
             payload={"message": "ok"},
         )
         bad = RawObservabilityEvent(
-            source_type="UNKNOWN!!!", source_name="bad",
-            timestamp=_TS, event_type="SYSTEM_EVENT",
+            source_type="UNKNOWN!!!",
+            source_name="bad",
+            timestamp=_TS,
+            event_type="SYSTEM_EVENT",
             payload={},
         )
         result = await pipeline.ingest_batch([good, bad])
@@ -306,19 +337,25 @@ class TestIngestionPipelineDedup:
             project_id=project_id,
         )
         raw = RawObservabilityEvent(
-            source_type="mock", source_name="corr-test",
-            timestamp=_TS, event_type="SYSTEM_EVENT",
+            source_type="mock",
+            source_name="corr-test",
+            timestamp=_TS,
+            event_type="SYSTEM_EVENT",
             payload={"message": "trace me", "trace_id": "abc-123"},
         )
         await pipeline.ingest_batch([raw])
 
         events = (
-            await db_session.execute(
-                select(ObservabilityEvent).where(
-                    ObservabilityEvent.project_id == project_id
+            (
+                await db_session.execute(
+                    select(ObservabilityEvent).where(
+                        ObservabilityEvent.project_id == project_id
+                    )
                 )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         assert len(events) == 1
         assert events[0].correlation_id is not None
         assert len(events[0].correlation_id) == 32
@@ -334,8 +371,10 @@ class TestIngestionPipelineDedup:
             project_id=project_id,
         )
         raw = RawObservabilityEvent(
-            source_type="mock", source_name="fp-test",
-            timestamp=_TS, event_type="SYSTEM_EVENT",
+            source_type="mock",
+            source_name="fp-test",
+            timestamp=_TS,
+            event_type="SYSTEM_EVENT",
             payload={"message": "fingerprint me"},
         )
         await pipeline.ingest_batch([raw])
@@ -360,8 +399,10 @@ class TestIngestionPipelineDedup:
             project_id=project_id,
         )
         raw = RawObservabilityEvent(
-            source_type="mock", source_name="redact-test",
-            timestamp=_TS, event_type="SYSTEM_EVENT",
+            source_type="mock",
+            source_name="redact-test",
+            timestamp=_TS,
+            event_type="SYSTEM_EVENT",
             payload={"message": "hi", "api_key": "LEAKED"},
         )
         await pipeline.ingest_batch([raw])
@@ -398,13 +439,16 @@ class TestSourceRegistryAPI:
         project = _create_project(client)
         pid = project["id"]
 
-        resp = client.post("/api/v1/ingestion/sources", json={
-            "project_id": pid,
-            "name": "app-logger",
-            "source_type": "APPLICATION",
-            "description": "Main app log stream",
-            "configuration": {"endpoint": "https://logs.example.com"},
-        })
+        resp = client.post(
+            "/api/v1/ingestion/sources",
+            json={
+                "project_id": pid,
+                "name": "app-logger",
+                "source_type": "APPLICATION",
+                "description": "Main app log stream",
+                "configuration": {"endpoint": "https://logs.example.com"},
+            },
+        )
         assert resp.status_code == 201
         body = resp.json()
         assert body["name"] == "app-logger"
@@ -442,12 +486,15 @@ class TestSourceRegistryAPI:
 
     def test_source_rejects_secrets(self, client: TestClient) -> None:
         project = _create_project(client)
-        resp = client.post("/api/v1/ingestion/sources", json={
-            "project_id": project["id"],
-            "name": "bad",
-            "source_type": "CUSTOM",
-            "configuration": {"api_key": "LEAKED"},
-        })
+        resp = client.post(
+            "/api/v1/ingestion/sources",
+            json={
+                "project_id": project["id"],
+                "name": "bad",
+                "source_type": "CUSTOM",
+                "configuration": {"api_key": "LEAKED"},
+            },
+        )
         assert resp.status_code == 422
         assert "api_key" in resp.json()["detail"]
 
@@ -459,12 +506,22 @@ class TestSourceRegistryAPI:
         p1 = _create_project(client)
         p2 = _create_project(client)
 
-        client.post("/api/v1/ingestion/sources", json={
-            "project_id": p1["id"], "name": "src1", "source_type": "CUSTOM",
-        })
-        client.post("/api/v1/ingestion/sources", json={
-            "project_id": p2["id"], "name": "src2", "source_type": "CUSTOM",
-        })
+        client.post(
+            "/api/v1/ingestion/sources",
+            json={
+                "project_id": p1["id"],
+                "name": "src1",
+                "source_type": "CUSTOM",
+            },
+        )
+        client.post(
+            "/api/v1/ingestion/sources",
+            json={
+                "project_id": p2["id"],
+                "name": "src2",
+                "source_type": "CUSTOM",
+            },
+        )
 
         resp = client.get(f"/api/v1/ingestion/sources?project_id={p1['id']}")
         assert resp.status_code == 200
@@ -495,12 +552,15 @@ class TestConfigChangeEventsAPI:
 
     def test_rejects_secret_keys(self, client: TestClient) -> None:
         project = _create_project(client)
-        resp = client.post("/api/v1/ingestion/config-changes", json={
-            "project_id": project["id"],
-            "change_id": "bad",
-            "timestamp": "2026-01-01T12:00:00Z",
-            "metadata": {"secret": "value"},
-        })
+        resp = client.post(
+            "/api/v1/ingestion/config-changes",
+            json={
+                "project_id": project["id"],
+                "change_id": "bad",
+                "timestamp": "2026-01-01T12:00:00Z",
+                "metadata": {"secret": "value"},
+            },
+        )
         assert resp.status_code == 422
 
 
@@ -574,29 +634,40 @@ class TestBulkIngestionAPI:
 
     def test_bulk_rejects_secret_keys(self, client: TestClient) -> None:
         project = _create_project(client)
-        resp = client.post("/api/v1/ingestion/bulk", json={
-            "project_id": project["id"],
-            "events": [{
-                "source_type": "mock", "source_name": "app",
-                "timestamp": "2026-01-01T12:00:00Z",
-                "event_type": "SYSTEM_EVENT",
-                "payload": {"password": "secret123", "msg": "hi"},
-            }],
-        })
+        resp = client.post(
+            "/api/v1/ingestion/bulk",
+            json={
+                "project_id": project["id"],
+                "events": [
+                    {
+                        "source_type": "mock",
+                        "source_name": "app",
+                        "timestamp": "2026-01-01T12:00:00Z",
+                        "event_type": "SYSTEM_EVENT",
+                        "payload": {"password": "secret123", "msg": "hi"},
+                    }
+                ],
+            },
+        )
         assert resp.status_code == 422
         assert "password" in resp.json()["detail"]
 
     def test_bulk_deduplicates(self, client: TestClient) -> None:
         project = _create_project(client)
         event = {
-            "source_type": "mock", "source_name": "dup",
+            "source_type": "mock",
+            "source_name": "dup",
             "timestamp": "2026-01-01T12:00:00Z",
             "event_type": "SYSTEM_EVENT",
             "payload": {"message": "same"},
         }
-        resp = client.post("/api/v1/ingestion/bulk", json={
-            "project_id": project["id"], "events": [event, event],
-        })
+        resp = client.post(
+            "/api/v1/ingestion/bulk",
+            json={
+                "project_id": project["id"],
+                "events": [event, event],
+            },
+        )
         assert resp.status_code == 200
         body = resp.json()
         assert body["accepted"] == 1
@@ -622,24 +693,30 @@ class TestIngestionStatsAPI:
 # ---------------------------------------------------------------------------
 class TestWebhookAPI:
     def test_webhook_receives_event(self, client: TestClient) -> None:
-        resp = client.post("/api/v1/ingestion/webhook", json={
-            "event_type": "LOG",
-            "timestamp": "2026-01-01T12:00:00Z",
-            "payload": {"message": "webhook event"},
-            "source_name": "github-webhook",
-            "project_id": str(uuid.uuid4()),
-        })
+        resp = client.post(
+            "/api/v1/ingestion/webhook",
+            json={
+                "event_type": "LOG",
+                "timestamp": "2026-01-01T12:00:00Z",
+                "payload": {"message": "webhook event"},
+                "source_name": "github-webhook",
+                "project_id": str(uuid.uuid4()),
+            },
+        )
         assert resp.status_code == 202
         assert resp.json()["received"] is True
         assert resp.json()["event_type"] == "LOG"
         assert resp.json()["queued"] is True
 
     def test_webhook_rejects_secrets(self, client: TestClient) -> None:
-        resp = client.post("/api/v1/ingestion/webhook", json={
-            "event_type": "LOG",
-            "timestamp": "2026-01-01T12:00:00Z",
-            "payload": {"token": "secret"},
-        })
+        resp = client.post(
+            "/api/v1/ingestion/webhook",
+            json={
+                "event_type": "LOG",
+                "timestamp": "2026-01-01T12:00:00Z",
+                "payload": {"token": "secret"},
+            },
+        )
         assert resp.status_code == 422
 
 
@@ -659,15 +736,21 @@ class TestIngestionQueueDegradation:
             mock_instance = MockQueue.return_value
             mock_instance.push = AsyncMock(side_effect=QueueUnavailable("no redis"))
 
-            resp = client.post("/api/v1/ingestion/queue", json={
-                "project_id": project["id"],
-                "events": [{
-                    "source_type": "mock", "source_name": "queue-fallback",
-                    "timestamp": "2026-01-01T12:00:00Z",
-                    "event_type": "SYSTEM_EVENT",
-                    "payload": {"message": "degraded"},
-                }],
-            })
+            resp = client.post(
+                "/api/v1/ingestion/queue",
+                json={
+                    "project_id": project["id"],
+                    "events": [
+                        {
+                            "source_type": "mock",
+                            "source_name": "queue-fallback",
+                            "timestamp": "2026-01-01T12:00:00Z",
+                            "event_type": "SYSTEM_EVENT",
+                            "payload": {"message": "degraded"},
+                        }
+                    ],
+                },
+            )
             # Should be 200 (sync fallback) not 202 (queued)
             assert resp.status_code == 200
             body = resp.json()
@@ -675,18 +758,26 @@ class TestIngestionQueueDegradation:
             assert body["reason"] == "broker_unavailable_processed_sync"
             assert body["accepted"] == 1
 
-    def test_queue_endpoint_returns_202_when_broker_available(self, client: TestClient) -> None:
+    def test_queue_endpoint_returns_202_when_broker_available(
+        self, client: TestClient
+    ) -> None:
         """When Redis is available, the queue endpoint returns 202 accepted."""
         project = _create_project(client)
-        resp = client.post("/api/v1/ingestion/queue", json={
-            "project_id": project["id"],
-            "events": [{
-                "source_type": "mock", "source_name": "queue-ok",
-                "timestamp": "2026-01-01T12:00:00Z",
-                "event_type": "SYSTEM_EVENT",
-                "payload": {"message": "queued"},
-            }],
-        })
+        resp = client.post(
+            "/api/v1/ingestion/queue",
+            json={
+                "project_id": project["id"],
+                "events": [
+                    {
+                        "source_type": "mock",
+                        "source_name": "queue-ok",
+                        "timestamp": "2026-01-01T12:00:00Z",
+                        "event_type": "SYSTEM_EVENT",
+                        "payload": {"message": "queued"},
+                    }
+                ],
+            },
+        )
         assert resp.status_code == 202
         body = resp.json()
         assert body["queued"] is True
@@ -710,10 +801,13 @@ class _FakeQueue:
 
     def __init__(self, initial: list[dict] | None = None):
         from collections import deque
+
         self._items: deque[dict] = deque(initial or [])
         self.pushed: list[dict] = []
 
-    async def pop(self, queue_name: str | None = None, timeout: float = 0.0) -> dict | None:
+    async def pop(
+        self, queue_name: str | None = None, timeout: float = 0.0
+    ) -> dict | None:
         return self._items.popleft() if self._items else None
 
     async def push(self, job: dict) -> None:
@@ -728,7 +822,10 @@ class TestIngestionWorker:
     def _make_worker(db_engine, process_fn, *, max_retries=2, queues=None):
         from app.services.queue import IngestionWorker, QUEUE_EVENTS
         from sqlalchemy.ext.asyncio import async_sessionmaker
-        factory = async_sessionmaker(db_engine, class_=AsyncSession, expire_on_commit=False)
+
+        factory = async_sessionmaker(
+            db_engine, class_=AsyncSession, expire_on_commit=False
+        )
         return IngestionWorker(
             session_factory=factory,
             process=process_fn,
@@ -743,6 +840,7 @@ class TestIngestionWorker:
         from app.services.queue import make_job
 
         processed: list[tuple] = []
+
         async def process(kind, payload):
             processed.append((kind, payload))
 
@@ -762,6 +860,7 @@ class TestIngestionWorker:
         from app.services.queue import make_job
 
         attempts: list[str] = []
+
         async def process(kind, payload):
             attempts.append(payload.get("source_id"))
             if len(attempts) == 1:
@@ -818,7 +917,10 @@ class TestIngestionWorker:
 
         # Persisted to ingestion_failures
         from sqlalchemy.ext.asyncio import async_sessionmaker
-        factory = async_sessionmaker(db_engine, class_=AsyncSession, expire_on_commit=False)
+
+        factory = async_sessionmaker(
+            db_engine, class_=AsyncSession, expire_on_commit=False
+        )
         async with factory() as session:
             rows = (await session.execute(select(IngestionFailure))).scalars().all()
             assert len(rows) == 1
@@ -830,12 +932,80 @@ class TestIngestionWorker:
             assert f.payload_summary["source_id"] == "str"
             assert f.payload_summary["msg"] == "str"
 
+    # -- permanent failures skip retries --------------------------------------
+    async def test_worker_permanent_error_dead_letters_immediately(
+        self, db_engine
+    ) -> None:
+        from unittest.mock import patch
+        from app.services.queue import PermanentJobError, make_job
+        from app.models.ingestion import IngestionFailure
+
+        attempts: list[str] = []
+
+        async def process(kind, payload):
+            attempts.append(payload.get("id"))
+            raise PermanentJobError("SoftwareProject ... not found")
+
+        fake = _FakeQueue(initial=[make_job(kind="event", payload={"id": "gone"})])
+        with (
+            patch("app.services.queue.IngestionQueue", return_value=fake),
+            patch("app.services.queue.BACKOFF_SECONDS", 0.001),
+        ):
+            worker = self._make_worker(db_engine, process, max_retries=3)
+            drained = await worker.run_once()
+
+        assert drained == 1
+        assert attempts == ["gone"]  # tried exactly once — no retry churn
+        assert fake.pushed == []  # nothing re-enqueued
+
+        from sqlalchemy.ext.asyncio import async_sessionmaker
+
+        factory = async_sessionmaker(
+            db_engine, class_=AsyncSession, expire_on_commit=False
+        )
+        async with factory() as session:
+            rows = (await session.execute(select(IngestionFailure))).scalars().all()
+            assert len(rows) == 1
+            assert rows[0].error_type == "PermanentJobError"
+            assert rows[0].retry_count == 0
+
+    async def test_worker_dead_letter_survives_deleted_project(self, db_engine) -> None:
+        """A failure for a now-deleted project still records (no FK violation)."""
+        from unittest.mock import patch
+        from app.services.queue import PermanentJobError, make_job
+        from app.models.ingestion import IngestionFailure
+        import uuid as uuid_mod
+
+        async def process(kind, payload):
+            raise PermanentJobError("SoftwareProject ghost not found")
+
+        ghost_id = str(uuid_mod.uuid4())
+        fake = _FakeQueue(
+            initial=[make_job(kind="graph_extract", payload={"project_id": ghost_id})]
+        )
+        with patch("app.services.queue.IngestionQueue", return_value=fake):
+            worker = self._make_worker(db_engine, process, max_retries=3)
+            await worker.run_once()
+
+        from sqlalchemy.ext.asyncio import async_sessionmaker
+
+        factory = async_sessionmaker(
+            db_engine, class_=AsyncSession, expire_on_commit=False
+        )
+        async with factory() as session:
+            rows = (await session.execute(select(IngestionFailure))).scalars().all()
+            assert len(rows) == 1
+            assert rows[0].project_id is None  # dangling id not bound to FK
+            # The id survives only as a redacted key/type summary (never a value).
+            assert rows[0].payload_summary.get("project_id") == "str"
+
     # -- batching (run_once drains up to max_jobs_per_batch) -------------------
     async def test_worker_batching_limits_drain(self, db_engine) -> None:
         from unittest.mock import patch
         from app.services.queue import make_job
 
         processed: list[str] = []
+
         async def process(kind, payload):
             processed.append(payload.get("id"))
 
@@ -858,6 +1028,7 @@ class TestIngestionWorker:
         from app.services.queue import make_job
 
         processed: list[str] = []
+
         async def process(kind, payload):
             processed.append(payload.get("id"))
 

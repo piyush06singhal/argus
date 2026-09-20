@@ -1,4 +1,5 @@
 """ARGUS Environment Routes."""
+
 from __future__ import annotations
 
 import uuid
@@ -18,7 +19,11 @@ from app.schemas.project import (
 router = APIRouter(tags=["Environments"])
 
 
-@router.post("/projects/{project_id}/environments", response_model=EnvironmentResponse, status_code=201)
+@router.post(
+    "/projects/{project_id}/environments",
+    response_model=EnvironmentResponse,
+    status_code=201,
+)
 async def create_environment(
     project_id: uuid.UUID,
     env_data: EnvironmentCreate,

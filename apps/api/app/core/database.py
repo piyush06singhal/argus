@@ -1,4 +1,5 @@
 """ARGUS Database Configuration."""
+
 from __future__ import annotations
 
 from typing import AsyncGenerator, Dict, Any
@@ -18,18 +19,34 @@ engine_kwargs: Dict[str, Any] = {
 
 # Connection pool settings only apply to server-backed engines (PostgreSQL)
 if settings.DATABASE_URL.startswith("postgres"):
-    engine_kwargs.update({
-        "pool_size": 20,
-        "max_overflow": 10,
-    })
+    engine_kwargs.update(
+        {
+            "pool_size": 20,
+            "max_overflow": 10,
+            # asyncpg caches prepared statements per connection. When the schema
+            # changes underneath a serving API (an `alembic upgrade` run against
+            # a live database), those cached plans become invalid and the *next*
+            # request on an affected connection raises
+            # `InvalidCachedStatementError` — a 500 for a request that is
+            # perfectly valid. SQLAlchemy invalidates its caches in response and
+            # the following request succeeds, but "the first request after a
+            # migration 500s" is not an acceptable failure mode for a
+            # reliability platform, so the cache is disabled. The cost is a
+            # re-plan per statement; a correct answer on the first try wins.
+            "connect_args": {"statement_cache_size": 0},
+        }
+    )
 else:
     # SQLite (tests/development) requires shared cache for in-memory + StaticPool
     if settings.DATABASE_URL == "sqlite+aiosqlite:///:memory:":
         from sqlalchemy.pool import StaticPool
-        engine_kwargs.update({
-            "poolclass": StaticPool,
-            "connect_args": {"check_same_thread": False},
-        })
+
+        engine_kwargs.update(
+            {
+                "poolclass": StaticPool,
+                "connect_args": {"check_same_thread": False},
+            }
+        )
 
 # Create async engine
 engine = create_async_engine(
@@ -47,6 +64,7 @@ async_session_factory = async_sessionmaker(
 
 class Base(DeclarativeBase):
     """Base class for all SQLAlchemy models."""
+
     pass
 
 
