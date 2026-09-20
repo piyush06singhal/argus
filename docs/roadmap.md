@@ -1,6 +1,6 @@
 # ARGUS Roadmap
 
-ARGUS is built in phases. This document records the planned evolution. **Phases 0 and 1 are implemented. Do not implement later phases now** — the roadmap is a contract for architecture boundaries, not a to-do list.
+ARGUS is built in phases. This document records the planned evolution. **Phases 0–6 are implemented. Do not implement later phases now** — the roadmap is a contract for architecture boundaries, not a to-do list.
 
 ## Phase 0 — Foundation ✅
 
@@ -111,6 +111,27 @@ See [docs/phase-5.md](phase-5.md) for the full design and [docs/phase5-implement
 - Reason over evidence and propose debugging hypotheses
 - Signals separated from noise across the full ARGUS data model
 - Treat all external data as *data*, never instructions (see trust model)
+
+## Phase 6 — AI Debugger ✅
+
+- ✅ Code intelligence over real repositories: validated registration (local within allowed roots / git remote), measured capabilities, immutable snapshots pinning the revision with commit metadata and version evidence (`RESOLVED`/`UNRESOLVED`/`UNKNOWN`)
+- ✅ Content-hash **incremental indexing** (timestamps never trusted) with stable symbol ids across re-index, per-file commit attribution from the real VCS, resolved call graph, route metadata, complexity risk signals *labelled as investigation signals — never a bug score*
+- ✅ Trace→code mapping by confidence-ordered strategies (exact span, endpoint route, operation name, service heuristic, stack frame) with stored unmapped reasons
+- ✅ Change intelligence that refuses to equate recent with guilty: per-file history/blame plus classification of each change's temporal relevance to the incident
+- ✅ Debug sessions binding incident ↔ snapshot: bounded, redacted context (with a stored redaction report) built **from stored evidence only**
+- ✅ **Two providers, one validator:** a deterministic investigation needing no model at all, and an optional model-assisted analysis over a read-only, budgeted, fully recorded tool surface; a provider failure *degrades* (stored `DEGRADED` + reason), never fakes success
+- ✅ Every code claim validated against the pinned snapshot (`VALID`/`NOT_FOUND`/`OUT_OF_SNAPSHOT`/`LINE_OUT_OF_RANGE`/`AMBIGUOUS`/`STALE`); only `VALID` locations are findings, rejections stay visible for audit
+- ✅ Hypotheses with category, confidence, validation status (`SUPPORTED`/`PARTIALLY_SUPPORTED`/`WEAKENED`/`REFUTED`/`UNVERIFIED`/`INVALID_REFERENCE`), supporting **and** contradicting evidence, test approach, recurrence — ranked validation-first, never by model confidence alone
+- ✅ Grounded follow-up questions: answers cite only validated resolvable references; failed citations, missing evidence and tool budget are part of the answer
+- ✅ Prompt-injection containment: external content is delimited data, planted instructions are reported not followed, the tool surface is read-only
+- ✅ Reaper closing work abandoned by a dead process (sessions stuck `ANALYZING`, runs stuck `RUNNING`, repositories stuck `INDEXING`) with a budget-derived grace period
+- ✅ Honesty metrics (`/debugger/metrics`): claimed vs validated locations, rejected citations, degraded analyses, refused tool calls
+- ✅ Debugger workspace UI: session list, analysis audit (bounds, tool calls, degraded reason), ranked hypotheses, findings vs rejected claims, grounded conversation, timeline
+- ✅ 1008 backend tests (142 Phase 6) + 97 vitest tests; live Phase 6 gate (`infrastructure/e2e-smoke-phase6.sh`) driving the real pipeline through a real git repository with planted secrets and injected instructions
+
+See [docs/phase-6.md](phase-6.md) for the full design and [docs/phase6-implementation-report.md](phase6-implementation-report.md) for the delivery report.
+
+**Explicitly not included:** code modification, patch generation or application, automated fixing, deployment — those are Phase 7. Phase 6 is *locate, hypothesize, cite, validate, explain* — not *fix*.
 
 ## Phase 7 — Automated Fix Generation & Verification
 

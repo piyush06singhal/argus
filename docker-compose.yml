@@ -50,6 +50,16 @@ services:
       API_ENVIRONMENT: development
       CORS_ORIGINS: '["http://localhost:3000"]'
       LOG_LEVEL: INFO
+      # Phase 6 code intelligence. The API reads repositories through the local
+      # provider, which refuses any root outside CODE_ALLOWED_ROOTS — a request
+      # cannot talk the API into reading /etc. ``/repos/demo-commerce`` is the
+      # read-only demo checkout; ``/repos/scratch`` is a writable volume the
+      # smoke test builds a real git history in.
+      CODE_INTELLIGENCE_ENABLED: "true"
+      CODE_ALLOWED_ROOTS: '["/repos"]'
+    volumes:
+      - ./demo/argus-commerce:/repos/demo-commerce:ro
+      - code_scratch:/repos/scratch
     ports:
       - "8000:8000"
     depends_on:
@@ -83,3 +93,7 @@ services:
 volumes:
   postgres_data:
   redis_data:
+  #: Scratch space for code-intelligence smoke runs (a real git working tree
+  #: built from the read-only demo checkout). Kept out of the image so nothing
+  #: the tests write can touch tracked source.
+  code_scratch:

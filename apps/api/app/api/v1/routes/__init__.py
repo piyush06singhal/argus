@@ -4,6 +4,7 @@ from fastapi import APIRouter
 
 from app.api.v1.routes.anomalies import router as anomalies_router
 from app.api.v1.routes.causal import router as causal_router
+from app.api.v1.routes.code import router as code_router
 from app.api.v1.routes.components import router as components_router
 from app.api.v1.routes.deployments import router as deployments_router
 from app.api.v1.routes.environments import router as environments_router
@@ -31,3 +32,4 @@ api_v1_router.include_router(graph_router)
 api_v1_router.include_router(anomalies_router)
 api_v1_router.include_router(causal_router)
 api_v1_router.include_router(reproduction_router)
+api_v1_router.include_router(code_router)

@@ -200,6 +200,97 @@ class Settings(BaseSettings):
     #: Retention for Phase 5 rows (swept like other telemetry).
     RETENTION_REPRODUCTIONS: int = 180
 
+    # ---- Code intelligence & AI debugger (Phase 6) --------------------------
+    #: Master switch. When disabled, existing analyses stay queryable but no new
+    #: indexing or debugging run may start.
+    CODE_INTELLIGENCE_ENABLED: bool = True
+    #: Roots a LOCAL repository path must live under. Empty = any readable path
+    #: (single-tenant/dev). Set this in a shared deployment so ARGUS can never be
+    #: pointed at ``/etc`` or another tenant's checkout (§56).
+    CODE_ALLOWED_ROOTS: List[str] = []
+    #: Files larger than this are recorded but never read or parsed (§22 budget).
+    CODE_MAX_FILE_BYTES: int = 512_000
+    #: Bounded scan: a repository larger than this is indexed as a PARTIAL
+    #: snapshot rather than silently truncated.
+    CODE_MAX_FILES_PER_SNAPSHOT: int = 20_000
+    CODE_MAX_SYMBOLS_PER_FILE: int = 2_000
+    #: Lines of a single file a parse will consider.
+    CODE_MAX_FILE_LINES: int = 5_000
+    #: Directories never descended into.
+    CODE_EXCLUDED_DIRS: List[str] = [
+        ".git",
+        ".hg",
+        ".svn",
+        "node_modules",
+        "__pycache__",
+        ".venv",
+        "venv",
+        "env",
+        ".mypy_cache",
+        ".pytest_cache",
+        ".ruff_cache",
+        ".next",
+        "dist",
+        "build",
+        "coverage",
+        "htmlcov",
+        ".idea",
+        ".vscode",
+    ]
+    #: Wall-clock ceiling for any single git invocation.
+    CODE_GIT_TIMEOUT_SECONDS: int = 30
+    #: Commits examined when building change history for a file/symbol (§18).
+    CODE_HISTORY_MAX_COMMITS: int = 200
+    #: Lines of blame gathered per file, and the per-symbol lookback.
+    CODE_BLAME_MAX_LINES: int = 2_000
+    #: An incremental pass with more changed files than this re-indexes fully
+    #: (diffing 5k files costs more than re-parsing them) (§55).
+    CODE_INCREMENTAL_MAX_CHANGED_FILES: int = 2_000
+    #: Recency window for the RECENTLY_MODIFIED signal (§44).
+    CODE_RECENT_CHANGE_DAYS: int = 14
+    #: Complexity at/above which HIGH_COMPLEXITY is recorded.
+    CODE_COMPLEXITY_SIGNAL_THRESHOLD: int = 10
+    #: Fan-in/fan-out at/above which a symbol is flagged (signal, not score).
+    CODE_FAN_SIGNAL_THRESHOLD: int = 10
+
+    # ---- AI debugger (Phase 6 §39, §41) ------------------------------------
+    #: Model name used by the OpenAI-compatible provider.
+    AI_MODEL: str = "gpt-4o-mini"
+    #: Base URL for an OpenAI-compatible endpoint (empty = provider default).
+    AI_BASE_URL: str = ""
+    #: Debugging analysis is deterministic by default (§41).
+    AI_TEMPERATURE: float = 0.0
+    AI_MAX_TOKENS: int = 4_000
+    AI_TIMEOUT_SECONDS: int = 60
+    AI_RETRY_COUNT: int = 1
+    #: Tool-calling budgets — enforced across a whole session, not per turn (§39).
+    DEBUG_MAX_TOOL_CALLS: int = 12
+    DEBUG_MAX_TOOL_CALLS_PER_SESSION: int = 120
+    DEBUG_MAX_FILES_READ: int = 20
+    DEBUG_MAX_LINES_READ: int = 1_500
+    DEBUG_MAX_SEARCH_RESULTS: int = 50
+    #: Hard ceiling on the assembled context handed to a model (§22).
+    DEBUG_MAX_CONTEXT_BYTES: int = 240_000
+    DEBUG_MAX_ANALYSIS_SECONDS: int = 120
+    #: A question longer than this is rejected rather than truncated silently.
+    DEBUG_MAX_QUESTION_CHARS: int = 4_000
+    #: Bumped whenever context *selection* rules change (§59).
+    DEBUG_CONTEXT_VERSION: str = "1"
+    DEBUG_PROMPT_VERSION: str = "1"
+    #: Deterministic context assembly is always available; this only decides
+    #: whether a model is consulted for hypotheses (§43).
+    DEBUG_AI_ENABLED: bool = True
+    #: Periodic sweep for code intelligence: closes debug sessions and analysis
+    #: runs abandoned by a dead process and un-sticks repositories whose
+    #: ``index_status`` is stuck at INDEXING (§55–§57).
+    CODE_SWEEP_ENABLED: bool = True
+    CODE_SWEEP_INTERVAL_SECONDS: int = 120
+    #: How many rows per table one sweep pass may touch, so a pathological
+    #: backlog cannot become one enormous transaction.
+    CODE_SWEEP_BATCH: int = 200
+    #: Retention for Phase 6 indexed snapshots and debug sessions.
+    RETENTION_CODE_SNAPSHOTS: int = 365
+
     @field_validator("CORS_ORIGINS", mode="before")
     @classmethod
     def parse_cors_origins(cls, v: Any) -> List[str]:

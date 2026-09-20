@@ -57,12 +57,14 @@ first-class, tested outcome — not a failure mode.
 | **3** | Anomaly & Incident Intelligence — detectors, baselines, correlation, lifecycle, evidence | ✅ shipped | [docs/phase-3.md](docs/phase-3.md) |
 | **4** | Root Cause & Causal Analysis — temporal/trace/dependency/change analysis, causal graph, scoring | ✅ shipped | [docs/phase-4.md](docs/phase-4.md) |
 | **5** | Failure Reproduction Engine — isolated sandbox, sanitized replay, controlled faults, comparison, hypothesis validation | ✅ shipped | [docs/phase-5.md](docs/phase-5.md) |
-| **6** | AI Debugger — reason over the full evidence model, data treated strictly as data | planned | [docs/roadmap.md](docs/roadmap.md) |
+| **6** | AI Debugger — code intelligence, trace→code mapping, evidence-grounded analysis, validated code claims | ✅ shipped | [docs/phase-6.md](docs/phase-6.md) |
 
-Phases 4 and 5 do **not** patch, deploy or remediate. Phase 4 explains from
+Phases 4–6 do **not** patch, deploy or remediate. Phase 4 explains from
 stored evidence; Phase 5 runs a bounded experiment in a disposable sandbox and
-reports what it observed — nothing is changed in your systems, and no result is
-presented as proof.
+reports what it observed; Phase 6 maps the failure onto your indexed source
+code, validates every code claim against the pinned snapshot, and shows its
+full audit trail — nothing is changed in your systems or repositories, and no
+result is presented as proof.
 
 ## How it works
 
@@ -88,9 +90,13 @@ presented as proof.
         plan ─► safety validation ─► disposable sandbox ─► sanitized replay
         ─► controlled faults ─► captured telemetry ─► comparison ─► verdict
                                  ▼
+                          AI Debugger (Phase 6)
+        repository snapshot ─► trace→code mapping ─► validated analysis
+        ─► grounded hypotheses with citations ─► auditable timeline
+                                 ▼
                      Next.js investigation UI
         system map · anomaly center · incidents · root cause analysis
-        · reproduction workspace
+        · reproduction workspace · AI debugger
 ```
 
 ## Features
@@ -206,6 +212,44 @@ presented as proof.
   rather than hiding them
 </details>
 
+<details>
+<summary><b>AI Debugger (Phase 6)</b></summary>
+
+- **Code intelligence over real repositories.** Validated registration (local
+  paths confined to allowed roots, or git remotes) with *measured* capabilities;
+  immutable snapshots pinning the exact revision, with commit metadata and
+  version evidence — `RESOLVED` / `UNRESOLVED` / `UNKNOWN` are first-class
+- **Incremental indexing by content hash**, never timestamps: unchanged files
+  are reused with stable symbol ids, moves are detected, an unchanged revision
+  re-indexes as a true no-op, and per-file commit attribution comes from the
+  real VCS
+- **Trace → code mapping** by confidence-ordered strategies (exact span,
+  endpoint route, operation name, service heuristic, stack frame) — with the
+  spans that could *not* be mapped recorded and their reasons shown
+- **A debug session that reasons only over stored evidence:** bounded, redacted
+  context (redaction report stored), a deterministic investigation that needs no
+  model at all, and an optional model-assisted analysis over a **read-only,
+  budgeted, fully recorded** tool surface. A provider failure degrades — stored
+  as `DEGRADED` with its reason — never fakes a result
+- **Every code claim is validated against the pinned snapshot** before it is
+  displayed: only `VALID` locations are findings; rejections (`NOT_FOUND`,
+  `OUT_OF_SNAPSHOT`, `LINE_OUT_OF_RANGE`, `AMBIGUOUS`, `STALE`) stay visible as
+  audit, never silently dropped
+- **Hypotheses ranked by validation status, not model confidence:** supporting
+  and contradicting evidence with resolvable citations, a test approach when
+  testable, and a recurrence count
+- **Grounded follow-up questions** that cite only validated references, report
+  failed citations and missing evidence, and expose the tool budget they used
+- **Prompt-injection containment:** source text, commit messages and telemetry
+  are delimited data; planted instructions are reported, not followed; the tool
+  surface cannot mutate anything
+- **A reaper for abandoned work:** sessions stuck analysing, runs stuck running
+  and repositories stuck indexing after a process death are closed with honest
+  terminal states
+- **Metrics that measure honesty** (`/debugger/metrics`): claimed vs validated
+  locations, rejected citations, degraded analyses, refused tool calls
+</details>
+
 ## Quick start
 
 **Requirements:** Docker with Compose. Nothing else — no local Python or Node
@@ -263,9 +307,9 @@ they pass on repeat runs, not only on a pristine database.
 
 | Gate | Command | Result |
 | :--- | :--- | :--- |
-| Backend test suite | `cd apps/api && pytest -q` | **866 passed** |
-| Lint / format / types | `ruff check`, `ruff format --check`, `mypy app` | clean (116 modules / 161 files) |
-| Frontend tests | `cd apps/web && npm test` | **83 passed** |
+| Backend test suite | `cd apps/api && pytest -q` | **1008 passed** |
+| Lint / format / types | `ruff check`, `ruff format --check`, `mypy app` | clean |
+| Frontend tests | `cd apps/web && npm test` | **97 passed** |
 | Frontend type check | `cd apps/web && npx tsc --noEmit` | clean |
 | Frontend production build | `cd apps/web && npm run build` | succeeds, 24 routes |
 | Phase 0/1 live gate | `bash infrastructure/e2e-smoke-phase1.sh` | **46/46** |
@@ -273,6 +317,7 @@ they pass on repeat runs, not only on a pristine database.
 | Phase 3 live gate | `bash infrastructure/e2e-smoke-phase3.sh` | **103/103** |
 | Phase 4 live gate | `bash infrastructure/e2e-smoke-phase4.sh` | **70/70** |
 | Phase 5 live gate | `bash infrastructure/e2e-smoke-phase5.sh` | **104/104** |
+| Phase 6 live gate | `bash infrastructure/e2e-smoke-phase6.sh` | **128/128** |
 | Migration under a live pool | `DDL_PROBE=1 bash infrastructure/e2e-smoke-phase4.sh` | **73/73** |
 | Fresh-database bootstrap | empty DB → `alembic upgrade head` → `seed_data.py` | 9 migrations apply from zero; demo incident, its analysis and its reproduction are derived correctly |
 | Migrations reversible | `alembic upgrade head` / `downgrade -1` on PostgreSQL 16 | verified both directions |
@@ -298,22 +343,23 @@ or cleanup failure in the engine metrics.
 ```
 apps/
   api/                    FastAPI backend (async SQLAlchemy 2.0, Pydantic v2)
-    app/api/v1/routes/    REST endpoints (124 paths, 156 operations)
+    app/api/v1/routes/    REST endpoints (150 paths, 185 operations)
     app/core/             config, database, logging, dependencies
     app/models/           SQLAlchemy ORM models
     app/schemas/          request/response schemas
-    app/services/         ingestion, detection, correlation, causal analysis, reproduction
+    app/services/         ingestion, detection, correlation, causal analysis, reproduction, code intelligence
     reproduction/         sandbox harness: runners, templates, environments, fixtures
-    alembic/              9 reversible migrations
+    alembic/              reversible migrations
     tests/                unit, integration and scenario suites
   web/                    Next.js 14 + Tailwind UI
     app/system-map/       knowledge-graph explorer + impact/snapshot/quality panels
     app/incidents/        incident investigation, root cause analysis, reproduction history
     app/anomalies/        anomaly center and rules
     app/reproductions/    reproduction workspace (safety gate, live run, comparison, verdict)
+    app/debugger/         AI debugger workspace (sessions, analysis audit, hypotheses, conversation)
     lib/                  typed API client, presentation rules, pure helpers
 infrastructure/
-  e2e-smoke-phase{1,2,3,4,5}.sh live end-to-end gates
+  e2e-smoke-phase{1,2,3,4,5,6}.sh live end-to-end gates
   graph-benchmark.py            graph performance benchmark
   anomaly-benchmark.py          detection/correlation benchmark
 docs/                     architecture, data model, per-phase design + reports
@@ -450,8 +496,7 @@ useless:
 
 | Phase | Scope |
 | :--- | :--- |
-| 5 | ✅ Failure Reproduction Engine — sandboxed replay, controlled faults, comparison, hypothesis validation |
-| 6 | AI Debugger — reason over the full evidence model, data treated strictly as data |
+| 6 | ✅ AI Debugger — code intelligence, validated code claims, grounded debugging analysis |
 | 7 | Automated Fix Generation & Verification — candidates verified in isolation, never auto-applied |
 
 See [docs/roadmap.md](docs/roadmap.md) for detail.
@@ -465,7 +510,8 @@ See [docs/roadmap.md](docs/roadmap.md) for detail.
 | [Phase 3 — Anomaly & Incident Intelligence](docs/phase-3.md) | Detectors, baselines, correlation, lifecycle, evidence model |
 | [Phase 4 — Root Cause & Causal Analysis](docs/phase-4.md) | Causal model, evidence model, analyzers, scoring, confidence, graph, frontend |
 | [Phase 5 — Failure Reproduction Engine](docs/phase-5.md) | Architecture, sandbox design, security model, lifecycle, replay, faults, capture, comparison, validation, artifacts, cleanup, limitations |
-| [Phase 2 Report](docs/phase2-implementation-report.md) · [Phase 3 Report](docs/phase3-implementation-report.md) · [Phase 4 Report](docs/phase4-implementation-report.md) · [Phase 5 Report](docs/phase5-implementation-report.md) | Delivery summaries, gate evidence, bugs found by live validation |
+| [Phase 6 — AI Debugger](docs/phase-6.md) | Code intelligence, snapshots, trace→code mapping, debug sessions, validation, grounded Q&amp;A, safety, limitations |
+| [Phase 2 Report](docs/phase2-implementation-report.md) · [Phase 3 Report](docs/phase3-implementation-report.md) · [Phase 4 Report](docs/phase4-implementation-report.md) · [Phase 5 Report](docs/phase5-implementation-report.md) · [Phase 6 Report](docs/phase6-implementation-report.md) | Delivery summaries, gate evidence, bugs found by live validation |
 | [Data model](docs/data-model.md) | Tables, relationships, enum domains, indexes |
 | [Observability model](docs/observability-model.md) | Signals, normalization, retention |
 | [Development](docs/development.md) | Local setup, migrations, testing conventions |

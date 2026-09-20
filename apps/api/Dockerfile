@@ -2,9 +2,15 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-# Install system dependencies
+# Install system dependencies.
+#
+# ``git`` is a runtime dependency, not a build convenience: the Phase 6
+# repository provider shells out to it for HEAD resolution, history, diff and
+# blame. Without it inside the image, code intelligence silently degrades to
+# "history unavailable" on every Docker deployment.
 RUN apt-get update && apt-get install -y \
     curl \
+    git \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements and install dependencies

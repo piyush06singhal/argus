@@ -209,9 +209,44 @@ Three invariants shape this domain:
 | Entity | Table | Key fields |
 |--------|-------|------------|
 | `DeploymentEvent` | `deployment_events` | `component_id`, `environment_id`, `version`, `commit_sha`, `deployed_by`, `status` (`SUCCESS`/`FAILED`/`ROLLED_BACK`/…), `deployed_at`, `change_summary` |
-| `CodeRepository` | `code_repositories` | `url`, `provider`, `default_branch` |
+| `CodeRepository` | `code_repositories` | `project_id`, `provider` (`local`/`git`), `repository_url`, `local_path`, `default_branch`, `connection_status`, `capabilities`, `index_status`, `last_indexed_at`, `last_indexed_commit` |
 
-Deployments are the anchor for future incident ↔ change correlation ("a deployment occurred shortly before the incident").
+Deployments are the anchor for incident ↔ change correlation ("a deployment occurred shortly before the incident") and for deriving which revision a snapshot should pin.
+
+### 3.7 Phase 6 code-intelligence & debugger domain
+
+| Entity | Table | Key fields |
+|--------|-------|------------|
+| `RepositorySnapshot` | `repository_snapshots` | `repository_id`, `project_id`, `revision`, `resolved_revision`, `revision_type`, `version_status` (`RESOLVED`/`UNRESOLVED`/`UNKNOWN`), `version_evidence`, `status` (`CREATED`/`INDEXING`/`READY`/`PARTIAL`/`FAILED`), `provider_name`, `parser_version`, `content_hash`, `file_count`, `symbol_count` |
+| `CodeIndexRun` | `code_index_runs` | `snapshot_id`, `repository_id`, `status`, `trigger`, `incremental`, `base_commit_sha`, `files_seen/indexed/reused/added/modified/deleted/failed`, `symbols_indexed`, `references_indexed`, `relationships_indexed`, `duration_ms`, `run_metadata` |
+| `CodeFile` | `code_files` | `snapshot_id`, `path`, `language`, `module_name`, `size_bytes`, `line_count`, `is_test`, `parse_status`, `parse_error`, `last_commit_sha`, `last_author`, `symbol_count` |
+| `CodeSymbol` | `code_symbols` | `snapshot_id`, `file_id`, `file_path`, `symbol_name`, `qualified_name`, `symbol_type`, `start_line`, `end_line`, `signature`, `documentation`, `is_async`, `complexity`, `route`, `http_method`, `component_id`, `caller_count`, `callee_count` |
+| `CodeReference` | `code_references` | `snapshot_id`, `file_id`, `name`, `line`, `kind`, `resolved`, `symbol_id` |
+| `CodeRelationship` | `code_relationships` | `snapshot_id`, `source_symbol_id`, `target_symbol_id`, `relationship` (`CALLS`/…), `confidence`, `line` |
+| `CodeRiskSignal` | `code_risk_signals` | `snapshot_id`, `file_id`, `signal_type`, `severity`, `reason`, `metadata` |
+| `TraceCodeMapping` | `trace_code_mappings` | `incident_id`, `project_id`, `snapshot_id`, `span_id`, `trace_id`, `operation`, `service_name`, `endpoint`, `http_method`, `mapping_kind`, `symbol_id`, `file_path`, `start_line`, `end_line`, `confidence`, `evidence`, `unmapped_reason` |
+| `DebugSession` | `debug_sessions` | `project_id`, `incident_id`, `repository_id`, `snapshot_id`, `title`, `status`, `created_by`, `version_status`, `version_note`, `context_version`, `summary` |
+| `DebugAnalysisRun` | `debug_analysis_runs` | `session_id`, `status` (`PENDING`/`RUNNING`/`COMPLETED`/`DEGRADED`/`FAILED`/`CANCELLED`/`LIMIT_REACHED`), `kind`, `provider_name`, `model_name`, `prompt_version`, `context_version`, `tool_call_count`, `files_accessed`, `context_bytes`, `confidence`, `summary`, `invalid_references`, `missing_evidence`, `recommended_inspections`, `degraded_reason`, `context_snapshot`, `redaction_report`, `error`, `run_metadata` |
+| `DebugCodeLocation` | `debug_code_locations` | `analysis_run_id`, `file_path`, `symbol_id`, `symbol_name`, `start_line`, `end_line`, `label`, `reason`, `confidence`, `validation` (`VALID`/`NOT_FOUND`/`OUT_OF_SNAPSHOT`/`LINE_OUT_OF_RANGE`/`AMBIGUOUS`/`STALE`), `validation_detail`, `evidence_refs`, `displayable` |
+| `DebugHypothesis` | `debug_hypotheses` | `analysis_run_id`, `description`, `category`, `confidence`, `validation_status` (`UNVERIFIED`/`SUPPORTED`/`PARTIALLY_SUPPORTED`/`WEAKENED`/`REFUTED`/`INVALID_REFERENCE`), `rationale`, `testable`, `test_approach`, `recurrence_count` |
+| `DebugEvidence` | `debug_evidence` | `hypothesis_id`, `kind`, `polarity` (`SUPPORTING`/`CONTRADICTING`/`NEUTRAL`), `reference`, `source_table`, `source_id`, `quote`, `start_line`, `end_line`, `valid`, `validation_error`, `strength`, `observed_at` |
+| `DebugMessage` | `debug_messages` | `session_id`, `role` (`ENGINEER`/`ARGUS`/`SYSTEM`), `content`, `created_by`, `evidence_refs`, `metadata` |
+| `DebugToolCall` | `debug_tool_calls` | `analysis_run_id`, `tool_name`, `arguments`, `status`, `result_summary`, `result_count`, `result_bytes`, `truncated`, `error`, `duration_ms` |
+
+Three invariants shape this domain:
+
+* **A claim and its validation live on the same row but are separate fields.**
+  `file_path`/`symbol`/`start_line` is the *claim*; `validation`,
+  `validation_detail` and `displayable` are the *verdict*. A non-`VALID` claim is
+  stored (audit matters) with `displayable: false` — the API and the UI both
+  treat that as final.
+* **Snapshot ids are the only source of line-level truth.** Locations resolve
+  against the pinned snapshot; a newer commit makes them `STALE` until
+  re-indexed, and stable symbol ids across incremental re-index keep stored
+  references resolving.
+* **Every external tool call is recorded.** `debug_tool_calls` stores arguments,
+  status, result size and truncation for each model tool call — the analysis is
+  reproducible as an audit even when the model is not.
 
 ## 4. Enum domains
 
@@ -244,6 +279,14 @@ Deployments are the anchor for future incident ↔ change correlation ("a deploy
 | `SnapshotSource` | ORIGINAL, SANDBOX |
 | `AnomalySource` | METRIC, LOG, TRACE, SPAN, HEALTH_CHECK, DEPLOYMENT, CONFIGURATION, GRAPH, COMPOSITE, UNKNOWN |
 | `BaselineStrategy` | STATIC, ROLLING |
+| `CodeVersionStatus` | RESOLVED, UNRESOLVED, UNKNOWN |
+| `SnapshotStatus` | CREATED, INDEXING, READY, PARTIAL, FAILED |
+| `RepositoryIndexStatus` | PENDING, INDEXING, INDEXED, PARTIAL, FAILED |
+| `LocationValidation` | VALID, NOT_FOUND, OUT_OF_SNAPSHOT, LINE_OUT_OF_RANGE, AMBIGUOUS, STALE |
+| `DebugSessionStatus` | CREATED, CONTEXT_BUILDING, ANALYZING, WAITING_FOR_VALIDATION, COMPLETED, FAILED, CANCELLED |
+| `DebugAnalysisStatus` | PENDING, RUNNING, COMPLETED, DEGRADED, FAILED, CANCELLED, LIMIT_REACHED |
+| `HypothesisValidationStatus` | UNVERIFIED, SUPPORTED, PARTIALLY_SUPPORTED, WEAKENED, REFUTED, INVALID_REFERENCE |
+| `EvidencePolarity` | SUPPORTING, CONTRADICTING, NEUTRAL |
 | `RuleCondition` | THRESHOLD, BASELINE_DEVIATION, Z_SCORE, RATE_CHANGE, ERROR_RATE, LATENCY_RATIO, PATTERN_SPIKE, HEALTH_TRANSITION, TRACE_FAILURE_RATE |
 | `EventType` / `Severity` | per-domain (see `models/observability.py`) |
 | `MetricType` | COUNTER, GAUGE, HISTOGRAM, … |
@@ -270,6 +313,10 @@ Pydantic validates these enums at the API boundary, so malformed values are reje
 - Reproduction is bounded too: replay requests, inputs per plan, repetitions,
   telemetry signals and telemetry bytes all have ceilings, and one repetition's
   sandbox never shares a directory or a socket with another's
+- Code intelligence has the same discipline: files per snapshot, bytes per file,
+  list sizes and search results are all capped, the model tool surface is
+  read-only and budgeted (`DEBUG_MAX_TOOL_CALLS`, `DEBUG_MAX_ANALYSIS_SECONDS`),
+  and every index/search/query runs inside one snapshot's rows
 
 ## 6. Migrations
 

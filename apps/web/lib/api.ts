@@ -2355,6 +2355,174 @@ export const api = {
     apiFetch<ReproductionMetrics>(
       `/api/v1/reproductions/metrics?project_id=${encodeURIComponent(projectId)}`
     ),
+
+  // -----------------------------------------------------------------------
+  // Phase 6 — Code Intelligence & AI Debugger
+  // -----------------------------------------------------------------------
+
+  listRepositories: (projectId: string) =>
+    apiFetch<RepositoryList>(
+      `/api/v1/projects/${encodeURIComponent(projectId)}/repositories`
+    ),
+
+  registerRepository: (
+    projectId: string,
+    payload: RegisterRepositoryPayload
+  ) =>
+    apiFetch<Repository>(
+      `/api/v1/projects/${encodeURIComponent(projectId)}/repositories`,
+      { method: 'POST', body: JSON.stringify(payload) }
+    ),
+
+  indexRepository: (
+    projectId: string,
+    repositoryId: string,
+    payload: IndexRepositoryPayload = {}
+  ) =>
+    apiFetch<IndexResult>(
+      `/api/v1/projects/${encodeURIComponent(
+        projectId
+      )}/repositories/${encodeURIComponent(repositoryId)}/index`,
+      { method: 'POST', body: JSON.stringify(payload) }
+    ),
+
+  repositoryHistory: (
+    projectId: string,
+    repositoryId: string,
+    options: { reference?: string; path?: string; limit?: number } = {}
+  ) => {
+    const params = new URLSearchParams({ project_id: projectId });
+    if (options.reference) {
+      params.set('reference', options.reference);
+    }
+    if (options.path) {
+      params.set('path', options.path);
+    }
+    if (options.limit) {
+      params.set('limit', String(options.limit));
+    }
+    return apiFetch<HistoryResult>(
+      `/api/v1/projects/${encodeURIComponent(
+        projectId
+      )}/repositories/${encodeURIComponent(repositoryId)}/history?${params}`
+    );
+  },
+
+  listSnapshots: (projectId: string, repositoryId: string) =>
+    apiFetch<SnapshotList>(
+      `/api/v1/projects/${encodeURIComponent(
+        projectId
+      )}/repositories/${encodeURIComponent(repositoryId)}/snapshots`
+    ),
+
+  getSnapshotSummary: (snapshotId: string, projectId?: string) =>
+    apiFetch<SnapshotSummary>(
+      `/api/v1/snapshots/${encodeURIComponent(snapshotId)}${scopeQuery(projectId)}`
+    ),
+
+  getSnapshotFiles: (snapshotId: string, projectId?: string) =>
+    apiFetch<CodeFileList>(
+      `/api/v1/snapshots/${encodeURIComponent(
+        snapshotId
+      )}/files${scopeQuery(projectId)}`
+    ),
+
+  searchSnapshotCode: (
+    snapshotId: string,
+    query: string,
+    projectId?: string
+  ) =>
+    apiFetch<CodeSearchResult>(
+      `/api/v1/snapshots/${encodeURIComponent(snapshotId)}/search${
+        scopeQuery(projectId) || '?'
+      }query=${encodeURIComponent(query)}`
+    ),
+
+  getSymbolDetail: (snapshotId: string, symbolId: string, projectId?: string) =>
+    apiFetch<SymbolDetail>(
+      `/api/v1/snapshots/${encodeURIComponent(
+        snapshotId
+      )}/symbols/${encodeURIComponent(symbolId)}${scopeQuery(projectId)}`
+    ),
+
+  getIncidentCodeMappings: (incidentId: string, projectId?: string) =>
+    apiFetch<TraceMappingList>(
+      `/api/v1/incidents/${encodeURIComponent(
+        incidentId
+      )}/code-mappings${scopeQuery(projectId)}`
+    ),
+
+  createDebugSession: (
+    incidentId: string,
+    projectId: string,
+    payload: CreateDebugSessionPayload = {}
+  ) =>
+    apiFetch<DebugSessionDetail>(
+      `/api/v1/incidents/${encodeURIComponent(
+        incidentId
+      )}/debug-sessions?project_id=${encodeURIComponent(projectId)}`,
+      { method: 'POST', body: JSON.stringify(payload) }
+    ),
+
+  listDebugSessions: (incidentId: string, projectId?: string) =>
+    apiFetch<DebugSessionList>(
+      `/api/v1/incidents/${encodeURIComponent(
+        incidentId
+      )}/debug-sessions${scopeQuery(projectId)}`
+    ),
+
+  getDebugSession: (sessionId: string, projectId?: string) =>
+    apiFetch<DebugSessionDetail>(
+      `/api/v1/debug-sessions/${encodeURIComponent(sessionId)}${scopeQuery(
+        projectId
+      )}`
+    ),
+
+  analyzeDebugSession: (sessionId: string, projectId?: string) =>
+    apiFetch<DebugAnalysis>(
+      `/api/v1/debug-sessions/${encodeURIComponent(
+        sessionId
+      )}/analyze${scopeQuery(projectId)}`,
+      { method: 'POST' }
+    ),
+
+  getDebugSessionMessages: (sessionId: string, projectId?: string) =>
+    apiFetch<DebugMessage[]>(
+      `/api/v1/debug-sessions/${encodeURIComponent(
+        sessionId
+      )}/messages${scopeQuery(projectId)}`
+    ),
+
+  askDebugSession: (
+    sessionId: string,
+    payload: AskDebugPayload,
+    projectId?: string
+  ) =>
+    apiFetch<DebugAssistantAnswer>(
+      `/api/v1/debug-sessions/${encodeURIComponent(
+        sessionId
+      )}/messages${scopeQuery(projectId)}`,
+      { method: 'POST', body: JSON.stringify(payload) }
+    ),
+
+  getDebugSessionTools: (sessionId: string, projectId?: string) =>
+    apiFetch<DebugToolCall[]>(
+      `/api/v1/debug-sessions/${encodeURIComponent(
+        sessionId
+      )}/tools${scopeQuery(projectId)}`
+    ),
+
+  getDebugTimeline: (sessionId: string, projectId?: string) =>
+    apiFetch<DebugTimeline>(
+      `/api/v1/debug-sessions/${encodeURIComponent(
+        sessionId
+      )}/timeline${scopeQuery(projectId)}`
+    ),
+
+  debuggerMetrics: (projectId?: string) =>
+    apiFetch<DebuggerMetrics>(
+      `/api/v1/debugger/metrics${scopeQuery(projectId)}`
+    ),
 };
 
 // ---------------------------------------------------------------------------
@@ -2380,4 +2548,504 @@ export function formatDuration(ms: number): string {
     return `${(ms / 1000).toFixed(2)} s`;
   }
   return `${(ms / 60_000).toFixed(2)} min`;
+}
+
+// ---------------------------------------------------------------------------
+// Phase 6 — Code Intelligence & AI Debugger (§6–§65)
+// ---------------------------------------------------------------------------
+
+export type RepositoryIndexStatus =
+  | 'PENDING'
+  | 'INDEXING'
+  | 'INDEXED'
+  | 'PARTIAL'
+  | 'FAILED';
+
+export type CodeVersionStatus = 'RESOLVED' | 'UNRESOLVED' | 'UNKNOWN';
+
+export type SnapshotStatus = 'READY' | 'PARTIAL' | 'FAILED' | 'INDEXING';
+
+export interface Repository {
+  id: string;
+  project_id: string;
+  provider: string;
+  repository_url: string;
+  default_branch: string;
+  connection_status: string;
+  language?: string | null;
+  framework?: string | null;
+  index_status: RepositoryIndexStatus;
+  last_indexed_at?: string | null;
+  last_indexed_commit?: string | null;
+  created_at: string;
+  updated_at: string;
+  latest_snapshot_id?: string | null;
+  latest_commit_sha?: string | null;
+  snapshot_count: number;
+  capabilities: string[];
+}
+
+export interface RepositoryList {
+  items: Repository[];
+  total: number;
+}
+
+export interface CodeSnapshot {
+  id: string;
+  project_id: string;
+  repository_id: string;
+  commit_sha?: string | null;
+  branch?: string | null;
+  commit_at?: string | null;
+  commit_message?: string | null;
+  commit_author?: string | null;
+  provider_name: string;
+  version_status: CodeVersionStatus;
+  version_evidence?: string | null;
+  status: SnapshotStatus;
+  indexed_at?: string | null;
+  file_count: number;
+  symbol_count: number;
+  languages: string[];
+  error?: string | null;
+  created_at: string;
+}
+
+export interface SnapshotList {
+  items: CodeSnapshot[];
+  total: number;
+}
+
+export interface IndexRun {
+  id: string;
+  snapshot_id: string;
+  repository_id: string;
+  status: string;
+  trigger?: string | null;
+  incremental: boolean;
+  base_commit_sha?: string | null;
+  started_at: string;
+  completed_at?: string | null;
+  duration_ms?: number | null;
+  files_seen: number;
+  files_indexed: number;
+  files_reused: number;
+  files_added: number;
+  files_modified: number;
+  files_deleted: number;
+  files_failed: number;
+  symbols_indexed: number;
+  references_indexed: number;
+  relationships_indexed: number;
+  files_heuristic: number;
+  files_partial: number;
+  errors: unknown[];
+  snapshot?: CodeSnapshot | null;
+}
+
+export interface IndexResult {
+  run: IndexRun;
+  snapshot: CodeSnapshot;
+  notes: string[];
+}
+
+export interface RegisterRepositoryPayload {
+  provider?: 'local' | 'git';
+  repository_url: string;
+  default_branch?: string | null;
+  language?: string | null;
+  last_indexed_commit?: string | null;
+}
+
+export interface IndexRepositoryPayload {
+  reference?: string | null;
+  incremental?: boolean;
+  max_files?: number | null;
+}
+
+export type CodeSymbolType =
+  | 'FUNCTION'
+  | 'CLASS'
+  | 'METHOD'
+  | 'MODULE'
+  | 'VARIABLE'
+  | 'CONSTANT'
+  | 'INTERFACE'
+  | 'ROUTE';
+
+export interface CodeSymbol {
+  id: string;
+  snapshot_id: string;
+  file_path: string;
+  symbol_name: string;
+  qualified_name: string;
+  symbol_type: CodeSymbolType | string;
+  language?: string | null;
+  start_line: number;
+  end_line: number;
+  signature?: string | null;
+  documentation?: string | null;
+  is_async: boolean;
+  complexity?: number | null;
+  route?: string | null;
+  http_method?: string | null;
+  component_id?: string | null;
+  reference: string;
+  caller_count: number;
+  callee_count: number;
+}
+
+export interface SymbolList {
+  items: CodeSymbol[];
+  total: number;
+  truncated: boolean;
+}
+
+export interface SymbolDetail extends CodeSymbol {
+  source?: string | null;
+  callers: SymbolEdge[];
+  callees: SymbolEdge[];
+  related_files: string[];
+}
+
+export interface SymbolEdge {
+  qualified_name: string;
+  file_path: string;
+  start_line: number;
+  end_line: number;
+  relationship: string;
+  confidence: number;
+  line: number;
+  reference: string;
+}
+
+export interface CodeFile {
+  id: string;
+  path: string;
+  language?: string | null;
+  module_name?: string | null;
+  size_bytes: number;
+  line_count: number;
+  is_test: boolean;
+  parse_status: string;
+  parse_error?: string | null;
+  last_commit_sha?: string | null;
+  last_modified_at?: string | null;
+  last_author?: string | null;
+  symbol_count: number;
+}
+
+export interface CodeFileList {
+  items: CodeFile[];
+  total: number;
+  truncated: boolean;
+}
+
+export interface CodeSearchResult {
+  snapshot_id: string;
+  query: string;
+  symbols: CodeSymbol[];
+  source_matches: CodeSymbol[];
+  references: Array<{
+    name: string;
+    file_path: string;
+    line: number;
+    kind: string;
+    resolved: boolean;
+    symbol_id?: string | null;
+  }>;
+  truncated: boolean;
+}
+
+export interface SnapshotSummary {
+  snapshot: CodeSnapshot;
+  files: number;
+  symbols: number;
+  relationships: number;
+  references: number;
+  tests: number;
+  languages: Record<string, number>;
+  framework?: string | null;
+  signals_by_type: Record<string, number>;
+  limitations: string[];
+}
+
+export interface TraceCodeMapping {
+  id: string;
+  snapshot_id?: string | null;
+  component_id?: string | null;
+  trace_id?: string | null;
+  span_id?: string | null;
+  operation?: string | null;
+  service_name?: string | null;
+  endpoint?: string | null;
+  http_method?: string | null;
+  mapping_kind: string;
+  symbol_id?: string | null;
+  file_path?: string | null;
+  start_line?: number | null;
+  end_line?: number | null;
+  confidence: number;
+  evidence?: string | null;
+  unmapped_reason?: string | null;
+  reference?: string | null;
+}
+
+export interface TraceMappingList {
+  incident_id: string;
+  snapshot_id?: string | null;
+  items: TraceCodeMapping[];
+  total: number;
+  mapped: number;
+  unmapped: number;
+  unmapped_reasons: Record<string, number>;
+}
+
+export type LocationValidation =
+  | 'VALID'
+  | 'NOT_FOUND'
+  | 'OUT_OF_SNAPSHOT'
+  | 'LINE_OUT_OF_RANGE'
+  | 'AMBIGUOUS'
+  | 'STALE';
+
+export interface DebugCodeLocation {
+  id: string;
+  file_path: string;
+  symbol_name?: string | null;
+  symbol_id?: string | null;
+  start_line?: number | null;
+  end_line?: number | null;
+  label: string;
+  reason: string;
+  confidence: ConfidenceLevel;
+  validation: LocationValidation;
+  validation_detail?: string | null;
+  evidence_refs: string[];
+  reference: string;
+  displayable: boolean;
+}
+
+export interface DebugEvidence {
+  id: string;
+  kind: string;
+  polarity: string;
+  reference: string;
+  label?: string | null;
+  source_table?: string | null;
+  source_id?: string | null;
+  quote?: string | null;
+  start_line?: number | null;
+  end_line?: number | null;
+  component_id?: string | null;
+  valid: boolean;
+  validation_error?: string | null;
+  strength: number;
+  observed_at?: string | null;
+}
+
+export type HypothesisValidationStatus =
+  | 'UNVERIFIED'
+  | 'SUPPORTED'
+  | 'PARTIALLY_SUPPORTED'
+  | 'WEAKENED'
+  | 'REFUTED'
+  | 'INVALID_REFERENCE';
+
+export interface DebugHypothesis {
+  id: string;
+  description: string;
+  category: string;
+  confidence: ConfidenceLevel;
+  validation_status: HypothesisValidationStatus;
+  rationale?: string | null;
+  testable: boolean;
+  test_approach?: string | null;
+  recurrence_count: number;
+  locations: DebugCodeLocation[];
+  supporting_evidence: DebugEvidence[];
+  contradicting_evidence: DebugEvidence[];
+}
+
+export type DebugSessionStatus =
+  | 'CREATED'
+  | 'CONTEXT_BUILDING'
+  | 'ANALYZING'
+  | 'WAITING_FOR_VALIDATION'
+  | 'COMPLETED'
+  | 'FAILED'
+  | 'CANCELLED';
+
+export type DebugAnalysisStatus =
+  | 'PENDING'
+  | 'RUNNING'
+  | 'COMPLETED'
+  | 'DEGRADED'
+  | 'FAILED'
+  | 'CANCELLED'
+  | 'LIMIT_REACHED';
+
+export interface DebugSession {
+  id: string;
+  project_id: string;
+  incident_id: string;
+  repository_id?: string | null;
+  snapshot_id?: string | null;
+  title?: string | null;
+  status: DebugSessionStatus;
+  created_by?: string | null;
+  version_status: CodeVersionStatus;
+  version_note?: string | null;
+  context_version: string;
+  summary?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DebugMessage {
+  id: string;
+  role: 'ENGINEER' | 'ARGUS' | 'SYSTEM' | string;
+  content: string;
+  created_by?: string | null;
+  evidence_refs: string[];
+  metadata?: Record<string, unknown> | null;
+  created_at: string;
+}
+
+export interface DebugToolCall {
+  id: string;
+  tool_name: string;
+  arguments?: Record<string, unknown> | null;
+  status: string;
+  result_summary?: string | null;
+  result_count?: number | null;
+  result_bytes?: number | null;
+  truncated: boolean;
+  error?: string | null;
+  started_at: string;
+  duration_ms?: number | null;
+}
+
+export interface DebugAnalysis {
+  id: string;
+  session_id: string;
+  snapshot_id?: string | null;
+  status: DebugAnalysisStatus;
+  kind: string;
+  provider_name?: string | null;
+  model_name?: string | null;
+  prompt_version: string;
+  context_version: string;
+  started_at: string;
+  completed_at?: string | null;
+  duration_ms?: number | null;
+  tool_call_count: number;
+  files_accessed: number;
+  context_bytes?: number | null;
+  confidence: ConfidenceLevel;
+  summary?: string | null;
+  invalid_references: Array<Record<string, unknown>>;
+  missing_evidence: string[];
+  recommended_inspections: string[];
+  degraded: boolean;
+  degraded_reason?: string | null;
+  locations: DebugCodeLocation[];
+  hypotheses: DebugHypothesis[];
+  evidence: DebugEvidence[];
+  counts: Record<string, number>;
+}
+
+export interface DebugSessionDetail extends DebugSession {
+  snapshot?: CodeSnapshot | null;
+  repository?: Repository | null;
+  latest_analysis?: DebugAnalysis | null;
+  locations: DebugCodeLocation[];
+  hypotheses: DebugHypothesis[];
+  messages: DebugMessage[];
+  counts: Record<string, number>;
+}
+
+export interface DebugSessionList {
+  items: DebugSession[];
+  total: number;
+}
+
+export interface CreateDebugSessionPayload {
+  title?: string | null;
+  repository_id?: string | null;
+  snapshot_id?: string | null;
+  created_by?: string | null;
+  run_analysis?: boolean;
+  index_snapshot?: boolean;
+}
+
+export interface AskDebugPayload {
+  question: string;
+  asked_by?: string | null;
+}
+
+export interface DebugAssistantAnswer {
+  message_id: string;
+  answer: string;
+  evidence: string[];
+  invalid_references: Array<Record<string, unknown>>;
+  missing_evidence: string[];
+  confidence: ConfidenceLevel;
+  tool_calls: Array<Record<string, unknown>>;
+  degraded_reason?: string | null;
+  budget: Record<string, unknown>;
+}
+
+export interface DebugTimelineEvent {
+  at: string;
+  kind: string;
+  title: string;
+  detail?: string | null;
+  reference?: string | null;
+}
+
+export interface DebugTimeline {
+  session_id: string;
+  incident_id: string;
+  items: DebugTimelineEvent[];
+  notes: string[];
+}
+
+export interface DebuggerMetrics {
+  sessions: number;
+  sessions_completed: number;
+  analyses: number;
+  analyses_degraded: number;
+  hypotheses: number;
+  by_validation_status: Record<string, number>;
+  locations_claimed: number;
+  locations_valid: number;
+  locations_rejected: number;
+  invalid_references: number;
+  tool_calls: number;
+  tool_calls_refused: number;
+  repositories: number;
+  snapshots: number;
+  index_status: Record<string, number>;
+  engine_version: string;
+  limitations: string[];
+}
+
+export interface CommitInfo {
+  sha: string;
+  short_sha: string;
+  author?: string | null;
+  committed_at?: string | null;
+  message?: string | null;
+  files_changed: number;
+  parents: string[];
+}
+
+export interface HistoryResult {
+  repository_id: string;
+  revision?: string | null;
+  path?: string | null;
+  items: CommitInfo[];
+  truncated: boolean;
+  reason?: string | null;
 }

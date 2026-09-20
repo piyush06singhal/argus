@@ -136,12 +136,18 @@ export default async function IncidentDetailPage({
               ? ` · last changed by ${incident.status_changed_by}`
               : ''}
           </p>
-          <p className="mt-2 text-sm">
+          <p className="mt-2 text-sm flex flex-wrap gap-x-4 gap-y-1">
             <Link
               href={`/incidents/${incident.id}/causal-analysis`}
               className="text-argus-accent hover:text-argus-accent-hover"
             >
               Open root cause analysis →
+            </Link>
+            <Link
+              href={`/debugger/incident/${incident.id}?project_id=${encodeURIComponent(incident.project_id)}`}
+              className="text-argus-accent hover:text-argus-accent-hover"
+            >
+              Debug at the code level →
             </Link>
           </p>
         </div>

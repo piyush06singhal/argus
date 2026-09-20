@@ -15,6 +15,7 @@ from app.api.v1.routes.health import router as health_router
 from app.core.config import get_settings
 from app.core.database import async_session_factory, close_db, init_db
 from app.services.anomaly_sweep import sweep_forever
+from app.services.code_sweep import sweep_code_intelligence_forever
 from app.services.reproduction_sweep import sweep_reproductions_forever
 from app.services.worker_runner import make_worker
 
@@ -56,9 +57,24 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             sweep_reproductions_forever(async_session_factory)
         )
 
+    # Code-intelligence reaper (Phase 6 §55–§57). Closes debug sessions and
+    # analysis runs abandoned by a dead process and un-sticks repositories
+    # whose index_status is stuck at INDEXING.
+    code_sweep_task: Optional[asyncio.Task] = None
+    if not settings.is_testing and settings.CODE_SWEEP_ENABLED:
+        code_sweep_task = asyncio.create_task(
+            sweep_code_intelligence_forever(async_session_factory)
+        )
+
     yield
 
     # Shutdown
+    if code_sweep_task is not None:
+        code_sweep_task.cancel()
+        try:
+            await code_sweep_task
+        except asyncio.CancelledError:
+            pass
     if repro_sweep_task is not None:
         repro_sweep_task.cancel()
         try:
