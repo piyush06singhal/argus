@@ -39,7 +39,11 @@ QUEUE_TRACES = "argus:ingest:traces"
 #: Phase 3 detection runs on its own queue so a burst of telemetry cannot
 #: starve detection (and vice versa).
 QUEUE_DETECTION = "argus:detect:anomalies"
-ALL_QUEUES = [QUEUE_EVENTS, QUEUE_TRACES, QUEUE_DETECTION]
+#: Phase 5 experiments run on their own queue for the same reason, and for one
+#: more: an experiment can occupy a slot for minutes, so sharing a queue with
+#: ingestion would stall telemetry behind a sandbox.
+QUEUE_REPRODUCTION = "argus:repro:runs"
+ALL_QUEUES = [QUEUE_EVENTS, QUEUE_TRACES, QUEUE_DETECTION, QUEUE_REPRODUCTION]
 
 MAX_RETRIES = 3
 BACKOFF_SECONDS = 1.0
@@ -204,6 +208,30 @@ async def enqueue_incident_correlate(
         return True
     except QueueUnavailable as e:
         logger.info("Incident-correlate enqueue skipped (queue unavailable): %s", e)
+        return False
+
+
+async def enqueue_reproduction_run(*, experiment_id: Any, project_id: Any) -> bool:
+    """Queue an experiment execution job (Phase 5 §53).
+
+    The payload carries opaque ids only — never a plan, never a command. The
+    worker re-reads the plan from the database, so a queued message cannot be
+    used to smuggle execution parameters past planning and validation.
+
+    Returns ``False`` when the broker is unreachable so the API can report a
+    clear failure instead of leaving the experiment stuck in ``VALIDATING``.
+    """
+    payload = {
+        "experiment_id": str(experiment_id),
+        "project_id": str(project_id),
+    }
+    try:
+        await IngestionQueue(QUEUE_REPRODUCTION).push(
+            make_job(kind="reproduction_run", payload=payload)
+        )
+        return True
+    except QueueUnavailable as e:
+        logger.warning("Reproduction enqueue failed (queue unavailable): %s", e)
         return False
 
 

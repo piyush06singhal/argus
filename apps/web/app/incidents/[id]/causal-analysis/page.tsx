@@ -161,6 +161,20 @@ export default async function CausalAnalysisPage({
           {analysis.summary ?? summaryFallback(primary ? candidateLabel(primary) : null)}
         </p>
 
+        {analysis.candidates.length > 0 ? (
+          <p className="mt-3 text-sm text-slate-400">
+            A candidate is a hypothesis, not a conclusion. To find out whether it
+            holds, ARGUS can build an isolated environment and{' '}
+            <Link
+              href={`/incidents/${incident.id}/reproductions`}
+              className="text-argus-accent hover:text-argus-accent-hover"
+            >
+              reproduce the hypothesis
+            </Link>
+            .
+          </p>
+        ) : null}
+
         <div className="mt-3 grid grid-cols-1 gap-4 lg:grid-cols-2">
           <div>
             <p className="text-xs uppercase tracking-wider text-slate-500">

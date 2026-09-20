@@ -1,0 +1,15 @@
+{
+  "fixture": "inventory_probe",
+  "description": "A direct probing request against the middle tier. Replaying this alongside the checkout request lets ARGUS observe the failure at two depths of the same call chain, which is what makes the reproduced sequence comparable to the incident's DB → Inventory → Checkout ordering.",
+  "source": "SYNTHETIC",
+  "order": 2,
+  "relative_offset_ms": 0,
+  "items": [
+    {
+      "method": "GET",
+      "target_service": "inventory",
+      "target_path": "/inventory/SKU-1",
+      "payload": {}
+    }
+  ]
+}

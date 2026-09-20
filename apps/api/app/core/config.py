@@ -135,6 +135,71 @@ class Settings(BaseSettings):
     #: Retention for Phase 4 analysis rows (swept like other telemetry).
     RETENTION_CAUSAL_ANALYSES: int = 365
 
+    # ---- Failure reproduction (Phase 5) ------------------------------------
+    #: Master switch. When disabled, experiments stay queryable but no new
+    #: experiment may be planned, started, or executed (§44).
+    REPRODUCTION_ENABLED: bool = True
+    #: Which isolation mechanism provisions sandboxes.
+    #: ``local``  — process-isolated subprocesses on loopback (always available).
+    #: ``docker`` — unprivileged containers on an internal network (opt-in).
+    REPRO_SANDBOX_BACKEND: str = "local"
+    #: Root directory for sandbox working trees. Empty = a directory under the
+    #: system temp dir. Sandboxes are created *inside* this root and are the
+    #: only thing ARGUS ever writes to during an experiment.
+    REPRO_SANDBOX_ROOT: str = ""
+    #: Where experiment artifacts are stored. Artifacts outlive the sandbox that
+    #: produced them (they are the audit trail, §41), so they live outside the
+    #: disposable working tree. Empty = ``<cwd>/var/reproduction``.
+    REPRO_ARTIFACT_ROOT: str = ""
+    #: Container image used by the Docker sandbox backend. It only needs a
+    #: Python 3 interpreter; the runner is mounted read-only.
+    REPRO_DOCKER_IMAGE: str = "python:3.11-alpine"
+    #: Wall-clock ceiling for a single experiment run, enforced by the
+    #: orchestrator and by a reaper for crashed workers (§39).
+    REPRO_EXPERIMENT_TIMEOUT_SECONDS: int = 300
+    #: Ceiling for provisioning (sandbox create + service readiness).
+    REPRO_PROVISION_TIMEOUT_SECONDS: int = 60
+    #: Conservative per-sandbox resource limits (§40).
+    REPRO_MAX_CPU_SECONDS: int = 60
+    REPRO_MAX_MEMORY_MB: int = 512
+    REPRO_MAX_DISK_MB: int = 64
+    REPRO_MAX_PROCESSES: int = 32
+    REPRO_MAX_REPLAY_REQUESTS: int = 200
+    REPRO_MAX_TELEMETRY_SIGNALS: int = 5000
+    #: Cap on captured telemetry bytes per sandbox (log size limit §40).
+    REPRO_MAX_TELEMETRY_BYTES: int = 8_000_000
+    #: Default replay mode; concurrency is opt-in (§19).
+    REPRO_DEFAULT_REPLAY_MODE: str = "SEQUENTIAL"
+    #: Maximum reproducible repetitions for determinism detection (§34, §35).
+    REPRO_MAX_REPETITIONS: int = 10
+    REPRO_DEFAULT_REPETITIONS: int = 1
+    #: Network policy for sandboxes. ``ISOLATED`` is the default (§13).
+    REPRO_NETWORK_POLICY: str = "ISOLATED"
+    #: Hosts a sandbox may reach when the policy is ``CONTROLLED_EGRESS``.
+    REPRO_EGRESS_ALLOWLIST: List[str] = []
+    #: Forward captured reproduction telemetry through the Phase 1 ingestion
+    #: pipeline into a dedicated reproduction environment (§23). Off by default:
+    #: an experiment must never be able to pollute production telemetry (§24).
+    REPRO_FORWARD_TELEMETRY: bool = False
+    #: Compare reproduced behaviour against the original incident with a
+    #: tolerance window (seconds) when aligning event sequences (§27).
+    REPRO_SEQUENCE_TOLERANCE_SECONDS: int = 120
+    #: How many replay inputs a single plan may select from the incident.
+    REPRO_MAX_INPUTS: int = 50
+    #: NOTE: there is deliberately no "keep the sandbox" knob. §55 makes cleanup
+    #: unconditional — every experiment destroys its sandbox, and any that could
+    #: not be destroyed is reported through the reproduction metrics rather than
+    #: remembered on disk. A retention flag here would be a switch that promises
+    #: to preserve a sandbox and cannot honour it.
+    #: Periodic reaper for reproduction experiments: closes experiments whose
+    #: deadline passed with no worker driving them, and destroys sandboxes whose
+    #: experiment is finished (§39, §55). Without it, a killed worker leaks a
+    #: sandbox and leaves the experiment stuck in a non-terminal state.
+    REPRO_SWEEP_ENABLED: bool = True
+    REPRO_SWEEP_INTERVAL_SECONDS: int = 60
+    #: Retention for Phase 5 rows (swept like other telemetry).
+    RETENTION_REPRODUCTIONS: int = 180
+
     @field_validator("CORS_ORIGINS", mode="before")
     @classmethod
     def parse_cors_origins(cls, v: Any) -> List[str]:

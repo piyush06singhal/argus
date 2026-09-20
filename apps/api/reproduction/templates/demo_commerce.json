@@ -1,0 +1,91 @@
+{
+  "template": "demo_commerce",
+  "version": "1.0.0",
+  "description": "ARGUS Demo Commerce — checkout → inventory → datastore. Used by the Phase 5 reproduction engine as the system under test. Every service is a real process making real loopback HTTP calls under real timeouts.",
+  "entry_service": "checkout",
+  "runner": "runners/service_runner.py",
+  "aliases": {
+    "checkout": [
+      "checkout",
+      "checkout service",
+      "checkout api",
+      "checkout-service",
+      "checkout svc"
+    ],
+    "inventory": [
+      "inventory",
+      "inventory service",
+      "inventory-service",
+      "inventory svc",
+      "stock service"
+    ],
+    "datastore": [
+      "datastore",
+      "database",
+      "db",
+      "postgres",
+      "postgresql",
+      "inventory db",
+      "inventory database",
+      "inventory_db",
+      "primary",
+      "primary db"
+    ]
+  },
+  "services": [
+    {
+      "name": "datastore",
+      "role": "datastore",
+      "app_version": "16.2",
+      "base_latency_ms": 20,
+      "dependency": null,
+      "pool_size": 10,
+      "criticality": "critical"
+    },
+    {
+      "name": "inventory",
+      "role": "service",
+      "app_version": "2.3.1",
+      "base_latency_ms": 15,
+      "timeout_ms": 2500,
+      "error_rate": 0.0,
+      "dependency": "datastore",
+      "criticality": "high"
+    },
+    {
+      "name": "checkout",
+      "role": "service",
+      "app_version": "1.4.2",
+      "base_latency_ms": 25,
+      "timeout_ms": 2700,
+      "error_rate": 0.0,
+      "dependency": "inventory",
+      "criticality": "critical"
+    }
+  ],
+  "operations": {
+    "checkout": {
+      "method": "POST",
+      "path": "/checkout",
+      "payload": { "sku": "SKU-1", "quantity": 1 }
+    },
+    "inventory": {
+      "method": "GET",
+      "path": "/inventory/SKU-1",
+      "payload": {}
+    }
+  },
+  "timeout_note": "Each service's timeout is the value its own environment declares in environments/demo_commerce.json: inventory gives up on the datastore after 2500ms and checkout gives up on inventory after 2700ms. These are the magnitudes the demo incident's telemetry exhibits (datastore call 2500ms, inventory 2700ms, checkout 2900ms), so a reproduction can carry the same latencies instead of truncating the chain at an unrelated timeout.",
+  "expected_failure_semantics": {
+    "datastore": "latency above the caller's timeout makes inventory return 504; a dropped connection makes it return 503",
+    "inventory": "a failing inventory call makes checkout return 503/504 and raises its own error rate",
+    "checkout": "the furthest-downstream effect — it fails last and recovers last"
+  },
+  "resource_limits": {
+    "cpu_seconds": 60,
+    "memory_mb": 512,
+    "disk_mb": 64,
+    "processes": 32,
+    "timeout_seconds": 300
+  }
+}

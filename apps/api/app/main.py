@@ -15,6 +15,7 @@ from app.api.v1.routes.health import router as health_router
 from app.core.config import get_settings
 from app.core.database import async_session_factory, close_db, init_db
 from app.services.anomaly_sweep import sweep_forever
+from app.services.reproduction_sweep import sweep_reproductions_forever
 from app.services.worker_runner import make_worker
 
 settings = get_settings()
@@ -46,9 +47,24 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     ):
         sweep_task = asyncio.create_task(sweep_forever(async_session_factory))
 
+    # Reproduction reaper (Phase 5 §39, §55). Closes experiments abandoned by a
+    # dead worker and destroys sandboxes left behind, so a crash cannot leak a
+    # sandbox or strand an experiment in a non-terminal state.
+    repro_sweep_task: Optional[asyncio.Task] = None
+    if not settings.is_testing and settings.REPRO_SWEEP_ENABLED:
+        repro_sweep_task = asyncio.create_task(
+            sweep_reproductions_forever(async_session_factory)
+        )
+
     yield
 
     # Shutdown
+    if repro_sweep_task is not None:
+        repro_sweep_task.cancel()
+        try:
+            await repro_sweep_task
+        except asyncio.CancelledError:
+            pass
     if sweep_task is not None:
         sweep_task.cancel()
         try:

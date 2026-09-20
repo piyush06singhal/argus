@@ -492,6 +492,14 @@ export default async function IncidentDetailPage({
           >
             root cause analysis
           </Link>
+          . Once a hypothesis exists, it can be tested in an isolated sandbox
+          through{' '}
+          <Link
+            href={`/incidents/${incident.id}/reproductions`}
+            className="text-argus-accent hover:text-argus-accent-hover"
+          >
+            failure reproduction
+          </Link>
           .
         </p>
       </div>

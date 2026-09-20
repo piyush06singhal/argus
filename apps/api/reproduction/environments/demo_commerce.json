@@ -1,0 +1,48 @@
+{
+  "label": "demo-commerce-production",
+  "application_version": "1.4.2",
+  "schema_version": "0007_phase5_reproduction",
+  "runtime_versions": {
+    "python": "3.11",
+    "http": "1.1",
+    "runner": "1.0.0"
+  },
+  "dependency_versions": {
+    "checkout": "1.4.2",
+    "inventory": "2.3.1",
+    "datastore": "16.2"
+  },
+  "service_topology": {
+    "checkout": { "depends_on": ["inventory"], "role": "service" },
+    "inventory": { "depends_on": ["datastore"], "role": "service" },
+    "datastore": { "depends_on": [], "role": "datastore" }
+  },
+  "feature_flags": {
+    "checkout_retries": false,
+    "inventory_cache": false,
+    "db_connection_pooling": true,
+    "circuit_breaker": false
+  },
+  "configuration": {
+    "checkout": {
+      "timeout_ms": 2700,
+      "retry_attempts": 0,
+      "payment_provider": "sandbox-payments"
+    },
+    "inventory": {
+      "timeout_ms": 2500,
+      "cache_ttl_seconds": 0
+    },
+    "datastore": {
+      "max_connections": 10,
+      "slow_query_log": false
+    }
+  },
+  "environment_variables": {
+    "LANG": "C.UTF-8",
+    "TZ": "UTC",
+    "FLASK_ENV": "production",
+    "DATABASE_PASSWORD": "<NOT-CAPTURED>"
+  },
+  "notes": "This descriptor is the *declared* production shape of the demo system. It is captured verbatim by EnvironmentSnapshotService for difference analysis against the sandbox, and it contains no real credentials."
+}

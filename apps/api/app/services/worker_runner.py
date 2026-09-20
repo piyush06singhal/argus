@@ -128,6 +128,9 @@ async def process_event_job(
     if kind == "incident_correlate":
         await process_incident_correlate_job(session_factory, payload=payload)
         return 0
+    if kind == "reproduction_run":
+        await process_reproduction_run_job(session_factory, payload=payload)
+        return 0
     if kind != "event":
         raise NotImplementedError(
             f"No pipeline provisioned for queue job kind={kind!r} (job dead-lettered)"
@@ -441,6 +444,75 @@ async def process_incident_correlate_job(
         result.anomalies_linked,
     )
     return summary
+
+
+async def process_reproduction_run_job(
+    session_factory: async_sessionmaker[AsyncSession],
+    *,
+    payload: dict[str, Any],
+) -> dict[str, Any]:
+    """Process a ``reproduction_run`` job: execute one experiment (Phase 5 §53).
+
+    Idempotent by construction: :meth:`ReproductionOrchestrator.run_experiment`
+    returns immediately when the experiment is already terminal, so a job that is
+    retried after a worker crash cannot re-run a finished experiment or leave a
+    second set of artifacts behind.
+
+    A missing project is a *permanent* failure (no retry can fix it). A sandbox
+    failure is not: the orchestrator records it on the experiment and returns, so
+    the job itself succeeds — the experiment's state is the error channel, not
+    the queue's.
+    """
+    from sqlalchemy import select
+
+    from app.models.project import SoftwareProject
+    from app.services.reproduction_orchestrator import (
+        OrchestrationError,
+        ReproductionOrchestrator,
+    )
+
+    experiment_id = _as_uuid(payload.get("experiment_id"), field="experiment_id")
+    if experiment_id is None:
+        raise PermanentJobError("reproduction_run job missing required experiment_id")
+    project_id = _as_uuid(payload.get("project_id"), field="project_id")
+    if project_id is None:
+        raise PermanentJobError("reproduction_run job missing required project_id")
+
+    async with session_factory() as session:
+        exists = await session.scalar(
+            select(
+                select(SoftwareProject.id)
+                .where(SoftwareProject.id == project_id)
+                .exists()
+            )
+        )
+        if not exists:
+            raise PermanentJobError(f"SoftwareProject {project_id} not found")
+
+    if not settings.REPRODUCTION_ENABLED:
+        logger.info("reproduction_run skipped (REPRODUCTION_ENABLED=false)")
+        return {"skipped": "reproduction_disabled"}
+
+    orchestrator = ReproductionOrchestrator(session_factory)
+    try:
+        experiment = await orchestrator.run_experiment(experiment_id)
+    except OrchestrationError as exc:
+        # The experiment row itself could not be driven (missing plan, deleted
+        # incident): permanent, because retrying reaches the same wall.
+        raise PermanentJobError(str(exc)) from exc
+
+    logger.info(
+        "reproduction_run experiment=%s status=%s result=%s",
+        experiment_id,
+        experiment.status.value,
+        experiment.result.value,
+    )
+    return {
+        "experiment_id": str(experiment_id),
+        "status": experiment.status.value,
+        "result": experiment.result.value,
+        "confidence": experiment.confidence,
+    }
 
 
 async def _ensure_telemetry_components(

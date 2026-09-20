@@ -962,6 +962,608 @@ export interface RelationshipExplanation {
 }
 
 // ---------------------------------------------------------------------------
+// Failure reproduction (Phase 5)
+// ---------------------------------------------------------------------------
+
+/**
+ * Lifecycle of one experiment (§6, §37). The happy path is ordered; the last
+ * three are terminal exits.
+ */
+export type ExperimentStatus =
+  | 'PLANNED'
+  | 'VALIDATING'
+  | 'PROVISIONING'
+  | 'READY'
+  | 'REPLAYING'
+  | 'RUNNING'
+  | 'COLLECTING'
+  | 'COMPARING'
+  | 'COMPLETED'
+  | 'FAILED'
+  | 'CANCELLED'
+  | 'TIMED_OUT';
+
+/**
+ * What the sandbox *observed*. `FAILED` means the expected failure did not
+ * appear in the sandbox — a statement about the sandbox, not the hypothesis.
+ */
+export type ReproductionResult =
+  | 'SUCCESSFUL'
+  | 'PARTIAL'
+  | 'FAILED'
+  | 'INCONCLUSIVE'
+  | 'NOT_RUN';
+
+export type ReproductionStrategy =
+  | 'SYNTHETIC_INPUT_REPLAY'
+  | 'EVENT_REPLAY'
+  | 'DEPENDENCY_FAULT'
+  | 'CONFIGURATION_REPLAY'
+  | 'STATE_SNAPSHOT';
+
+export type SandboxBackendKind = 'LOCAL_PROCESS' | 'DOCKER';
+export type SandboxStatus =
+  | 'CREATING'
+  | 'READY'
+  | 'STOPPING'
+  | 'STOPPED'
+  | 'DESTROYED'
+  | 'FAILED';
+export type SandboxNetworkPolicy =
+  | 'ISOLATED'
+  | 'MOCK_DEPENDENCIES'
+  | 'CONTROLLED_EGRESS';
+export type RunStatus =
+  | 'PENDING'
+  | 'RUNNING'
+  | 'COMPLETED'
+  | 'FAILED'
+  | 'TIMED_OUT'
+  | 'CANCELLED';
+export type FailureClass =
+  | 'ENVIRONMENT_ERROR'
+  | 'INPUT_ERROR'
+  | 'TIMEOUT'
+  | 'RESOURCE_LIMIT'
+  | 'DEPENDENCY_UNAVAILABLE'
+  | 'SANDBOX_ERROR'
+  | 'APPLICATION_FAILURE'
+  | 'NO_FAILURE_OBSERVED'
+  | 'INSUFFICIENT_TELEMETRY'
+  | 'UNKNOWN';
+export type ReplayInputSource =
+  | 'HTTP_REQUEST'
+  | 'EVENT'
+  | 'MESSAGE'
+  | 'TRACE_INPUT'
+  | 'SYNTHETIC';
+export type ReplayStatus =
+  | 'PENDING'
+  | 'SENT'
+  | 'SUCCEEDED'
+  | 'FAILED'
+  | 'REJECTED'
+  | 'SKIPPED';
+export type ReplayMode =
+  | 'SEQUENTIAL'
+  | 'PARALLEL'
+  | 'TIMED'
+  | 'BURST'
+  | 'RATE_LIMITED';
+export type FaultType =
+  | 'LATENCY'
+  | 'TIMEOUT'
+  | 'HTTP_4XX'
+  | 'HTTP_5XX'
+  | 'CONNECTION_FAILURE'
+  | 'RESPONSE_CORRUPTION'
+  | 'RESOURCE_PRESSURE'
+  | 'DEPENDENCY_UNAVAILABLE';
+export type FaultTrigger =
+  | 'IMMEDIATE'
+  | 'AFTER_REPLAY_INDEX'
+  | 'AT_OFFSET';
+export type FaultStatus =
+  | 'PLANNED'
+  | 'ACTIVE'
+  | 'COMPLETED'
+  | 'FAILED'
+  | 'SKIPPED';
+export type ObservationSignal =
+  | 'SPAN'
+  | 'TRACE'
+  | 'LOG'
+  | 'METRIC'
+  | 'HEALTH'
+  | 'EVENT'
+  | 'DEPLOYMENT'
+  | 'CONFIGURATION';
+export type ObservationStatus =
+  | 'EXPECTED'
+  | 'UNEXPECTED'
+  | 'NEUTRAL'
+  | 'MISSING';
+export type ValidationOutcome =
+  | 'SUPPORTED'
+  | 'PARTIALLY_SUPPORTED'
+  | 'NOT_SUPPORTED'
+  | 'INCONCLUSIVE';
+export type ArtifactType =
+  | 'ENVIRONMENT_SNAPSHOT'
+  | 'REPRODUCTION_PLAN'
+  | 'REPRODUCTION_MANIFEST'
+  | 'REPLAY_MANIFEST'
+  | 'TELEMETRY_SNAPSHOT'
+  | 'LOGS'
+  | 'TRACE_SUMMARY'
+  | 'COMPARISON_RESULT'
+  | 'SANDBOX_METADATA'
+  | 'FAULT_RECORD'
+  | 'VALIDATION_REPORT'
+  | 'PROCESS_OUTPUT';
+export type SnapshotSource = 'ORIGINAL' | 'SANDBOX';
+
+export interface ReproductionExperiment {
+  id: string;
+  project_id: string;
+  environment_id?: string | null;
+  incident_id: string;
+  causal_analysis_id?: string | null;
+  candidate_id?: string | null;
+  experiment_version: number;
+  status: ExperimentStatus;
+  result: ReproductionResult;
+  confidence: ConfidenceLevel;
+  trigger?: string | null;
+  requested_by?: string | null;
+  engine_version?: string | null;
+  repetitions: number;
+  completed_runs: number;
+  telemetry_namespace?: string | null;
+  started_at?: string | null;
+  completed_at?: string | null;
+  timeout_at?: string | null;
+  cancel_requested_at?: string | null;
+  summary?: string | null;
+  failure_classification?: FailureClass | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ReproductionPlan {
+  id: string;
+  experiment_id: string;
+  strategy: ReproductionStrategy;
+  target_component_id?: string | null;
+  target_component_name: string;
+  target_version?: string | null;
+  objectives?: Record<string, unknown> | null;
+  required_services?: string[] | null;
+  required_dependencies?: string[] | null;
+  input_sources?: unknown[] | null;
+  expected_behavior?: Record<string, unknown> | null;
+  safety_constraints?: Record<string, unknown> | null;
+  resource_limits?: Record<string, unknown> | null;
+  network_policy: SandboxNetworkPolicy;
+  timeout_seconds: number;
+  repetitions: number;
+  derived_from?: Record<string, unknown> | null;
+  created_at: string;
+}
+
+export interface ReproductionHypothesis {
+  id: string;
+  source_analysis_id?: string | null;
+  candidate_id?: string | null;
+  candidate_type?: string | null;
+  component_id?: string | null;
+  component_name?: string | null;
+  statement: string;
+  expected_failure?: string | null;
+  expected_components?: string[] | null;
+  expected_sequence?: string[] | null;
+  expected_signals?: unknown[] | null;
+  expected_time_window_seconds?: number | null;
+  supporting_evidence?: unknown[] | null;
+  contradicted_by?: string[] | null;
+}
+
+export interface ReproductionSandbox {
+  id: string;
+  sandbox_key: string;
+  backend: SandboxBackendKind;
+  status: SandboxStatus;
+  network_policy: SandboxNetworkPolicy;
+  root_path?: string | null;
+  resource_limits?: Record<string, unknown> | null;
+  services?: Record<string, unknown> | null;
+  created_at_sandbox?: string | null;
+  started_at?: string | null;
+  stopped_at?: string | null;
+  destroyed_at?: string | null;
+  cleanup_attempts: number;
+  cleanup_error?: string | null;
+  orphaned: boolean;
+}
+
+export interface ReproductionRun {
+  id: string;
+  run_index: number;
+  status: RunStatus;
+  result: ReproductionResult;
+  failure_classification?: FailureClass | null;
+  started_at?: string | null;
+  completed_at?: string | null;
+  duration_ms?: number | null;
+  replay_request_count: number;
+  replay_success_count: number;
+  replay_failure_count: number;
+  replay_rejected_count: number;
+  observation_count: number;
+  telemetry_bytes: number;
+  error?: string | null;
+  faults_applied?: unknown[] | null;
+  notes?: string | null;
+}
+
+export interface ReproductionInput {
+  id: string;
+  run_id?: string | null;
+  input_index: number;
+  plan_order: number;
+  source: ReplayInputSource;
+  replay_id?: string | null;
+  status: ReplayStatus;
+  method?: string | null;
+  target_service?: string | null;
+  target_path?: string | null;
+  payload_hash?: string | null;
+  redactions?: string[] | null;
+  relative_offset_ms: number;
+  original_timestamp?: string | null;
+  replay_timestamp?: string | null;
+  status_code?: number | null;
+  duration_ms?: number | null;
+  response_summary?: Record<string, unknown> | null;
+  reject_reason?: string | null;
+  error?: string | null;
+}
+
+export interface ReproductionFault {
+  id: string;
+  fault_type: FaultType;
+  target: string;
+  scope: string;
+  trigger: FaultTrigger;
+  parameters?: Record<string, unknown> | null;
+  duration_ms?: number | null;
+  intensity?: number | null;
+  status: FaultStatus;
+  injected: boolean;
+  started_at?: string | null;
+  ended_at?: string | null;
+  requests_affected: number;
+  result?: string | null;
+}
+
+export interface ReproductionObservation {
+  id: string;
+  namespace: string;
+  signal_type: ObservationSignal;
+  status: ObservationStatus;
+  matched_expected: boolean;
+  observed_at: string;
+  relative_offset_ms: number;
+  component_name?: string | null;
+  source?: string | null;
+  metric_name?: string | null;
+  value?: number | null;
+  unit?: string | null;
+  expected_value?: number | null;
+  severity?: string | null;
+  message?: string | null;
+  operation?: string | null;
+  duration_ms?: number | null;
+  error: boolean;
+  trace_id?: string | null;
+  span_id?: string | null;
+  parent_span_id?: string | null;
+  attributes?: Record<string, unknown> | null;
+}
+
+export interface ReproductionComparison {
+  id: string;
+  run_id: string;
+  overall_similarity: ConfidenceLevel;
+  similarity_score?: number | null;
+  result: ReproductionResult;
+  dimensions?: Record<string, number | null> | null;
+  formula_reference?: string | null;
+  component_overlap?: Record<string, unknown> | null;
+  matched_components?: string[] | null;
+  missing_components?: string[] | null;
+  extra_components?: string[] | null;
+  sequence_original?: string[] | null;
+  sequence_reproduced?: string[] | null;
+  sequence_match?: boolean | null;
+  metric_deltas?: Record<string, unknown> | null;
+  error_comparison?: Record<string, unknown> | null;
+  trace_topology?: Record<string, unknown> | null;
+  log_pattern?: Record<string, unknown> | null;
+  recovery?: Record<string, unknown> | null;
+  temporal?: Record<string, unknown> | null;
+  original_summary?: Record<string, unknown> | null;
+  reproduced_summary?: Record<string, unknown> | null;
+  explanation?: string | null;
+}
+
+export interface ReproductionValidation {
+  id: string;
+  candidate_id?: string | null;
+  outcome: ValidationOutcome;
+  confidence: ConfidenceLevel;
+  summary: string;
+  supporting_observations?: unknown[] | null;
+  contradicting_observations?: unknown[] | null;
+  environment_differences?: unknown[] | null;
+  missing_inputs?: string[] | null;
+  determinism?: ReproductionDeterminism | null;
+  artifact_ids?: string[] | null;
+  limitations?: string[] | null;
+}
+
+/**
+ * Repeatability over the repetitions that actually ran (§34). A rate here is an
+ * observation about the sandbox, never a probability that the hypothesis holds.
+ */
+export interface ReproductionDeterminism {
+  runs: number;
+  successful_runs?: number;
+  partial_runs?: number;
+  reproduction_rate?: number | null;
+  classification?:
+    | 'DETERMINISTIC'
+    | 'INTERMITTENT'
+    | 'NOT_REPRODUCED'
+    | 'REPRODUCED'
+    | 'NOT_RUN';
+  note?: string | null;
+}
+
+export interface ReproductionArtifact {
+  id: string;
+  run_id?: string | null;
+  artifact_type: ArtifactType;
+  name: string;
+  content_type: string;
+  storage_location: string;
+  size_bytes: number;
+  content_hash: string;
+  immutable: boolean;
+  metadata_?: Record<string, unknown> | null;
+}
+
+export interface ReproductionEnvironmentSnapshot {
+  id: string;
+  source: SnapshotSource;
+  label?: string | null;
+  captured_at: string;
+  application_version?: string | null;
+  schema_version?: string | null;
+  runtime_versions?: Record<string, unknown> | null;
+  dependency_versions?: Record<string, unknown> | null;
+  configuration?: Record<string, unknown> | null;
+  feature_flags?: Record<string, unknown> | null;
+  service_topology?: Record<string, unknown> | null;
+  resource_limits?: Record<string, unknown> | null;
+  sanitization?: Record<string, unknown> | null;
+  content_hash?: string | null;
+}
+
+/** Everything the reproduction workspace renders for one experiment (§45–§51). */
+export interface ReproductionExperimentDetail {
+  experiment: ReproductionExperiment;
+  plan?: ReproductionPlan | null;
+  hypothesis?: ReproductionHypothesis | null;
+  runs: ReproductionRun[];
+  validation?: ReproductionValidation | null;
+  sandbox?: ReproductionSandbox | null;
+  faults: ReproductionFault[];
+  input_count: number;
+  available_transitions: string[];
+  disclaimer: string;
+}
+
+export interface ReproductionHistoryEntry {
+  experiment_id: string;
+  experiment_version: number;
+  status: ExperimentStatus;
+  result: ReproductionResult;
+  outcome?: ValidationOutcome | null;
+  confidence: ConfidenceLevel;
+  duration_ms?: number | null;
+  repetitions: number;
+  created_at: string;
+  completed_at?: string | null;
+  hypothesis?: string | null;
+  summary?: string | null;
+}
+
+export interface ReproductionHistory {
+  incident_id: string;
+  items: ReproductionHistoryEntry[];
+  total: number;
+}
+
+export interface ReproductionProgress {
+  status: ExperimentStatus;
+  step: number;
+  total_steps: number;
+  percent: number;
+  is_terminal: boolean;
+  elapsed_seconds?: number | null;
+}
+
+export interface ReproductionStatus {
+  experiment_id: string;
+  status: ExperimentStatus;
+  result: ReproductionResult;
+  progress: ReproductionProgress;
+  sandbox?: ReproductionSandbox | null;
+  runs_completed: number;
+  repetitions: number;
+  replay_total: number;
+  replay_completed: number;
+  faults_active: number;
+  faults_total: number;
+  resources: {
+    limits: Record<string, number | string | null>;
+    observed?: Record<string, number | null> | null;
+  };
+  latest_run?: ReproductionRun | null;
+  cancel_requested: boolean;
+  timeout_at?: string | null;
+}
+
+/** The §47 confirmation payload — what must be shown before execution. */
+export interface ReproductionSafetyPreview {
+  experiment_id: string;
+  sandbox: string;
+  backend: SandboxBackendKind;
+  network_policy: SandboxNetworkPolicy;
+  production_access: string;
+  credentials: string;
+  resource_limits: Record<string, number | string | null>;
+  timeout_seconds: number;
+  repetitions: number;
+  services: string[];
+  faults: {
+    fault_type: FaultType;
+    target: string;
+    status: FaultStatus;
+    injected: boolean;
+  }[];
+  warnings: string[];
+  can_start: boolean;
+  blocked_reasons: string[];
+}
+
+export interface ReproductionTelemetry {
+  experiment_id: string;
+  namespace: string;
+  items: ReproductionObservation[];
+  total: number;
+  expected_count: number;
+  matched_count: number;
+  missing_count: number;
+}
+
+export interface ReproductionComparisonList {
+  experiment_id: string;
+  items: ReproductionComparison[];
+  total: number;
+  aggregate?: {
+    runs: number;
+    mean_similarity?: number | null;
+    buckets: string[];
+    results: string[];
+    sequence_matched: boolean;
+    note: string;
+  } | null;
+}
+
+export interface ReproductionManifest {
+  experiment_id: string;
+  experiment_version: number;
+  status: ExperimentStatus;
+  application_version?: string | null;
+  strategy: ReproductionStrategy;
+  services: string[];
+  dependencies: string[];
+  inputs: {
+    method?: string | null;
+    target: string;
+    payload_hash?: string | null;
+    offset_ms: number;
+    source: ReplayInputSource;
+    status: ReplayStatus;
+  }[];
+  faults: {
+    fault_type: FaultType;
+    target: string;
+    status: FaultStatus;
+    injected: boolean;
+    requests_affected: number;
+  }[];
+  repetitions: number;
+  network_policy: SandboxNetworkPolicy;
+  resource_limits: Record<string, number | string | null>;
+  timeout_seconds: number;
+  artifact_hashes: {
+    name: string;
+    artifact_type: ArtifactType;
+    content_hash: string;
+    size_bytes: number;
+  }[];
+}
+
+/** Observability of ARGUS's own experiments (§54). */
+export interface ReproductionMetrics {
+  project_id: string;
+  experiments: Record<string, number>;
+  results: Record<string, number>;
+  runs_completed: number;
+  runs_failed: number;
+  sandboxes_total: number;
+  sandboxes_destroyed: number;
+  live_sandboxes: number;
+  orphaned_sandboxes: number;
+  cleanup_failures: number;
+  durations_ms: Record<string, number | null>;
+  failures_by_class: Record<string, number>;
+  backend: string;
+  network_policy: string;
+  sandbox_disk: Record<string, unknown>;
+}
+
+/**
+ * A requested fault. The shape itself is the security boundary: a logical
+ * sandbox service and a *typed* fault, never a URL, command or image.
+ */
+export interface ReproductionFaultSpec {
+  fault_type: FaultType;
+  target: string;
+  trigger?: FaultTrigger;
+  duration_ms?: number | null;
+  intensity?: number | null;
+  parameters?: Record<string, unknown> | null;
+  after_replay_index?: number | null;
+  at_offset_ms?: number | null;
+}
+
+export interface ReproductionInputSpec {
+  method?: string;
+  target_service: string;
+  target_path: string;
+  payload?: Record<string, unknown> | null;
+  relative_offset_ms?: number;
+  source?: ReplayInputSource;
+}
+
+export interface CreateReproductionPayload {
+  candidate_id?: string | null;
+  causal_analysis_id?: string | null;
+  strategy?: ReproductionStrategy | null;
+  repetitions?: number | null;
+  replay_mode?: ReplayMode | null;
+  network_policy?: SandboxNetworkPolicy | null;
+  timeout_seconds?: number | null;
+  faults?: ReproductionFaultSpec[] | null;
+  inputs?: ReproductionInputSpec[] | null;
+  requested_by?: string | null;
+}
+
+// ---------------------------------------------------------------------------
 // Deployments
 // ---------------------------------------------------------------------------
 
@@ -1556,6 +2158,202 @@ export const api = {
     apiFetch<RelationshipExplanation>(
       `/api/v1/incidents/${encodeURIComponent(id)}/relationships/` +
         `${encodeURIComponent(relationshipId)}/explanation${scopeQuery(projectId)}`
+    ),
+
+  // --- Failure reproduction (Phase 5) ------------------------------------
+  /**
+   * Plan an experiment for an incident's hypothesis. **Never executes it.**
+   *
+   * Planning and execution are separate calls because a plan is something an
+   * engineer reviews, and §47 requires explicit confirmation before anything runs.
+   */
+  createReproduction: (
+    incidentId: string,
+    {
+      payload = {},
+      projectId,
+      environmentId,
+    }: {
+      payload?: CreateReproductionPayload;
+      projectId?: string;
+      environmentId?: string;
+    } = {}
+  ) => {
+    const params = new URLSearchParams();
+    if (projectId) params.set('project_id', projectId);
+    if (environmentId) params.set('environment_id', environmentId);
+    const qs = params.toString();
+    return apiFetch<ReproductionExperimentDetail>(
+      `/api/v1/incidents/${encodeURIComponent(incidentId)}/reproductions${
+        qs ? `?${qs}` : ''
+      }`,
+      { method: 'POST', body: JSON.stringify(payload) }
+    );
+  },
+
+  listIncidentReproductions: (incidentId: string, projectId?: string) =>
+    apiFetch<ReproductionHistory>(
+      `/api/v1/incidents/${encodeURIComponent(incidentId)}/reproductions` +
+        scopeQuery(projectId)
+    ),
+
+  listReproductions: ({
+    projectId,
+    incidentId,
+    status,
+    page = 1,
+    pageSize = 20,
+  }: {
+    projectId: string;
+    incidentId?: string;
+    status?: ExperimentStatus | string;
+    page?: number;
+    pageSize?: number;
+  }) => {
+    const params = new URLSearchParams({
+      project_id: projectId,
+      page: String(page),
+      page_size: String(pageSize),
+    });
+    if (incidentId) params.set('incident_id', incidentId);
+    if (status) params.set('status', String(status));
+    return apiFetch<PaginatedResponse<ReproductionExperiment>>(
+      `/api/v1/reproductions?${params.toString()}`
+    );
+  },
+
+  getReproduction: (id: string, projectId?: string) =>
+    apiFetch<ReproductionExperimentDetail>(
+      `/api/v1/reproductions/${encodeURIComponent(id)}${scopeQuery(projectId)}`
+    ),
+
+  getReproductionPlan: (id: string, projectId?: string) =>
+    apiFetch<ReproductionPlan>(
+      `/api/v1/reproductions/${encodeURIComponent(id)}/plan${scopeQuery(projectId)}`
+    ),
+
+  /** Everything that must be shown before an experiment may run (§47). */
+  getReproductionSafety: (id: string, projectId?: string) =>
+    apiFetch<ReproductionSafetyPreview>(
+      `/api/v1/reproductions/${encodeURIComponent(id)}/safety${scopeQuery(projectId)}`
+    ),
+
+  getReproductionStatus: (id: string, projectId?: string) =>
+    apiFetch<ReproductionStatus>(
+      `/api/v1/reproductions/${encodeURIComponent(id)}/status${scopeQuery(projectId)}`
+    ),
+
+  getReproductionInputs: (id: string, projectId?: string) =>
+    apiFetch<ReproductionInput[]>(
+      `/api/v1/reproductions/${encodeURIComponent(id)}/inputs${scopeQuery(projectId)}`
+    ),
+
+  getReproductionTelemetry: (id: string, projectId?: string) =>
+    apiFetch<ReproductionTelemetry>(
+      `/api/v1/reproductions/${encodeURIComponent(id)}/telemetry${scopeQuery(
+        projectId
+      )}`
+    ),
+
+  getReproductionArtifacts: (
+    id: string,
+    projectId?: string
+  ): Promise<{ experiment_id: string; items: ReproductionArtifact[]; total: number }> =>
+    apiFetch<{
+      experiment_id: string;
+      items: ReproductionArtifact[];
+      total: number;
+    }>(
+      `/api/v1/reproductions/${encodeURIComponent(id)}/artifacts${scopeQuery(
+        projectId
+      )}`
+    ),
+
+  getReproductionComparison: (id: string, projectId?: string) =>
+    apiFetch<ReproductionComparisonList>(
+      `/api/v1/reproductions/${encodeURIComponent(id)}/comparison${scopeQuery(
+        projectId
+      )}`
+    ),
+
+  getReproductionValidation: (id: string, projectId?: string) =>
+    apiFetch<ReproductionValidation>(
+      `/api/v1/reproductions/${encodeURIComponent(id)}/validation${scopeQuery(
+        projectId
+      )}`
+    ),
+
+  getReproductionEnvironment: (id: string, projectId?: string) =>
+    apiFetch<ReproductionEnvironmentSnapshot[]>(
+      `/api/v1/reproductions/${encodeURIComponent(id)}/environment${scopeQuery(
+        projectId
+      )}`
+    ),
+
+  getReproductionFaults: (
+    id: string,
+    projectId?: string
+  ): Promise<{
+    experiment_id: string;
+    items: ReproductionFault[];
+    total: number;
+    injected_total: number;
+  }> =>
+    apiFetch<{
+      experiment_id: string;
+      items: ReproductionFault[];
+      total: number;
+      injected_total: number;
+    }>(
+      `/api/v1/reproductions/${encodeURIComponent(id)}/faults${scopeQuery(projectId)}`
+    ),
+
+  getReproductionManifest: (id: string, projectId?: string) =>
+    apiFetch<ReproductionManifest>(
+      `/api/v1/reproductions/${encodeURIComponent(id)}/manifest${scopeQuery(
+        projectId
+      )}`
+    ),
+
+  /**
+   * Execute a planned experiment. The backend *requires* a project scope here:
+   * knowing an id is not authority to run it.
+   */
+  startReproduction: (id: string, projectId: string, requestedBy?: string) =>
+    apiFetch<ReproductionExperimentDetail>(
+      `/api/v1/reproductions/${encodeURIComponent(id)}/start` +
+        `?project_id=${encodeURIComponent(projectId)}`,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          confirm_sandbox: true,
+          requested_by: requestedBy ?? null,
+        }),
+      }
+    ),
+
+  cancelReproduction: (id: string, projectId: string, reason?: string) =>
+    apiFetch<ReproductionExperimentDetail>(
+      `/api/v1/reproductions/${encodeURIComponent(id)}/cancel` +
+        `?project_id=${encodeURIComponent(projectId)}`,
+      { method: 'POST', body: JSON.stringify({ reason: reason ?? null }) }
+    ),
+
+  /** Plan a *fresh* version of the same hypothesis; the first attempt is kept. */
+  retryReproduction: (
+    id: string,
+    projectId: string,
+    payload: CreateReproductionPayload = {}
+  ) =>
+    apiFetch<ReproductionExperimentDetail>(
+      `/api/v1/reproductions/${encodeURIComponent(id)}/retry` +
+        `?project_id=${encodeURIComponent(projectId)}`,
+      { method: 'POST', body: JSON.stringify(payload) }
+    ),
+
+  reproductionMetrics: (projectId: string) =>
+    apiFetch<ReproductionMetrics>(
+      `/api/v1/reproductions/metrics?project_id=${encodeURIComponent(projectId)}`
     ),
 };
 

@@ -15,6 +15,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: '/incidents', label: 'Incidents' },
   { href: '/incidents/dashboard', label: 'Incident Dashboard' },
   { href: '/incidents/rca', label: 'Root Cause Analysis' },
+  { href: '/reproductions', label: 'Failure Reproduction' },
   { href: '/anomalies', label: 'Anomaly Center' },
   { href: '/observability', label: 'Observability' },
   { href: '/observability/logs', label: 'Logs' },

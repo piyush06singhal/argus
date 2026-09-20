@@ -1,0 +1,20 @@
+{
+  "fixture": "checkout_request",
+  "description": "A sanitized checkout request used as the replay input. Identifiers are synthetic pseudonyms, so the request exercises the same code path as production traffic without carrying any real subject.",
+  "source": "SYNTHETIC",
+  "order": 1,
+  "relative_offset_ms": 0,
+  "items": [
+    {
+      "method": "POST",
+      "target_service": "checkout",
+      "target_path": "/checkout",
+      "payload": {
+        "sku": "SKU-1",
+        "quantity": 1,
+        "user_id": "sub-2afedb8f-1a84-5043-9a29-3b324be5d513",
+        "email": "subject@sanitized.invalid"
+      }
+    }
+  ]
+}

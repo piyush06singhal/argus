@@ -34,7 +34,21 @@ projects
  ├── graph_reconciliation_runs
  ├── graph_data_quality_records
  ├── service_endpoints
- └── component_owners
+ ├── component_owners
+ ├── causal_analyses                     (Phase 4 causal domain)
+ │    ├── root_cause_candidates
+ │    ├── causal_evidence
+ │    └── causal_relationships
+ └── reproduction_experiments             (Phase 5 reproduction domain)
+      ├── reproduction_plans
+      ├── reproduction_hypotheses
+      ├── reproduction_sandboxes
+      ├── reproduction_runs ──► reproduction_inputs / reproduction_observations
+      ├── reproduction_faults
+      ├── reproduction_comparisons
+      ├── reproduction_validations
+      ├── reproduction_artifacts
+      └── environment_snapshots
 ```
 
 ### 2.1 Graph overlay linkage (Phase 2)
@@ -159,6 +173,37 @@ Three invariants shape this domain:
   justify an edge, and counting them twice made a candidate display more support
   than its confidence was computed on.
 
+### 3.5.3 Phase 5 reproduction domain
+
+| Entity | Table | Key fields |
+|--------|-------|------------|
+| `ReproductionExperiment` | `reproduction_experiments` | `incident_id`, `project_id`, `environment_id`, `causal_analysis_id`, `candidate_id`, `experiment_version`, `status`, `result`, `confidence`, `trigger`, `requested_by`, `engine_version`, `repetitions`, `completed_runs`, `telemetry_namespace`, `started_at`, `completed_at`, `timeout_at`, `cancel_requested_at`, `summary`, `failure_classification` |
+| `ReproductionPlan` | `reproduction_plans` | `strategy`, `target_component_id`, `target_version`, `objectives`, `required_services`, `required_dependencies`, `input_sources`, `expected_behavior`, `safety_constraints`, `resource_limits`, `network_policy`, `timeout_seconds`, `repetitions`, `derived_from` |
+| `ReproductionHypothesis` | `reproduction_hypotheses` | `source_analysis_id`, `candidate_id`, `candidate_type`, `component_id`, `statement`, `expected_failure`, `expected_components`, `expected_sequence`, `expected_signals`, `expected_time_window_seconds`, `supporting_evidence`, `contradicted_by` |
+| `ReproductionSandbox` | `reproduction_sandboxes` | `sandbox_key`, `backend`, `status`, `network_policy`, `root_path`, `resource_limits`, `services`, `created_at_sandbox`, `started_at`, `stopped_at`, `destroyed_at`, `cleanup_attempts`, `cleanup_error`, `orphaned` |
+| `ReproductionRun` | `reproduction_runs` | `run_index`, `status`, `result`, `failure_classification`, `started_at`, `completed_at`, `duration_ms`, `replay_request_count`, `replay_success_count`, `replay_failure_count`, `replay_rejected_count`, `observation_count`, `telemetry_bytes`, `error`, `faults_applied`, `notes` |
+| `ReproductionInput` | `reproduction_inputs` | `plan_order`, `source`, `replay_id`, `status`, `method`, `target_service`, `target_path`, `payload_hash`, `redactions`, `relative_offset_ms`, `original_timestamp`, `replay_timestamp`, `status_code`, `duration_ms`, `response_summary`, `reject_reason` |
+| `ReproductionFault` | `reproduction_faults` | `fault_type`, `target`, `scope`, `trigger`, `parameters`, `duration_ms`, `intensity`, `status`, `injected`, `started_at`, `ended_at`, `requests_affected`, `result` |
+| `ReproductionObservation` | `reproduction_observations` | `namespace`, `signal_type`, `status`, `matched_expected`, `observed_at`, `relative_offset_ms`, `component_name`, `metric_name`, `value`, `unit`, `expected_value`, `severity`, `message`, `operation`, `duration_ms`, `error`, `trace_id`/`span_id`/`parent_span_id`, `attributes` |
+| `ReproductionComparison` | `reproduction_comparisons` | `run_id`, `overall_similarity`, `similarity_score`, `result`, `dimensions`, `formula_reference`, `component_overlap`, `matched_components`, `missing_components`, `extra_components`, `sequence_original`, `sequence_reproduced`, `sequence_match`, `metric_deltas`, `error_comparison`, `trace_topology`, `log_pattern`, `recovery`, `temporal`, `original_summary`, `reproduced_summary`, `explanation` |
+| `ReproductionValidation` | `reproduction_validations` | `candidate_id`, `outcome`, `confidence`, `summary`, `supporting_observations`, `contradicting_observations`, `environment_differences`, `missing_inputs`, `determinism`, `artifact_ids`, `limitations` |
+| `ReproductionArtifact` | `reproduction_artifacts` | `run_id`, `artifact_type`, `name`, `content_type`, `storage_location`, `size_bytes`, `content_hash`, `immutable`, `metadata` |
+| `EnvironmentSnapshot` | `environment_snapshots` | `source` (`ORIGINAL`/`SANDBOX`), `label`, `captured_at`, `application_version`, `schema_version`, `runtime_versions`, `dependency_versions`, `configuration`, `feature_flags`, `service_topology`, `resource_limits`, `sanitization`, `content_hash` |
+
+Three invariants shape this domain:
+
+* **`result` and `outcome` are never the same column.** `result` (on the
+  experiment and the run) says what the sandbox observed; `outcome` (on the
+  validation) says what that means for the hypothesis. Collapsing them would make
+  "it behaved like the incident" and "the hypothesis is therefore true"
+  indistinguishable at the storage layer.
+* **A fault is recorded whether or not it fired.** `injected` plus
+  `requests_affected` (derived from captured telemetry, not from ARGUS's own
+  counter) is what keeps "it failed naturally" separable from "we caused it".
+* **Reproduction telemetry carries its own namespace.**
+  `reproduction_observations.namespace` is `repro:<experiment_id>`, so a
+  reproduction can never be mistaken for the production signal it reproduces.
+
 ### 3.6 Deployments & code repositories
 
 | Entity | Table | Key fields |
@@ -182,6 +227,21 @@ Deployments are the anchor for future incident ↔ change correlation ("a deploy
 | `AnomalyType` | METRIC_THRESHOLD, METRIC_BASELINE_DEVIATION, ERROR_RATE_SPIKE, LATENCY_SPIKE, THROUGHPUT_DROP, LOG_PATTERN_SPIKE, TRACE_FAILURE_SPIKE, HEALTH_DEGRADATION, REQUEST_RATE_CHANGE, RESOURCE_USAGE_SPIKE, DEPLOYMENT_RELATED_CHANGE, CONFIGURATION_RELATED_CHANGE |
 | `AnomalySeverity` | LOW, MEDIUM, HIGH, CRITICAL |
 | `AnomalyStatus` | DETECTED, ACKNOWLEDGED, INVESTIGATING, RESOLVED, EXPIRED |
+| `ExperimentStatus` | PLANNED, VALIDATING, PROVISIONING, READY, REPLAYING, RUNNING, COLLECTING, COMPARING, COMPLETED, FAILED, CANCELLED, TIMED_OUT |
+| `ReproductionResult` | SUCCESSFUL, PARTIAL, FAILED, INCONCLUSIVE, NOT_RUN |
+| `ReproductionStrategy` | SYNTHETIC_INPUT_REPLAY, EVENT_REPLAY, DEPENDENCY_FAULT, CONFIGURATION_REPLAY, STATE_SNAPSHOT |
+| `SandboxBackendKind` / `SandboxStatus` | LOCAL_PROCESS, DOCKER / CREATING, READY, STOPPING, STOPPED, DESTROYED, FAILED |
+| `SandboxNetworkPolicy` | ISOLATED, MOCK_DEPENDENCIES, CONTROLLED_EGRESS |
+| `RunStatus` | PENDING, RUNNING, COMPLETED, FAILED, TIMED_OUT, CANCELLED |
+| `FailureClass` | ENVIRONMENT_ERROR, INPUT_ERROR, TIMEOUT, RESOURCE_LIMIT, DEPENDENCY_UNAVAILABLE, SANDBOX_ERROR, APPLICATION_FAILURE, NO_FAILURE_OBSERVED, INSUFFICIENT_TELEMETRY, UNKNOWN |
+| `ReplayInputSource` / `ReplayStatus` | HTTP_REQUEST, EVENT, MESSAGE, TRACE_INPUT, SYNTHETIC / PENDING, SENT, SUCCEEDED, FAILED, REJECTED, SKIPPED |
+| `ReplayMode` | SEQUENTIAL, PARALLEL, TIMED, BURST, RATE_LIMITED |
+| `FaultType` | LATENCY, TIMEOUT, HTTP_4XX, HTTP_5XX, CONNECTION_FAILURE, RESPONSE_CORRUPTION, RESOURCE_PRESSURE, DEPENDENCY_UNAVAILABLE |
+| `FaultTrigger` / `FaultStatus` | IMMEDIATE, AFTER_REPLAY_INDEX, AT_OFFSET, ON_REQUEST_COUNT, MANUAL / PLANNED, ACTIVE, COMPLETED, FAILED, SKIPPED |
+| `ObservationSignal` / `ObservationStatus` | SPAN, TRACE, LOG, METRIC, HEALTH, EVENT, DEPLOYMENT, CONFIGURATION / EXPECTED, UNEXPECTED, NEUTRAL, MISSING |
+| `ValidationOutcome` | SUPPORTED, PARTIALLY_SUPPORTED, NOT_SUPPORTED, INCONCLUSIVE |
+| `ArtifactType` | ENVIRONMENT_SNAPSHOT, REPRODUCTION_PLAN, REPRODUCTION_MANIFEST, REPLAY_MANIFEST, TELEMETRY_SNAPSHOT, LOGS, TRACE_SUMMARY, COMPARISON_RESULT, SANDBOX_METADATA, FAULT_RECORD, VALIDATION_REPORT, PROCESS_OUTPUT |
+| `SnapshotSource` | ORIGINAL, SANDBOX |
 | `AnomalySource` | METRIC, LOG, TRACE, SPAN, HEALTH_CHECK, DEPLOYMENT, CONFIGURATION, GRAPH, COMPOSITE, UNKNOWN |
 | `BaselineStrategy` | STATIC, ROLLING |
 | `RuleCondition` | THRESHOLD, BASELINE_DEVIATION, Z_SCORE, RATE_CHANGE, ERROR_RATE, LATENCY_RATIO, PATTERN_SPIKE, HEALTH_TRANSITION, TRACE_FAILURE_RATE |
@@ -207,6 +267,9 @@ Pydantic validates these enums at the API boundary, so malformed values are reje
 - Causal analysis is bounded on every axis: evidence window, candidate budget,
   edge budget, trace cap, dependency hops and evidence cap are all settings, so
   no query ever scans the whole telemetry database for one incident
+- Reproduction is bounded too: replay requests, inputs per plan, repetitions,
+  telemetry signals and telemetry bytes all have ceilings, and one repetition's
+  sandbox never shares a directory or a socket with another's
 
 ## 6. Migrations
 

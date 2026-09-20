@@ -89,11 +89,22 @@ See [docs/phase-4.md](phase-4.md) for the full design and [docs/phase4-implement
 
 **Explicitly not included:** reproduction, automatic debugging, patch generation or application, autonomous remediation, self-healing, predictive forecasting. Phase 4 is *analyze, explain, hypothesize, validate, trace causality* — not *reproduce, fix, deploy*. Its output is an **evidence-supported hypothesis**, never proof.
 
-## Phase 5 — Failure Reproduction Engine
+## Phase 5 — Failure Reproduction Engine ✅
 
-- Safe reconstruction of failures from captured behavior
-- Sandboxed replay against recorded sequences
-- No production impact — reproduction only in isolated environments
+- ✅ Plan-reviewable experiments: strategy, target component, expected behaviour derived from the incident's own signals, resource limits, timeout and repetitions — and planning executes **nothing**
+- ✅ Disposable isolation: per-service processes behind POSIX limits (default) or per-service containers on an internal Docker network (`--cap-drop ALL`, `no-new-privileges`, read-only root fs); loopback-only sockets, sanitized environment, bounded CPU/memory/disk/processes/telemetry
+- ✅ Sanitization that fails safe: secret-named subtrees tainted wholesale, PII replaced by deterministic pseudonyms, and an independent pre-flight check inside the replay engine — a failed check sends nothing
+- ✅ Sanitized replay of synthetic requests, events, messages and trace inputs; sequential by default; relative timing preserved, original wall-clock kept as provenance only
+- ✅ Controlled fault injection (latency, timeout, HTTP 4xx/5xx, connection failure, response corruption, resource pressure, dependency unavailable) with a telemetry-derived audit of how many requests each fault actually affected
+- ✅ Captured telemetry in its own `repro:<experiment-id>` namespace, labelled against expectations, with explicit `MISSING` observations so a clean run is distinguishable from one that never exercised the failure
+- ✅ Explainable comparison over eight independence dimensions with stored formulas; an unavailable dimension is excluded, never scored as dissimilarity
+- ✅ Four verdicts — `SUPPORTED`, `PARTIALLY_SUPPORTED`, `NOT_SUPPORTED`, `INCONCLUSIVE` — with environment differences, missing inputs, repeatability framed as an observation, and stated limitations. A failed reproduction is never a refutation
+- ✅ Content-addressed (SHA-256), immutable artifacts; validated lifecycle with cooperative cancellation, deadlines and a reaper; unconditional cleanup with orphan/cleanup-failure metrics
+- ✅ 866 backend tests (103 Phase 5) + 82 vitest tests; live Phase 5 gate (104 checks) covering the full engine **and** its refusals: no confirmation, no project scope, cross-project, shell-command fault target, execution-shaped fault parameter, URL replay target, credential leak, namespace bleed, sandbox leak
+
+See [docs/phase-5.md](phase-5.md) for the full design and [docs/phase5-implementation-report.md](phase5-implementation-report.md) for the delivery report.
+
+**Explicitly not included:** source-code modification, patch generation or application, autonomous deployment, production remediation, rollback and self-healing. Phase 5 is *reproduce, replay, experiment, compare, validate* — not *fix, deploy, remediate*.
 
 ## Phase 6 — AI Debugger
 
