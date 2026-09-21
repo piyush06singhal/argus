@@ -1,6 +1,6 @@
 # ARGUS Roadmap
 
-ARGUS is built in phases. This document records the planned evolution. **Phases 0–6 are implemented. Do not implement later phases now** — the roadmap is a contract for architecture boundaries, not a to-do list.
+ARGUS is built in phases. This document records the planned evolution. **Phases 0–8 are implemented. Do not implement later phases now** — the roadmap is a contract for architecture boundaries, not a to-do list.
 
 ## Phase 0 — Foundation ✅
 
@@ -152,15 +152,33 @@ See [docs/phase-7.md](phase-7.md) for the full design and [docs/phase7-implement
 
 **Explicitly not included:** merging, pull-request approval, deployment, rollback, production remediation and self-healing. Phase 7 is *generate, validate, test, reproduce, verify, review* — not *merge, deploy, remediate*.
 
-## Phase 8 — Predictive Reliability
+## Phase 8 — Predictive Reliability ✅
 
-- Trend, capacity, and reliability prediction from historical behavior
-- Pre-incident signal detection
+- ✅ A **forecast domain, not a number**: risk score, risk level, confidence, calibration status, data coverage, validity window, model version, supporting evidence and explicit limitations — per component × prediction type × horizon, with revisions and a dedup registry
+- ✅ **Scopes, horizons and prediction types are data, not code paths**: component × environment eligibility discovered from observed activity (bounded by `RELIABILITY_MAX_COMPONENTS_PER_RUN`), four configurable horizons with real durations, nine distinct prediction types that are never collapsed into one
+- ✅ **Feature engineering with two rules that matter more than the feature list** — every feature is `Optional` (a missing series is `None`, never `0.0`) and every feature records its source table, so each snapshot is auditable
+- ✅ **Data quality as a verdict, not a default**: `GOOD`/`PARTIAL`/`POOR`/`INSUFFICIENT` coverage, a sample floor and a staleness check, so insufficient evidence yields `UNKNOWN` — never the false comfort of `LOW`
+- ✅ **Four deterministic statistical predictors** (`rolling_trend`, `ewma`, `threshold_trajectory`, `historical_frequency`) behind a provider-neutral interface, with ML families reserved and gated by a data-sufficiency check — none ship enabled, and there is no fake ML
+- ✅ **One centralized risk policy**: thresholds live in configuration and are applied by a single module, so the API, the worker, the UI and the tests cannot disagree about what `HIGH` means
+- ✅ **Reproducibility by construction**: the feature snapshot (exact features, window, schema version) is persisted *before* the forecast row, so any stored forecast can be re-derived from stored inputs
+- ✅ **Evaluation and calibration that refuse to invent certainty**: outcomes scored once per elapsed horizon, `INCONCLUSIVE` as a first-class result, and precision always published with its sample counts
+- ✅ **Walk-forward backtesting with an enforced leakage contract**: splits are time-based, a forecast at time *T* may read only rows at or before *T*, and an unelapsed horizon reports *no* outcome rather than a null one
+- ✅ **Drift monitoring that flags for review and retrains nothing** — there is deliberately no code path from a drift record to a model change
+- ✅ **Early warnings for humans only**: deduplicated per scope and rate-limited by a cooldown, with acknowledge/dismiss and no remediation route anywhere in the API
+- ✅ **An optional narrative layer on the explanation, off by default**: deterministic unless configured, with the model path redacted, delimited as untrusted data, refused for a mock provider and degrading to the stored explanation on failure
+- ✅ Queue and worker integration plus a scheduled sweep, and retention that keeps evaluation, backtest and drift history longer than the forecasts they describe
+- ✅ Predictive reliability UI: dashboard, forecast list and detail with the exact snapshot, component profiles, accuracy, backtest runner, model registry, and a predicted-risk overlay on the system map
+- ✅ 1234 backend tests (141 Phase 8) + 132 vitest tests; live Phase 8 gate (`infrastructure/e2e-smoke-phase8.sh`, 42 checks) driving the whole pipeline over the real HTTP API, and a self-cleaning run that cannot mislead another phase's gate
+
+See [docs/predictive-reliability.md](predictive-reliability.md) for the full design and [docs/phase-8-report.md](phase-8-report.md) for the delivery report.
+
+**Explicitly not included:** rollback, deployment, scaling, production configuration changes, automatic patching and any other autonomous remediation. Phase 8 is *predict, explain, evaluate, warn, human decides* — not *act*.
 
 ## Phase 9 — Safe Autonomous Remediation
 
 - Proposal → Verification → Policy Check → Approval → Execution
 - Strict policy enforcement; no unrestricted capabilities
+- Built on the predictive, causal, reproduction and verified-fix intelligence from Phases 4–8; Phase 8 supplies the forecast and the warning, Phase 9 would supply the controlled action
 
 ## Phase 10 — Reliability Intelligence Platform
 

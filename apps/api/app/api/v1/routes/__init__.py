@@ -16,6 +16,7 @@ from app.api.v1.routes.metrics_export import router as metrics_router
 from app.api.v1.routes.observability import router as observability_router
 from app.api.v1.routes.otlp import router as otlp_router
 from app.api.v1.routes.projects import router as projects_router
+from app.api.v1.routes.reliability import router as reliability_router
 from app.api.v1.routes.reproduction import router as reproduction_router
 
 api_v1_router = APIRouter(prefix="/api/v1")
@@ -35,3 +36,4 @@ api_v1_router.include_router(causal_router)
 api_v1_router.include_router(reproduction_router)
 api_v1_router.include_router(code_router)
 api_v1_router.include_router(fix_router)
+api_v1_router.include_router(reliability_router)

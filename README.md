@@ -13,7 +13,7 @@ incidents, and change, so a failure can be explained instead of guessed at.
 [![FastAPI](https://img.shields.io/badge/FastAPI-async-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
 [![Next.js](https://img.shields.io/badge/Next.js-14-000000?logo=next.js&logoColor=white)](https://nextjs.org/)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169e1?logo=postgresql&logoColor=white)](https://www.postgresql.org/)
-[![Tests](https://img.shields.io/badge/tests-1093%20backend%20%2B%20113%20frontend-brightgreen)](#verification)
+[![Tests](https://img.shields.io/badge/tests-1234%20backend%20%2B%20132%20frontend-brightgreen)](#verification)
 [![Migrations](https://img.shields.io/badge/migrations-reversible-informational)](docs/development.md)
 
 </div>
@@ -59,6 +59,7 @@ first-class, tested outcome — not a failure mode.
 | **5** | Failure Reproduction Engine — isolated sandbox, sanitized replay, controlled faults, comparison, hypothesis validation | ✅ shipped | [docs/phase-5.md](docs/phase-5.md) |
 | **6** | AI Debugger — code intelligence, trace→code mapping, evidence-grounded analysis, validated code claims | ✅ shipped | [docs/phase-6.md](docs/phase-6.md) |
 | **7** | Automated Fix Generation & Verification — fix hypotheses, patch generation, safety validation, isolated workspace, build/tests, two-sided regression test, verification, human review | ✅ shipped | [docs/phase-7.md](docs/phase-7.md) |
+| **8** | Predictive Reliability — feature engineering, deterministic baseline predictors, risk policy, evaluation & calibration, walk-forward backtesting, leakage prevention, drift, early warnings, human-only | ✅ shipped | [docs/predictive-reliability.md](docs/predictive-reliability.md) |
 
 Phase 7 is the first phase that can produce a change — and it still does not
 merge, deploy or remediate. It plans a fix from evidence that already exists,
@@ -68,6 +69,14 @@ checks, proves the failure is gone with a two-sided regression test, compares
 before and after, stores the evidence hashed and immutable, and stops at a human
 decision. Nothing is changed in your repositories, and no result is presented as
 proof.
+
+Phase 8 turns that history forward in time. It answers *which components are
+showing increasing reliability risk, over which horizon, on what evidence, and
+how trustworthy that answer is* — then stops at a human decision. A forecast is
+never a fact, never creates an incident, and never claims a component "will
+fail"; the four statistical predictors are labelled baselines because a "model"
+with no training data would be decoration. Expectations ship with their
+confidence, calibration, coverage, evidence and limitations attached.
 
 ## How it works
 
@@ -102,9 +111,15 @@ proof.
         ─► build/static/tests ─► two-sided regression test ─► reproduction
         ─► comparison ─► VERIFIED | NOT_VERIFIED ─► human review
                                  ▼
+                   Predictive Reliability (Phase 8)
+        feature engineering ─► quality/staleness gate ─► baseline predictors
+        ─► risk policy ─► forecast + signals ─► evaluation · calibration
+        ─► walk-forward backtest · drift ─► early warnings ─► human decides
+                                 ▼
                      Next.js investigation UI
         system map · anomaly center · incidents · root cause analysis
         · reproduction workspace · AI debugger · fix & verification workspace
+        · predictive reliability dashboard, heatmap and component profiles
 ```
 
 ## Features
@@ -296,6 +311,46 @@ proof.
   final, and no code path merges or deploys
 </details>
 
+<details>
+<summary><b>Predictive Reliability (Phase 8)</b></summary>
+
+- **A forecast domain, not a number:** risk score, level, confidence,
+  calibration status, data coverage, validity window, supporting evidence and
+  explicit limitations — per component, prediction type and horizon, with
+  revisions and deduplication
+- **Feature engineering with two rules that matter more than the feature list:**
+  every feature is `Optional` (a missing series is `None`, never `0.0`) and every
+  feature records the table that supplied it, so each snapshot is auditable
+- **Data quality is a verdict, not a default:** `GOOD` / `PARTIAL` / `POOR` /
+  `INSUFFICIENT` coverage, a sample floor and a staleness check — insufficient
+  evidence yields `UNKNOWN`, never `LOW`
+- **Four deterministic statistical predictors** (`rolling_trend`, `ewma`,
+  `threshold_trajectory`, `historical_frequency`) behind a provider-neutral
+  interface, with ML families reserved and gated by data sufficiency — none
+  ship enabled and there is no fake ML
+- **One risk policy:** thresholds live in configuration and are applied by a
+  single module, so the API, the worker, the UI and the tests cannot disagree
+  about what `HIGH` means
+- **Evaluation, calibration and walk-forward backtesting** with an enforced
+  leakage contract: a forecast at time *T* may read only rows at or before *T*,
+  splits are time-based, an unelapsed horizon has *no* outcome, and precision is
+  published with its sample counts
+- **Drift monitoring that flags for review and retrains nothing** — there is no
+  code path from a drift record to a model change
+- **Early warnings for humans only:** deduplicated, cooldown-limited, and
+  acknowledge/dismiss. No rollback, deployment, scaling or automatic patch
+  endpoint exists at all
+- **Predictive reliability UI:** dashboard, forecast list and detail with the
+  exact feature snapshot, component profiles, accuracy, backtest runner, model
+  registry, and a predicted-risk overlay on the system map
+- **An optional narrative layer, off by default:** the explanation is
+  deterministic unless `RELIABILITY_NARRATIVE_PROVIDER` is set. `deterministic`
+  composes prose from stored rows; `model` re-words it with a configured
+  provider under untrusted-data delimiters, with secrets redacted and a mock
+  provider treated as *none* — and any failure degrades to the stored
+  explanation and says so
+</details>
+
 ## Quick start
 
 **Requirements:** Docker with Compose. Nothing else — no local Python or Node
@@ -353,11 +408,11 @@ they pass on repeat runs, not only on a pristine database.
 
 | Gate | Command | Result |
 | :--- | :--- | :--- |
-| Backend test suite | `cd apps/api && pytest -q` | **1093 passed** |
-| Lint / format / types | `cd apps/api && ruff check app tests && ruff format --check app tests && mypy app` | clean (206 files, 146 modules) |
-| Frontend tests | `cd apps/web && npm test` | **113 passed** |
+| Backend test suite | `cd apps/api && pytest -q` | **1234 passed** |
+| Lint / format / types | `cd apps/api && ruff check app tests && ruff format --check app tests && mypy app` | clean |
+| Frontend tests | `cd apps/web && npm test` | **132 passed** |
 | Frontend type check | `cd apps/web && npx tsc --noEmit` | clean |
-| Frontend production build | `cd apps/web && npm run build` | succeeds, 26 routes |
+| Frontend production build | `cd apps/web && npm run build` | succeeds, 36 routes |
 | Phase 0/1 live gate | `bash infrastructure/e2e-smoke-phase1.sh` | **46/46** |
 | Phase 2 live gate | `bash infrastructure/e2e-smoke-phase2.sh` | **28/28** |
 | Phase 3 live gate | `bash infrastructure/e2e-smoke-phase3.sh` | **103/103** |
@@ -366,8 +421,10 @@ they pass on repeat runs, not only on a pristine database.
 | Phase 6 live gate | `bash infrastructure/e2e-smoke-phase6.sh` | **159/159** |
 | Phase 7 live gate | `bash infrastructure/e2e-smoke-phase7.sh` | **90/90** |
 | Phase 7 gate + DDL probe | `DDL_PROBE=1 bash infrastructure/e2e-smoke-phase7.sh` | **91/91** |
+| Phase 8 live gate | `bash infrastructure/e2e-smoke-phase8.sh` | **42/42** |
+| Phase 8 gate + DDL probe | `DDL_PROBE=1 bash infrastructure/e2e-smoke-phase8.sh` | **43/43** |
 | Migration under a live pool | `DDL_PROBE=1 bash infrastructure/e2e-smoke-phase4.sh` | **73/73** |
-| Fresh-database bootstrap | empty DB → `alembic upgrade head` → `seed_data.py` | 9 migrations apply from zero; demo incident, its analysis and its reproduction are derived correctly |
+| Fresh-database bootstrap | empty DB → `alembic upgrade head` → `seed_data.py` | 12 migrations apply from zero into 86 tables (10 for Phase 8); demo incident, its analysis, its reproduction and its forecasts are derived correctly |
 | Migrations reversible | `alembic upgrade head` / `downgrade -1` on PostgreSQL 16 | verified both directions |
 
 The Phase 4 gate also exercises the browser views and proves that several
@@ -375,6 +432,16 @@ projects can be analysed side by side without contaminating each other: a second
 system's evidence-free incident stays `UNKNOWN` while another project holds a
 `HIGH`-confidence analysis, and every candidate resolves to a component of the
 project being analysed.
+
+The Phase 8 gate ingests a deterministic degradation timeline over the real API
+and then exercises forecast generation, provenance and snapshot reproducibility,
+the four-question explanation (which states it is not causal evidence), the risk
+heatmap, the component profile, platform health, the model registry, a bounded
+walk-forward backtest, leakage (an incident created *after* generation does not
+rewrite a stored forecast), a drift assessment that retrains nothing, evaluation
+of due forecasts, warning deduplication, and cross-project isolation. It is
+self-cleaning, so it never leaves an incident behind that would mislead another
+phase's gate.
 
 The Phase 5 gate drives the whole reproduction engine through the real API —
 plan → confirm → sandbox → replay → fault → capture → compare → validate →
@@ -542,8 +609,13 @@ useless:
   regression test derived from the patch, but it cannot know what your suite
   does not cover; the deterministic generator recognises a handful of defect
   shapes, and anything else is refused or requires a configured model.
+- **Predictions are expectations, not facts.** Phase 8 ships deterministic
+  baselines, not learned models: they are strong on trends and weak on
+  interactions, they need enough history before they will speak at all
+  (`UNKNOWN` when they do not have it), and their calibration cannot be judged
+  until horizons elapsed. False positives and false negatives are both expected.
 - **Later phases are not started.** Autonomous remediation, deployment and
-  predictive forecasting are deliberately absent.
+  scaling are deliberately absent.
 
 ## Roadmap
 
@@ -551,7 +623,8 @@ useless:
 | :--- | :--- |
 | 6 | ✅ AI Debugger — code intelligence, validated code claims, grounded debugging analysis |
 | 7 | ✅ Automated Fix Generation & Verification — candidates verified in isolation, never auto-applied |
-| 8 | Predictive Reliability — trend, capacity and reliability prediction; pre-incident signals |
+| 8 | ✅ Predictive Reliability — evidence-backed forecasts, evaluation, backtesting, drift, warnings |
+| 9 | Safe Autonomous Remediation — proposal → verification → policy check → approval → execution |
 
 See [docs/roadmap.md](docs/roadmap.md) for detail.
 
@@ -566,7 +639,8 @@ See [docs/roadmap.md](docs/roadmap.md) for detail.
 | [Phase 5 — Failure Reproduction Engine](docs/phase-5.md) | Architecture, sandbox design, security model, lifecycle, replay, faults, capture, comparison, validation, artifacts, cleanup, limitations |
 | [Phase 6 — AI Debugger](docs/phase-6.md) | Code intelligence, snapshots, trace→code mapping, debug sessions, validation, grounded Q&amp;A, safety, limitations |
 | [Phase 7 — Automated Fix Generation & Verification](docs/phase-7.md) | Fix hypotheses, patch generation, safety validation, isolated workspaces, command registry, verification ladder, risk, artifacts, human review, limitations |
-| [Phase 2 Report](docs/phase2-implementation-report.md) · [Phase 3 Report](docs/phase3-implementation-report.md) · [Phase 4 Report](docs/phase4-implementation-report.md) · [Phase 5 Report](docs/phase5-implementation-report.md) · [Phase 6 Report](docs/phase6-implementation-report.md) | Delivery summaries, gate evidence, bugs found by live validation |
+| [Phase 8 — Predictive Reliability](docs/predictive-reliability.md) | Forecast domain, feature engineering, predictors, risk policy, lifecycle, backtesting, leakage prevention, calibration, drift, warnings, API, UI, limitations |
+| [Phase 2 Report](docs/phase2-implementation-report.md) · [Phase 3 Report](docs/phase3-implementation-report.md) · [Phase 4 Report](docs/phase4-implementation-report.md) · [Phase 5 Report](docs/phase5-implementation-report.md) · [Phase 6 Report](docs/phase6-implementation-report.md) · [Phase 8 Report](docs/phase-8-report.md) | Delivery summaries, gate evidence, bugs found by live validation |
 | [Data model](docs/data-model.md) | Tables, relationships, enum domains, indexes |
 | [Observability model](docs/observability-model.md) | Signals, normalization, retention |
 | [Development](docs/development.md) | Local setup, migrations, testing conventions |

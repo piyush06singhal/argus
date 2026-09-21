@@ -131,6 +131,12 @@ async def process_event_job(
     if kind == "reproduction_run":
         await process_reproduction_run_job(session_factory, payload=payload)
         return 0
+    if kind == "reliability_forecast":
+        await process_reliability_forecast_job(session_factory, payload=payload)
+        return 0
+    if kind == "reliability_evaluate":
+        await process_reliability_evaluate_job(session_factory, payload=payload)
+        return 0
     if kind != "event":
         raise NotImplementedError(
             f"No pipeline provisioned for queue job kind={kind!r} (job dead-lettered)"
@@ -513,6 +519,93 @@ async def process_reproduction_run_job(
         "result": experiment.result.value,
         "confidence": experiment.confidence,
     }
+
+
+async def process_reliability_forecast_job(
+    session_factory: async_sessionmaker[AsyncSession],
+    *,
+    payload: dict[str, Any],
+) -> dict[str, Any]:
+    """Process a ``reliability_forecast`` job (Phase 8 §57).
+
+    Deterministic and idempotent: generation deduplicates per scope inside its
+    refresh window, so re-running over unchanged telemetry refreshes the
+    existing forecast rather than producing another row. Respects the
+    ``RELIABILITY_FORECASTING_ENABLED`` master switch, and dead-letters a
+    project that no longer exists instead of retrying forever.
+    """
+    from app.services.reliability_forecast_service import ReliabilityForecastService
+
+    if not settings.RELIABILITY_FORECASTING_ENABLED:
+        logger.info("reliability_forecast skipped (forecasting disabled)")
+        return {"skipped": "forecasting_disabled"}
+
+    project_id = _as_uuid(payload.get("project_id"), field="project_id")
+    if project_id is None:
+        raise PermanentJobError("reliability_forecast job missing required project_id")
+    environment_id = _as_uuid(payload.get("environment_id"), field="environment_id")
+
+    from sqlalchemy import select
+
+    from app.models.project import SoftwareProject
+
+    async with session_factory() as session:
+        exists = await session.scalar(
+            select(
+                select(SoftwareProject.id)
+                .where(SoftwareProject.id == project_id)
+                .exists()
+            )
+        )
+        if not exists:
+            raise PermanentJobError(f"SoftwareProject {project_id} not found")
+
+        service = ReliabilityForecastService(session)
+        result = await service.generate_for_project(
+            project_id=project_id, environment_id=environment_id
+        )
+        await session.commit()
+
+    summary = result.as_dict()
+    logger.info(
+        "reliability_forecast project=%s env=%s scopes=%d created=%d updated=%d "
+        "revised=%d refusals=%d",
+        project_id,
+        environment_id,
+        summary["scopes"],
+        summary["forecasts_created"],
+        summary["forecasts_updated"],
+        summary["forecasts_revised"],
+        summary["refusals"],
+    )
+    return summary
+
+
+async def process_reliability_evaluate_job(
+    session_factory: async_sessionmaker[AsyncSession],
+    *,
+    payload: dict[str, Any],
+) -> dict[str, Any]:
+    """Process a ``reliability_evaluate`` job (Phase 8 §57, §28).
+
+    Scores every forecast whose window has elapsed and that has no outcome yet.
+    Safe to run at any frequency: the gate is "no outcome row", not a timer.
+    """
+    from app.services.reliability_evaluation import PredictionEvaluationService
+
+    project_id = _as_uuid(payload.get("project_id"), field="project_id")
+    async with session_factory() as session:
+        service = PredictionEvaluationService(session)
+        summary = await service.evaluate_due(project_id=project_id)
+        await session.commit()
+
+    logger.info(
+        "reliability_evaluate project=%s candidates=%d scored=%d",
+        project_id,
+        summary.get("candidates", 0),
+        summary.get("scored", 0),
+    )
+    return summary
 
 
 async def _ensure_telemetry_components(

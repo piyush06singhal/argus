@@ -17,6 +17,7 @@ from app.core.database import async_session_factory, close_db, init_db
 from app.services.anomaly_sweep import sweep_forever
 from app.services.code_sweep import sweep_code_intelligence_forever
 from app.services.fix_sweep import sweep_fix_forever
+from app.services.reliability_sweep import sweep_reliability_forever
 from app.services.reproduction_sweep import sweep_reproductions_forever
 from app.services.worker_runner import make_worker
 
@@ -73,9 +74,30 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     if not settings.is_testing and settings.FIX_SWEEP_ENABLED:
         fix_sweep_task = asyncio.create_task(sweep_fix_forever(async_session_factory))
 
+    # Scheduled predictive-reliability sweep (Phase 8 §58, §77). Generates the
+    # forecasts that are due, scores the ones whose horizons have elapsed,
+    # refreshes early warnings and expires what has passed. Skipped under
+    # ``test`` so tests never race a timer; the worker queue and the API can
+    # both drive the same work explicitly.
+    reliability_sweep_task: Optional[asyncio.Task] = None
+    if (
+        not settings.is_testing
+        and settings.RELIABILITY_FORECASTING_ENABLED
+        and settings.RELIABILITY_SWEEP_ENABLED
+    ):
+        reliability_sweep_task = asyncio.create_task(
+            sweep_reliability_forever(async_session_factory)
+        )
+
     yield
 
     # Shutdown
+    if reliability_sweep_task is not None:
+        reliability_sweep_task.cancel()
+        try:
+            await reliability_sweep_task
+        except asyncio.CancelledError:
+            pass
     if fix_sweep_task is not None:
         fix_sweep_task.cancel()
         try:

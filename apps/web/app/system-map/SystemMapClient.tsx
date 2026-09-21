@@ -9,7 +9,7 @@
  */
 
 import { useEffect, useMemo, useState } from 'react';
-import type { Project, Environment } from '@/lib/api';
+import type { Project, Environment, RiskHeatmap, RiskHeatmapCell } from '@/lib/api';
 import type { GraphData, GraphNode } from '@/lib/graph';
 import GraphExplorer from './GraphExplorer';
 import ImpactPanel from './ImpactPanel';
@@ -58,6 +58,8 @@ export default function SystemMapClient({ initial }: { initial: PreloadedState }
   });
   const [activeProjectId, setActiveProjectId] = useState<string>(initial.project?.id ?? '');
   const [tab, setTab] = useState<Tab>('Explorer');
+  /** §56 overlay: predicted risk per component, fetched when a project is set. */
+  const [riskOverlay, setRiskOverlay] = useState<Record<string, RiskHeatmapCell>>({});
   // A preloaded graph renders immediately — no loading screen on SSR.
   const [loading, setLoading] = useState(!initial.project);
   const [preselectedName, setPreselectedName] = useState<string | null>(null);
@@ -89,6 +91,24 @@ export default function SystemMapClient({ initial }: { initial: PreloadedState }
         } catch {
           if (!cancelled) setLoading(false);
         }
+        // §56: the overlay is best-effort; a project without forecasts simply
+        // renders without it.
+        getJson<RiskHeatmap>(
+          `/api/v1/reliability/heatmap?project_id=${initial.project.id}`
+        )
+          .then((heatmap) => {
+            if (cancelled) return;
+            const overlay: Record<string, RiskHeatmapCell> = {};
+            for (const cell of heatmap.cells) {
+              if (!cell.component_name) continue;
+              const existing = overlay[cell.component_name];
+              if (!existing || cell.worst_level > existing.worst_level) {
+                overlay[cell.component_name] = cell;
+              }
+            }
+            setRiskOverlay(overlay);
+          })
+          .catch(() => undefined);
         return;
       }
 
@@ -240,6 +260,7 @@ export default function SystemMapClient({ initial }: { initial: PreloadedState }
             graph={state.graph}
             environmentNames={environmentNames}
             initialSelectedName={preselectedName}
+            riskOverlay={riskOverlay}
           />
         )}
         {tab === 'Impact' && (

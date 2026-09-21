@@ -203,12 +203,32 @@ INC_COUNT=$(curl -fsS "$API/api/v1/incidents?project_id=$DEMO&page_size=50" | jg
 [ "$INC_COUNT" -eq 1 ] && ok "re-run did not duplicate the incident" || bad "incident dedup" "$INC_COUNT matching incidents"
 
 echo "== 14. Reliability metrics & dashboard =="
-MET=$(curl -fsS "$API/api/v1/projects/$DEMO/reliability-metrics?window_seconds=86400")
+# The window is derived from the data under test rather than assumed. A gate
+# that hard-codes 24h silently measures its own clock: on a stack seeded more
+# than a day ago the seeded anomalies fall outside the window and the check
+# fails for a reason that has nothing to do with the engine. Widening the
+# window to cover the oldest stored anomaly keeps the assertion exactly as
+# strict — "the endpoints reflect what the detector stored" — while removing
+# the dependency on having just seeded.
+ANOM_OLDEST=$(curl -fsS "$API/api/v1/anomalies?project_id=$DEMO&page_size=100" \
+  | jget "min((a['detected_at'] for a in d['items']), default=None)")
+WINDOW=$(python3 -c "
+import datetime, sys
+oldest = sys.argv[1]
+if oldest in ('', 'None'):
+    print(86400)
+else:
+    t = datetime.datetime.fromisoformat(oldest.replace('Z', '+00:00'))
+    now = datetime.datetime.now(datetime.timezone.utc)
+    print(max(86400, int((now - t).total_seconds()) + 3600))
+" "$ANOM_OLDEST")
+echo "  metrics window: ${WINDOW}s (covers the oldest stored anomaly)"
+MET=$(curl -fsS "$API/api/v1/projects/$DEMO/reliability-metrics?window_seconds=$WINDOW")
 echo "$MET" | jb "d['anomalies_detected'] >= 5" && ok "metrics count detected anomalies" || bad "metrics anomalies" "$MET"
 echo "$MET" | jb "d['incidents_open'] >= 1" && ok "metrics count open incidents" || bad "metrics open incidents" "$MET"
 echo "$MET" | jb "'resolved_at' in d['mttr_definition'] and 'acknowledged_at' in d['mtta_definition']" \
   && ok "MTTA/MTTR definitions are stated with the numbers" || bad "metric definitions" "$MET"
-DASH=$(curl -fsS "$API/api/v1/projects/$DEMO/incident-dashboard?window_seconds=86400&bucket_seconds=3600")
+DASH=$(curl -fsS "$API/api/v1/projects/$DEMO/incident-dashboard?window_seconds=$WINDOW&bucket_seconds=3600")
 echo "$DASH" | jb "'metrics' in d and isinstance(d['anomalies_over_time'], list)" && ok "dashboard returns metrics + series" || bad "dashboard" "$DASH"
 echo "$DASH" | jb "len(d['top_affected_components']) >= 1" && ok "dashboard ranks affected components" || bad "dashboard components" "$DASH"
 

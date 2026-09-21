@@ -9,7 +9,7 @@
  * uncertainty is never hidden (§52).
  */
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import {
   type GraphData,
@@ -27,6 +27,19 @@ import {
   shortLabel,
   typeColor,
 } from '@/lib/graph-layout';
+import {
+  HORIZON_LABELS,
+  riskRank,
+  type ForecastHorizon,
+  type ForecastRiskLevel,
+} from '@/lib/reliability';
+
+/** One component's predicted risk, for the §56 overlay. */
+export interface RiskOverlayEntry {
+  component_name: string;
+  worst_level: ForecastRiskLevel;
+  by_horizon: Partial<Record<ForecastHorizon, ForecastRiskLevel>>;
+}
 
 const NODE_TYPE_FILTERS = [
   'ALL',
@@ -43,21 +56,36 @@ const NODE_TYPE_FILTERS = [
 
 const SOURCE_FILTERS = ['ALL', 'CONFIGURATION', 'TRACE', 'LOG', 'INFERENCE'] as const;
 
+const RISK_STROKE: Record<ForecastRiskLevel, string> = {
+  CRITICAL: '#f87171',
+  HIGH: '#fbbf24',
+  MEDIUM: '#38bdf8',
+  LOW: '#4ade80',
+  UNKNOWN: '#94a3b8',
+};
+
 interface Props {
   graph: GraphData;
   environmentNames: Record<string, string>;
   /** Optional deep-link: preselect the node with this exact name. */
   initialSelectedName?: string | null;
+  /** §56 overlay: predicted risk per component name, when available. */
+  riskOverlay?: Record<
+    string,
+    { worst_level: ForecastRiskLevel; by_horizon: Partial<Record<ForecastHorizon, ForecastRiskLevel>> }
+  >;
 }
 
 export default function GraphExplorer({
   graph,
   environmentNames,
   initialSelectedName,
+  riskOverlay,
 }: Props) {
   const [query, setQuery] = useState('');
   const [typeFilter, setTypeFilter] = useState<string>('ALL');
   const [sourceFilter, setSourceFilter] = useState<string>('ALL');
+  const [riskView, setRiskView] = useState(false);
   const [selected, setSelected] = useState<GraphNode | null>(() => {
     if (!initialSelectedName) return null;
     const wanted = initialSelectedName.toLowerCase();
@@ -94,6 +122,12 @@ export default function GraphExplorer({
       }),
     [graph.edges, sourceFilter, visibleNodeIds]
   );
+
+  /** §56: overlay data keyed by node name, computed only when toggled on. */
+  const overlayFor = useMemo(() => {
+    if (!riskView || !riskOverlay) return () => null;
+    return (node: GraphNode) => riskOverlay[node.name] ?? null;
+  }, [riskView, riskOverlay]);
 
   const lines = useMemo(
     () => edgeGeometry(visibleEdges, layout.positions),
@@ -162,6 +196,16 @@ export default function GraphExplorer({
             </option>
           ))}
         </select>
+        {riskOverlay && Object.keys(riskOverlay).length > 0 ? (
+          <label className="flex items-center gap-1.5 text-xs text-slate-500">
+            <input
+              type="checkbox"
+              checked={riskView}
+              onChange={(e) => setRiskView(e.target.checked)}
+            />
+            Predicted risk overlay
+          </label>
+        ) : null}
         <span className="text-xs text-slate-500">
           {visibleNodeIds.size} nodes · {visibleEdges.length} edges
         </span>
@@ -212,6 +256,11 @@ export default function GraphExplorer({
               .map((node) => {
                 const pos = layout.positions.get(node.id);
                 if (!pos) return null;
+                const overlay = overlayFor(node);
+                const riskStroke =
+                  overlay && riskRank(overlay.worst_level) >= riskRank('MEDIUM')
+                    ? RISK_STROKE[overlay.worst_level]
+                    : undefined;
                 return (
                   <g
                     key={node.id}
@@ -225,8 +274,14 @@ export default function GraphExplorer({
                       height={NODE_H}
                       rx={8}
                       fill="#fff"
-                      stroke={typeColor(node.node_type)}
-                      strokeWidth={selected?.id === node.id ? 2.5 : 1.5}
+                      stroke={riskStroke ?? typeColor(node.node_type)}
+                      strokeWidth={
+                        selected?.id === node.id
+                          ? 2.5
+                          : riskStroke
+                            ? 2.5
+                            : 1.5
+                      }
                     />
                     <rect width={6} height={NODE_H} rx={3} fill={typeColor(node.node_type)} />
                     <text x={14} y={17} fontSize={11} fontWeight={600} fill="#0f172a">
@@ -236,7 +291,40 @@ export default function GraphExplorer({
                       {node.node_type}
                       {node.ownership_team ? ` · ${shortLabel(node.ownership_team, 10)}` : ''}
                     </text>
-                    <title>{`${node.name} — ${node.node_type}`}</title>
+                    {overlay ? (
+                      <>
+                        <rect
+                          x={NODE_W - 58}
+                          y={4}
+                          width={54}
+                          height={14}
+                          rx={4}
+                          fill={RISK_STROKE[overlay.worst_level]}
+                          opacity={0.9}
+                        />
+                        <text
+                          x={NODE_W - 55}
+                          y={14}
+                          fontSize={8.5}
+                          fontWeight={700}
+                          fill="#0f172a"
+                        >
+                          {`RISK ${overlay.worst_level}`}
+                        </text>
+                      </>
+                    ) : null}
+                    <title>
+                      {overlay
+                        ? `${node.name} — predicted risk ${overlay.worst_level} (${Object.entries(
+                            overlay.by_horizon
+                          )
+                            .map(
+                              ([horizon, level]) =>
+                                `${HORIZON_LABELS[horizon as ForecastHorizon] ?? horizon}: ${level}`
+                            )
+                            .join(', ')}) — predicted risk, not current status`
+                        : `${node.name} — ${node.node_type}`}
+                    </title>
                   </g>
                 );
               })}

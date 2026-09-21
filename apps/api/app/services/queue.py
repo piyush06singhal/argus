@@ -43,7 +43,16 @@ QUEUE_DETECTION = "argus:detect:anomalies"
 #: more: an experiment can occupy a slot for minutes, so sharing a queue with
 #: ingestion would stall telemetry behind a sandbox.
 QUEUE_REPRODUCTION = "argus:repro:runs"
-ALL_QUEUES = [QUEUE_EVENTS, QUEUE_TRACES, QUEUE_DETECTION, QUEUE_REPRODUCTION]
+#: Phase 8 predictive reliability. Its own queue so a slow forecast sweep can
+#: never delay ingestion or detection.
+QUEUE_RELIABILITY = "argus:reliability:jobs"
+ALL_QUEUES = [
+    QUEUE_EVENTS,
+    QUEUE_TRACES,
+    QUEUE_DETECTION,
+    QUEUE_REPRODUCTION,
+    QUEUE_RELIABILITY,
+]
 
 MAX_RETRIES = 3
 BACKOFF_SECONDS = 1.0
@@ -232,6 +241,55 @@ async def enqueue_reproduction_run(*, experiment_id: Any, project_id: Any) -> bo
         return True
     except QueueUnavailable as e:
         logger.warning("Reproduction enqueue failed (queue unavailable): %s", e)
+        return False
+
+
+async def enqueue_reliability_forecast(
+    *, project_id: Any, environment_id: Optional[Any] = None
+) -> bool:
+    """Queue a forecast generation job (Phase 8 §57).
+
+    The payload carries opaque ids only: the worker re-reads the scope from the
+    database, so a queued message cannot smuggle a component list or a feature
+    set past the service that validates them.
+
+    No-op when ``RELIABILITY_ASYNC`` is disabled (tests, synchronous
+    deployments). Returns ``False`` when the broker is unreachable — no data is
+    lost, because the scheduled sweep performs the same work.
+    """
+    if not settings.RELIABILITY_ASYNC:
+        return False
+    payload = {
+        "project_id": str(project_id),
+        "environment_id": str(environment_id) if environment_id else None,
+    }
+    try:
+        await IngestionQueue(QUEUE_RELIABILITY).push(
+            make_job(kind="reliability_forecast", payload=payload)
+        )
+        return True
+    except QueueUnavailable as e:
+        logger.info("Reliability forecast enqueue skipped (queue unavailable): %s", e)
+        return False
+
+
+async def enqueue_reliability_evaluate(*, project_id: Optional[Any] = None) -> bool:
+    """Queue a forecast evaluation job (Phase 8 §57).
+
+    Scoring is time-driven rather than ingestion-driven: an outcome only exists
+    once a horizon has elapsed. The job therefore takes no scope beyond the
+    project and lets the service pick the forecasts that are due.
+    """
+    if not settings.RELIABILITY_ASYNC:
+        return False
+    payload = {"project_id": str(project_id) if project_id else None}
+    try:
+        await IngestionQueue(QUEUE_RELIABILITY).push(
+            make_job(kind="reliability_evaluate", payload=payload)
+        )
+        return True
+    except QueueUnavailable as e:
+        logger.info("Reliability evaluate enqueue skipped (queue unavailable): %s", e)
         return False
 
 

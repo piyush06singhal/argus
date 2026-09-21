@@ -1648,6 +1648,24 @@ export function scopeQuery(projectId?: string): string {
   return projectId ? `?project_id=${encodeURIComponent(projectId)}` : '';
 }
 
+/**
+ * Build a query string from a param object, skipping `undefined` values.
+ *
+ * List endpoints in the reliability API take many optional filters; this keeps
+ * the call sites readable without producing `key=undefined` noise in URLs.
+ */
+export function toQuery(
+  params: Record<string, string | number | boolean | undefined>
+): string {
+  const search = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined) {
+      search.set(key, String(value));
+    }
+  }
+  return search.toString();
+}
+
 export function resolveBackendUrl(path: string): string {
   if (typeof window === 'undefined') {
     const base =
@@ -2683,6 +2701,161 @@ export const api = {
     apiFetch<FixMetrics>(
       `/api/v1/fixes/metrics?project_id=${encodeURIComponent(projectId)}`
     ),
+
+  // -- Phase 8 — predictive reliability (§44) ------------------------------
+
+  generateForecasts: (
+    projectId: string,
+    payload: GenerateForecastsPayload = {}
+  ) =>
+    apiFetch<ForecastGenerateResult>(
+      `/api/v1/reliability/forecasts/generate?project_id=${encodeURIComponent(
+        projectId
+      )}`,
+      { method: 'POST', body: JSON.stringify(payload) }
+    ),
+
+  listForecasts: (params: Record<string, string | number | boolean | undefined>) =>
+    apiFetch<ForecastList>(`/api/v1/reliability/forecasts?${toQuery(params)}`),
+
+  getForecast: (forecastId: string, projectId?: string) =>
+    apiFetch<Forecast>(
+      `/api/v1/reliability/forecasts/${encodeURIComponent(
+        forecastId
+      )}${scopeQuery(projectId)}`
+    ),
+
+  getForecastExplanation: (forecastId: string, projectId?: string) =>
+    apiFetch<ForecastExplanation>(
+      `/api/v1/reliability/forecasts/${encodeURIComponent(
+        forecastId
+      )}/explanation${scopeQuery(projectId)}`
+    ),
+
+  getForecastSignals: (forecastId: string, projectId?: string) =>
+    apiFetch<ForecastSignal[]>(
+      `/api/v1/reliability/forecasts/${encodeURIComponent(
+        forecastId
+      )}/signals${scopeQuery(projectId)}`
+    ),
+
+  getForecastSnapshot: (forecastId: string, projectId?: string) =>
+    apiFetch<FeatureSnapshot>(
+      `/api/v1/reliability/forecasts/${encodeURIComponent(
+        forecastId
+      )}/snapshot${scopeQuery(projectId)}`
+    ),
+
+  getForecastOutcome: (forecastId: string, projectId?: string) =>
+    apiFetch<ForecastOutcome | null>(
+      `/api/v1/reliability/forecasts/${encodeURIComponent(
+        forecastId
+      )}/outcome${scopeQuery(projectId)}`
+    ),
+
+  getRiskHeatmap: (params: Record<string, string | boolean | undefined>) =>
+    apiFetch<RiskHeatmap>(`/api/v1/reliability/heatmap?${toQuery(params)}`),
+
+  getComponentProfile: (componentId: string, projectId: string) =>
+    apiFetch<ComponentProfile>(
+      `/api/v1/reliability/components/${encodeURIComponent(
+        componentId
+      )}/profile?project_id=${encodeURIComponent(projectId)}`
+    ),
+
+  listReliabilitySignals: (
+    params: Record<string, string | number | undefined>
+  ) => apiFetch<ForecastSignal[]>(`/api/v1/reliability/signals?${toQuery(params)}`),
+
+  listModelVersions: (limit = 50) =>
+    apiFetch<ModelVersionList>(`/api/v1/reliability/models?limit=${limit}`),
+
+  getModelVersion: (modelId: string) =>
+    apiFetch<ModelVersion>(
+      `/api/v1/reliability/models/${encodeURIComponent(modelId)}`
+    ),
+
+  listEvaluationRuns: (params: Record<string, string | number | undefined>) =>
+    apiFetch<EvaluationRunList>(
+      `/api/v1/reliability/evaluations?${toQuery(params)}`
+    ),
+
+  runEvaluation: (projectId: string, dispatch = false) =>
+    apiFetch<EvaluationRun>(
+      `/api/v1/reliability/evaluate?project_id=${encodeURIComponent(
+        projectId
+      )}&dispatch=${dispatch}`,
+      { method: 'POST' }
+    ),
+
+  runBacktest: (projectId: string, payload: BacktestPayload) =>
+    apiFetch<BacktestRunResult>(
+      `/api/v1/reliability/backtests?project_id=${encodeURIComponent(projectId)}`,
+      { method: 'POST', body: JSON.stringify(payload) }
+    ),
+
+  listBacktests: (projectId: string, limit = 50) =>
+    apiFetch<BacktestList>(
+      `/api/v1/reliability/backtests?project_id=${encodeURIComponent(
+        projectId
+      )}&limit=${limit}`
+    ),
+
+  getBacktest: (backtestId: string, projectId: string) =>
+    apiFetch<Backtest>(
+      `/api/v1/reliability/backtests/${encodeURIComponent(
+        backtestId
+      )}?project_id=${encodeURIComponent(projectId)}`
+    ),
+
+  reliabilityHealth: (projectId?: string) =>
+    apiFetch<PlatformHealth>(
+      `/api/v1/reliability/health${scopeQuery(projectId)}`
+    ),
+
+  listDriftFindings: (projectId: string, limit = 100) =>
+    apiFetch<DriftHistory>(
+      `/api/v1/reliability/drift?project_id=${encodeURIComponent(
+        projectId
+      )}&limit=${limit}`
+    ),
+
+  assessDrift: (projectId: string, persist = true) =>
+    apiFetch<DriftReport>(
+      `/api/v1/reliability/drift/assess?project_id=${encodeURIComponent(
+        projectId
+      )}&persist=${persist}`,
+      { method: 'POST' }
+    ),
+
+  listEarlyWarnings: (params: Record<string, string | number | undefined>) =>
+    apiFetch<EarlyWarningList>(
+      `/api/v1/reliability/warnings?${toQuery(params)}`
+    ),
+
+  acknowledgeWarning: (
+    warningId: string,
+    projectId: string,
+    payload: WarningActionPayload = {}
+  ) =>
+    apiFetch<EarlyWarning>(
+      `/api/v1/reliability/warnings/${encodeURIComponent(
+        warningId
+      )}/acknowledge?project_id=${encodeURIComponent(projectId)}`,
+      { method: 'POST', body: JSON.stringify(payload) }
+    ),
+
+  dismissWarning: (
+    warningId: string,
+    projectId: string,
+    payload: WarningActionPayload = {}
+  ) =>
+    apiFetch<EarlyWarning>(
+      `/api/v1/reliability/warnings/${encodeURIComponent(
+        warningId
+      )}/dismiss?project_id=${encodeURIComponent(projectId)}`,
+      { method: 'POST', body: JSON.stringify(payload) }
+    ),
 };
 
 // ---------------------------------------------------------------------------
@@ -3502,4 +3675,407 @@ export interface FixArtifact {
   immutable: boolean;
   created_at: string;
   reference?: Record<string, unknown>;
+}
+// ---------------------------------------------------------------------------
+// Phase 8 — predictive reliability (§44)
+// ---------------------------------------------------------------------------
+
+export type ForecastHorizon =
+  | 'ONE_HOUR'
+  | 'SIX_HOURS'
+  | 'TWENTY_FOUR_HOURS'
+  | 'SEVEN_DAYS';
+
+export type PredictionType =
+  | 'FAILURE_RISK'
+  | 'ERROR_RATE_RISK'
+  | 'LATENCY_RISK'
+  | 'AVAILABILITY_RISK'
+  | 'RESOURCE_EXHAUSTION_RISK'
+  | 'DEPENDENCY_FAILURE_RISK'
+  | 'REGRESSION_RISK'
+  | 'INCIDENT_RISK'
+  | 'RELIABILITY_DEGRADATION';
+
+export type ForecastRiskLevel = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL' | 'UNKNOWN';
+
+export type ForecastStatus =
+  | 'GENERATED'
+  | 'ACTIVE'
+  | 'EXPIRED'
+  | 'CONFIRMED'
+  | 'FALSE_POSITIVE'
+  | 'INCONCLUSIVE';
+
+export type DataQuality = 'GOOD' | 'PARTIAL' | 'POOR' | 'INSUFFICIENT';
+
+export type CalibrationStatus = 'GOOD' | 'ACCEPTABLE' | 'POOR' | 'UNKNOWN';
+
+export type PredictionOutcomeType =
+  | 'TRUE_POSITIVE'
+  | 'FALSE_POSITIVE'
+  | 'TRUE_NEGATIVE'
+  | 'FALSE_NEGATIVE'
+  | 'INCONCLUSIVE';
+
+export interface ForecastSignal {
+  id: string;
+  forecast_id: string;
+  project_id: string;
+  environment_id?: string | null;
+  component_id?: string | null;
+  signal_type: string;
+  severity: 'INFO' | 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+  contribution?: number | null;
+  rank: number;
+  description: string;
+  metric_name?: string | null;
+  observed_value?: number | null;
+  baseline_value?: number | null;
+  change_rate?: number | null;
+  trend: 'RISING' | 'FALLING' | 'FLAT' | 'VOLATILE' | 'UNKNOWN';
+  evidence_ids: Record<string, unknown>;
+  similar_incident_count: number;
+  created_at: string;
+}
+
+export interface Forecast {
+  id: string;
+  project_id: string;
+  environment_id?: string | null;
+  component_id?: string | null;
+  prediction_type: PredictionType;
+  forecast_horizon: ForecastHorizon;
+  generated_at: string;
+  valid_from: string;
+  valid_until: string;
+  risk_score?: number | null;
+  risk_level: ForecastRiskLevel;
+  confidence?: number | null;
+  confidence_reason?: string | null;
+  calibration_status: CalibrationStatus;
+  data_quality: DataQuality;
+  data_coverage?: number | null;
+  model_version_id?: string | null;
+  model_version_label: string;
+  feature_snapshot_id?: string | null;
+  status: ForecastStatus;
+  fingerprint: string;
+  dominant_signal?: string | null;
+  headline: string;
+  summary?: string | null;
+  limitations: string[];
+  supporting_evidence: Record<string, unknown>;
+  failure_reason?: string | null;
+  failure_detail?: string | null;
+  previous_forecast_id?: string | null;
+  revision: number;
+  created_at: string;
+  updated_at: string;
+  signals: ForecastSignal[];
+}
+
+export interface ForecastList {
+  items: Forecast[];
+  total: number;
+  truncated: boolean;
+}
+
+/** §34 — the four questions: what changed, why, what supports it, what is uncertain. */
+export interface ForecastExplanation extends Record<string, unknown> {
+  forecast_id: string;
+  headline: string;
+  risk_level: ForecastRiskLevel;
+  what_changed: string[];
+  why_risk_increased: string[];
+  what_supports_this: Record<string, unknown>;
+  what_is_uncertain: string[];
+  why_risk_changed: Record<string, unknown>;
+  historical_evidence: Array<Record<string, unknown>>;
+  caveats: string[];
+  data_quality: DataQuality;
+  data_coverage?: number | null;
+  model_version: string;
+  horizon_label: string;
+}
+
+export interface FeatureSnapshot {
+  id: string;
+  project_id: string;
+  component_id?: string | null;
+  forecast_time: string;
+  feature_window_start: string;
+  feature_window_end: string;
+  feature_schema_version: string;
+  feature_values: Record<string, unknown>;
+  data_sources: Record<string, unknown>;
+  data_quality: DataQuality;
+  data_quality_notes: string[];
+  data_coverage?: number | null;
+  sample_count: number;
+  created_at: string;
+}
+
+export interface ForecastOutcome {
+  id: string;
+  forecast_id: string;
+  evaluation_window_start: string;
+  evaluation_window_end: string;
+  outcome: PredictionOutcomeType;
+  actual_event?: string | null;
+  actual_severity?: string | null;
+  time_to_event_seconds?: number | null;
+  matched_incident_id?: string | null;
+  matched_anomaly_id?: string | null;
+  predicted_risk_level: ForecastRiskLevel;
+  predicted_risk_score?: number | null;
+  evaluation_reason: string;
+  evaluated_at: string;
+}
+
+export interface RiskHeatmapCell {
+  component_id?: string | null;
+  component_name?: string | null;
+  environment_id?: string | null;
+  prediction_type: PredictionType;
+  by_horizon: Partial<Record<ForecastHorizon, ForecastRiskLevel>>;
+  worst_level: ForecastRiskLevel;
+  evidence_count: number;
+}
+
+export interface RiskHeatmap {
+  cells: RiskHeatmapCell[];
+  horizons: ForecastHorizon[];
+  generated_at: string;
+  empty_reason?: string | null;
+}
+
+export interface ComponentProfile {
+  project_id: string;
+  component_id: string;
+  component_name?: string | null;
+  component_type?: string | null;
+  generated_at: string;
+  current_risk: Record<string, unknown>;
+  worst_risk: ForecastRiskLevel;
+  signals: Record<string, unknown>;
+  reliability_score: Record<string, unknown>;
+  data_quality: DataQuality;
+  data_coverage?: number | null;
+  data_quality_notes: string[];
+  recent_incidents: Array<Record<string, unknown>>;
+  forecasts: Forecast[];
+  limitations: string[];
+}
+
+export interface ModelVersion {
+  id: string;
+  model_name: string;
+  model_type: string;
+  version: string;
+  algorithm?: string | null;
+  training_window_seconds?: number | null;
+  feature_schema_version: string;
+  parameters: Record<string, unknown>;
+  metrics: Record<string, unknown>;
+  calibration_metrics: Record<string, unknown>;
+  calibration_status: CalibrationStatus;
+  sample_count: number;
+  status: 'DEVELOPMENT' | 'VALIDATED' | 'ACTIVE' | 'RETIRED';
+  description?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ModelVersionList {
+  items: ModelVersion[];
+  total: number;
+  truncated: boolean;
+}
+
+export interface EvaluationRun {
+  id: string;
+  project_id?: string | null;
+  model_version_label?: string | null;
+  prediction_type?: PredictionType | null;
+  forecast_horizon?: ForecastHorizon | null;
+  status: 'COMPLETED' | 'INSUFFICIENT_SAMPLE' | 'FAILED';
+  dataset_window_start: string;
+  dataset_window_end: string;
+  feature_schema_version: string;
+  sample_count: number;
+  positive_count: number;
+  negative_count: number;
+  inconclusive_count: number;
+  metrics: Record<string, unknown>;
+  calibration: Record<string, unknown>;
+  calibration_status: CalibrationStatus;
+  reliability_bands: Array<Record<string, unknown>>;
+  notes: string[];
+  created_at: string;
+}
+
+export interface EvaluationRunList {
+  items: EvaluationRun[];
+  total: number;
+  truncated: boolean;
+}
+
+export interface BacktestStep {
+  origin: string;
+  risk_level: ForecastRiskLevel;
+  risk_score?: number | null;
+  outcome: PredictionOutcomeType;
+  reason?: string | null;
+  time_to_event_seconds?: number | null;
+}
+
+export interface Backtest {
+  id: string;
+  project_id: string;
+  status: 'QUEUED' | 'RUNNING' | 'COMPLETED' | 'FAILED';
+  configuration: Record<string, unknown>;
+  start_time: string;
+  end_time: string;
+  training_window_seconds: number;
+  forecast_horizon: ForecastHorizon;
+  prediction_type: PredictionType;
+  evaluation_run_id?: string | null;
+  metrics: Record<string, unknown>;
+  sample_count: number;
+  error?: string | null;
+  created_by?: string | null;
+  created_at: string;
+  steps: BacktestStep[];
+}
+
+export interface BacktestList {
+  items: Backtest[];
+  total: number;
+  truncated: boolean;
+}
+
+export interface BacktestRunResult {
+  items: Backtest[];
+  total: number;
+  note: string;
+}
+
+export interface DriftFinding {
+  id: string;
+  project_id: string;
+  kind: 'FEATURE_DRIFT' | 'PREDICTION_DRIFT' | 'OUTCOME_DRIFT' | 'CALIBRATION_DRIFT' | 'DATA_DRIFT';
+  status: 'STABLE' | 'WATCH' | 'FLAGGED';
+  feature_name?: string | null;
+  drift_score?: number | null;
+  threshold?: number | null;
+  description: string;
+  requires_review: boolean;
+  created_at: string;
+}
+
+export interface DriftHistory {
+  summary: Record<string, unknown>;
+  items: DriftFinding[];
+  total: number;
+  truncated: boolean;
+}
+
+export interface DriftReport {
+  project_id: string;
+  reference_window: string[];
+  current_window: string[];
+  worst_status: 'STABLE' | 'WATCH' | 'FLAGGED';
+  flagged_count: number;
+  findings: Array<Record<string, unknown>>;
+  notes: string[];
+  review_policy: string;
+  retrain_performed: boolean;
+  model_activated: boolean;
+}
+
+export interface EarlyWarning {
+  id: string;
+  project_id: string;
+  environment_id?: string | null;
+  component_id?: string | null;
+  forecast_id?: string | null;
+  fingerprint: string;
+  title: string;
+  description?: string | null;
+  severity: ForecastRiskLevel;
+  status: 'OPEN' | 'ACKNOWLEDGED' | 'DISMISSED' | 'EXPIRED';
+  occurrence_count: number;
+  first_raised_at: string;
+  last_raised_at: string;
+  last_suppressed_at?: string | null;
+  acknowledged_at?: string | null;
+  acknowledged_by?: string | null;
+}
+
+export interface EarlyWarningList {
+  items: EarlyWarning[];
+  total: number;
+  truncated: boolean;
+}
+
+export interface PlatformHealth {
+  generated_at: string;
+  forecast_count: number;
+  active_forecasts: number;
+  high_risk_forecasts: number;
+  unknown_forecasts: number;
+  data_quality_distribution: Record<string, number>;
+  model_version_count: number;
+  thresholds: Record<string, number>;
+  limits: Record<string, unknown>;
+  accuracy: Record<string, unknown>;
+  calibration: Record<string, unknown>;
+  coverage: Record<string, unknown>;
+  drift: Record<string, unknown>;
+  warnings: Record<string, unknown>;
+  models: Array<Record<string, unknown>>;
+  notes: string[];
+  limitations: string[];
+}
+
+export interface ForecastGenerateResult {
+  dispatched: boolean;
+  project_id: string;
+  job_id?: string | null;
+  scopes: number;
+  forecasts_created: number;
+  forecasts_updated: number;
+  signals_created: number;
+  skipped: string[];
+  errors: string[];
+  duration_ms: number;
+  message: string;
+}
+
+export interface GenerateForecastsPayload {
+  environment_id?: string | null;
+  prediction_types?: PredictionType[];
+  horizons?: ForecastHorizon[];
+  limit?: number;
+  dispatch?: boolean;
+}
+
+export interface BacktestPayload {
+  start_time: string;
+  end_time: string;
+  training_window_seconds?: number;
+  forecast_horizon?: ForecastHorizon;
+  prediction_type?: PredictionType;
+  component_ids?: string[];
+  environment_id?: string | null;
+  step_seconds?: number;
+  max_steps?: number;
+  max_components?: number;
+  created_by?: string;
+}
+
+export interface WarningActionPayload {
+  actor?: string;
+  reason?: string | null;
 }

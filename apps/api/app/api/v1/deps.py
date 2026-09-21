@@ -23,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.anomaly import Anomaly
 from app.models.incident import Incident
 from app.models.project import Environment, SoftwareProject
+from app.models.system import SystemComponent
 
 
 async def require_project(db: AsyncSession, project_id: uuid.UUID) -> SoftwareProject:
@@ -45,6 +46,29 @@ async def require_environment(
     if environment is None or environment.project_id != project_id:
         raise HTTPException(status_code=404, detail="Environment not found")
     return environment
+
+
+async def require_component(
+    db: AsyncSession,
+    component_id: uuid.UUID,
+    *,
+    project_id: Optional[uuid.UUID] = None,
+    environment_id: Optional[uuid.UUID] = None,
+) -> SystemComponent:
+    """Return a component, enforcing scope when a scope is supplied.
+
+    Phase 8 added this because forecasts are addressed per component: without
+    an ownership check, a UUID would be enough to read another tenant's
+    reliability profile. Unknown and out-of-scope both yield 404 (§60).
+    """
+    component = await db.get(SystemComponent, component_id)
+    if component is None:
+        raise HTTPException(status_code=404, detail="Component not found")
+    if project_id is not None and component.project_id != project_id:
+        raise HTTPException(status_code=404, detail="Component not found")
+    if environment_id is not None and component.environment_id != environment_id:
+        raise HTTPException(status_code=404, detail="Component not found")
+    return component
 
 
 async def require_incident(

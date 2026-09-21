@@ -33,6 +33,16 @@ from app.models.observability import (
     SpanRecord,
     TraceRecord,
 )
+from app.models.reliability import (
+    ForecastFeatureSnapshot,
+    ForecastOutcome,
+    PredictiveSignal,
+    ReliabilityBacktest,
+    ReliabilityDriftRecord,
+    ReliabilityEarlyWarning,
+    ReliabilityEvaluationRun,
+    ReliabilityForecast,
+)
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -106,6 +116,52 @@ _RETENTION_TABLES: dict[str, tuple[Any, InstrumentedAttribute[Any], int]] = {
         IncidentTimelineEvent,
         IncidentTimelineEvent.occurred_at,
         settings.RETENTION_INCIDENTS,
+    ),
+    # Phase 8: forecasts are the operative record and are swept on their own
+    # window; the derived rows (signals, outcomes, snapshots) share it, because
+    # a signal without its forecast — or a forecast without its snapshot — is
+    # not auditable. Evaluation runs and drift records are kept far longer than
+    # the forecasts they describe, so precision history and drift trends survive
+    # the forecasts being pruned.
+    "reliability_forecasts": (
+        ReliabilityForecast,
+        ReliabilityForecast.generated_at,
+        settings.RETENTION_RELIABILITY_FORECASTS,
+    ),
+    "predictive_signals": (
+        PredictiveSignal,
+        PredictiveSignal.created_at,
+        settings.RETENTION_RELIABILITY_FORECASTS,
+    ),
+    "forecast_feature_snapshots": (
+        ForecastFeatureSnapshot,
+        ForecastFeatureSnapshot.forecast_time,
+        settings.RETENTION_RELIABILITY_FORECASTS,
+    ),
+    "forecast_outcomes": (
+        ForecastOutcome,
+        ForecastOutcome.evaluated_at,
+        settings.RETENTION_RELIABILITY_FORECASTS,
+    ),
+    "reliability_early_warnings": (
+        ReliabilityEarlyWarning,
+        ReliabilityEarlyWarning.first_raised_at,
+        settings.RETENTION_RELIABILITY_FORECASTS,
+    ),
+    "reliability_evaluation_runs": (
+        ReliabilityEvaluationRun,
+        ReliabilityEvaluationRun.created_at,
+        settings.RETENTION_RELIABILITY_EVALUATIONS,
+    ),
+    "reliability_backtests": (
+        ReliabilityBacktest,
+        ReliabilityBacktest.created_at,
+        settings.RETENTION_RELIABILITY_EVALUATIONS,
+    ),
+    "reliability_drift_records": (
+        ReliabilityDriftRecord,
+        ReliabilityDriftRecord.created_at,
+        settings.RETENTION_RELIABILITY_EVALUATIONS,
     ),
 }
 

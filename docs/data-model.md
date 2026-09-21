@@ -279,6 +279,37 @@ Four invariants shape this domain:
   (which is destroyed unconditionally), hashed from the exact bytes on disk, and
   marked immutable once the run is terminal.
 
+### Phase 8 — Predictive reliability
+
+| Entity | Table | Key fields |
+| :--- | :--- | :--- |
+| `ReliabilityForecast` | `reliability_forecasts` | `project_id`, `environment_id`, `component_id`, `prediction_type`, `forecast_horizon`, `generated_at`, `valid_from`, `valid_until`, `forecast_time`, `risk_score`, `risk_level`, `confidence`, `calibration_status`, `data_coverage`, `coverage_verdict`, `model_version_id`, `feature_snapshot_id`, `previous_forecast_id`, `revision`, `status`, `headline`, `supporting_evidence`, `limitations` |
+| `PredictiveSignal` | `predictive_signals` | `forecast_id`, `signal_type`, `component_id`, `severity`, `description`, `observed_value`, `baseline_value`, `trend`, `change_rate`, `evidence_ids` |
+| `ForecastFeatureSnapshot` | `forecast_feature_snapshots` | `project_id`, `environment_id`, `component_id`, `forecast_time`, `window_seconds`, `feature_schema_version`, `features` (JSON), `feature_sources`, `data_coverage`, `sample_count`, `staleness_seconds` |
+| `ForecastOutcome` | `forecast_outcomes` | `forecast_id`, `horizon_end`, `outcome_type` (`TRUE_POSITIVE`/`FALSE_POSITIVE`/`TRUE_NEGATIVE`/`FALSE_NEGATIVE`/`INCONCLUSIVE`), `observed_risk_level`, `predicted_risk_level`, `incident_id`, `anomaly_id`, `observed_evidence`, `evaluated_at`, `evaluation_run_id` |
+| `ForecastFingerprint` | `forecast_fingerprints` | `project_id`, `environment_id`, `component_id`, `prediction_type`, `forecast_horizon`, `dedup_key`, `current_forecast_id`, `revision`, `last_generated_at` |
+| `ReliabilityModelVersion` | `reliability_model_versions` | `name`, `model_type`, `version`, `status` (`DEVELOPMENT`/`VALIDATED`/`ACTIVE`/`RETIRED`), `parameters`, `trained_on_samples`, `description` |
+| `ReliabilityEvaluationRun` | `reliability_evaluation_runs` | `project_id`, `window_start`, `window_end`, `forecasts_evaluated`, `sample_count`, `outcomes` (counts by type), `precision`, `recall`, `calibration_status`, `feature_schema_version`, `notes` |
+| `ReliabilityBacktest` | `reliability_backtests` | `project_id`, `status`, `start_time`, `end_time`, `training_window_seconds`, `component_ids`, `horizons`, `prediction_types`, `step_seconds`, `steps` (JSON), `summary`, `leakage_contract` |
+| `ReliabilityDriftRecord` | `reliability_drift_records` | `project_id`, `environment_id`, `component_id`, `drift_kind`, `status` (`STABLE`/`WATCH`/`FLAGGED`), `metric_name`, `reference_value`, `current_value`, `change_ratio`, `threshold`, `detected_at`, `review_policy`, `retrain_performed`, `model_activated` |
+| `ReliabilityEarlyWarning` | `reliability_early_warnings` | `project_id`, `environment_id`, `component_id`, `forecast_id`, `prediction_type`, `risk_level`, `severity`, `dedup_key`, `first_raised_at`, `last_raised_at`, `cooldown_seconds`, `status`, `acknowledged_at`, `dismissed_at`, `actor`, `message` |
+
+Four invariants shape this domain:
+
+* **A prediction is not a fact, an anomaly or an incident.** A forecast stores its
+  own validity window and never creates an incident; an incident created after a
+  forecast was generated cannot rewrite that forecast.
+* **Every forecast is reproducible.** The feature snapshot (exact features,
+  window and schema version) is written *before* the forecast row, so a stored
+  forecast can always be re-derived from stored inputs.
+* **Scope is proven, not trusted.** Every row carries `project_id`; component
+  references use `ON DELETE SET NULL` so deleting a component never erases
+  forecast history, and readers that need attribution (such as the heatmap) omit
+  unattributable rows rather than rendering a nameless one.
+* **Drift and evaluation are append-only.** A drift record flags for review and
+  can neither retrain nor activate a model; an evaluation run scores each elapsed
+  horizon exactly once.
+
 ## 4. Enum domains
 
 | Entity field | Enum values |
@@ -330,6 +361,19 @@ Four invariants shape this domain:
 | `EvidencePolarity` | SUPPORTING, CONTRADICTING, NEUTRAL |
 | `ConfidenceLevel` | HIGH, MEDIUM, LOW, INSUFFICIENT |
 | `AnalysisStatus` | PENDING, RUNNING, COMPLETED, FAILED |
+| `ForecastHorizon` | ONE_HOUR, SIX_HOURS, TWENTY_FOUR_HOURS, SEVEN_DAYS |
+| `PredictionType` | FAILURE_RISK, ERROR_RATE_RISK, LATENCY_RISK, AVAILABILITY_RISK, RESOURCE_EXHAUSTION_RISK, DEPENDENCY_FAILURE_RISK, REGRESSION_RISK, INCIDENT_RISK, RELIABILITY_DEGRADATION |
+| `ForecastRiskLevel` | LOW, MEDIUM, HIGH, CRITICAL, UNKNOWN |
+| `ForecastStatus` | GENERATED, ACTIVE, EVALUATED, EXPIRED, SUPPRESSED |
+| `DataCoverage` | GOOD, PARTIAL, POOR, INSUFFICIENT |
+| `CalibrationStatus` | GOOD, ACCEPTABLE, POOR, UNKNOWN |
+| `PredictionOutcomeType` | TRUE_POSITIVE, FALSE_POSITIVE, TRUE_NEGATIVE, FALSE_NEGATIVE, INCONCLUSIVE |
+| `ReliabilityModelType` | ROLLING_TREND, EWMA, THRESHOLD_TRAJECTORY, HISTORICAL_FREQUENCY, LOGISTIC_REGRESSION, GRADIENT_BOOSTED_TREES, TIME_SERIES, SURVIVAL |
+| `ReliabilityModelStatus` | DEVELOPMENT, VALIDATED, ACTIVE, RETIRED |
+| `PredictiveSignalType` | ERROR_RATE_INCREASING, LATENCY_INCREASING, RESOURCE_SATURATION, DEPENDENCY_DEGRADATION, FAILURE_FREQUENCY_INCREASING, DEPLOYMENT_INSTABILITY, RECURRENT_INCIDENT_PATTERN, CODE_CHURN_RISK, RECENT_REGRESSION_SIGNAL, ANOMALY_CLUSTER |
+| `SignalSeverity` | LOW, MEDIUM, HIGH, CRITICAL |
+| `DriftKind` / `DriftStatus` | per-domain (see `models/reliability.py`) — status is STABLE, WATCH, FLAGGED |
+| `EarlyWarningStatus` | OPEN, ACKNOWLEDGED, DISMISSED, EXPIRED |
 
 Pydantic validates these enums at the API boundary, so malformed values are rejected with 422.
 
@@ -348,6 +392,10 @@ Pydantic validates these enums at the API boundary, so malformed values are reje
   list sizes and search results are all capped, the model tool surface is
   read-only and budgeted (`DEBUG_MAX_TOOL_CALLS`, `DEBUG_MAX_ANALYSIS_SECONDS`),
   and every index/search/query runs inside one snapshot's rows
+- Predictive reliability is bounded as well: eligible components per run, metric
+  series per scope, samples per series and signals per forecast all have ceilings,
+  forecasts are indexed on their scope and generation time, and a heatmap query is
+  limited rather than unbounded
 
 ## 6. Migrations
 
