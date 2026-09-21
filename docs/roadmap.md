@@ -133,11 +133,24 @@ See [docs/phase-6.md](phase-6.md) for the full design and [docs/phase6-implement
 
 **Explicitly not included:** code modification, patch generation or application, automated fixing, deployment — those are Phase 7. Phase 6 is *locate, hypothesize, cite, validate, explain* — not *fix*.
 
-## Phase 7 — Automated Fix Generation & Verification
+## Phase 7 — Automated Fix Generation & Verification ✅
 
-- Generate candidate code changes from identified root causes
-- Verify candidates against tests in isolation
-- Produce proposed fixes requiring approval — never auto-applied
+- ✅ Fix hypotheses planned **only** from validated evidence: a debug session's `VALID` code locations seed the scope allowlist, sensitive areas are excluded by default (never by request), and the category is derived from the evidence text or stays `UNKNOWN`
+- ✅ **Two generators, one contract:** a deterministic generator composes a real unified diff from the pinned snapshot's stored bytes (and refuses when no recipe matches the evidence), and a model-assisted generator sees only the scoped, redacted files. Both are parsed and safety-validated *before* storage; a malformed answer, a hallucinated file or an out-of-scope diff is recorded as a failure — never repaired
+- ✅ Safety validation before **and** after application: scope, path traversal, sensitive files (CI/CD, auth, infrastructure, migrations), dependency and configuration changes, introduced secrets, and test tampering (test deletion, assertion weakening, skips, disabled lint/typing, CI or verification edits). A tampering patch never reaches a workspace
+- ✅ Disposable git workspaces: a temp worktree on an `argus/fix/…` branch, one per candidate, with leftover directories removed rather than adopted, an unconditional destroy on every path, and a reaper for runs that died mid-flight
+- ✅ A **command registry, not a shell**: named entries with fixed argv, per-command timeouts, environment passthrough and an offline network policy; marker-based discovery so an unknown stack reports `BUILD_CONFIGURATION_UNKNOWN` instead of pretending
+- ✅ A **two-sided regression test derived from the patch itself**: it must fail on the base commit and pass on the patched tree, or it is `REGRESSION_TEST_INVALID` — never evidence
+- ✅ Verification ladder with explicit levels: static → tests → reproduction → regression validation → `FULLY_VERIFIED`, with latency/error-rate/memory thresholds compared before/after and any breach refusing verification
+- ✅ `NOT_VERIFIED` as a first-class result: a patch that builds and passes tests while the failure still reproduces is never "verified with caveats"
+- ✅ Hashed, immutable artifacts (`patch.diff`, test results, build logs, the generated regression test, the comparison, the verification report) stored **outside** the workspace, plus a §64 checklist derived from stored rows and an explicit boundary statement: nothing merged, deployed or released
+- ✅ Human review ends the phase: `AWAITING_REVIEW` → approve / reject / regenerate; approval requires a *stored* `VERIFIED` run, a recorded decision is final (UI and API enforce the same allowlist), and regeneration supersedes the old candidate without sharing any state
+- ✅ Fix & verification UI: dashboard with engine tallies and status filters, diff viewer with line numbers, verification timeline with per-stage command output, §69 explanation block, §70 audit trail, review controls that only offer what the backend will accept
+- ✅ 1093 backend tests (85 Phase 7) + 113 vitest tests; live Phase 7 gate (`infrastructure/e2e-smoke-phase7.sh`, 90 checks) building a real four-commit history, running the whole pipeline through HTTP against the demo application's own test suite, and proving the original checkout is byte-identical afterwards (91 checks with the migration reversal probe)
+
+See [docs/phase-7.md](phase-7.md) for the full design and [docs/phase7-implementation-report.md](phase7-implementation-report.md) for the delivery report.
+
+**Explicitly not included:** merging, pull-request approval, deployment, rollback, production remediation and self-healing. Phase 7 is *generate, validate, test, reproduce, verify, review* — not *merge, deploy, remediate*.
 
 ## Phase 8 — Predictive Reliability
 

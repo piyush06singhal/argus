@@ -120,7 +120,9 @@ class CodeRepository(BaseModel):
     )
     #: Set when the index is known to be behind the branch head, so "indexed at
     #: commit A" and "the branch has moved on" are both visible (§54).
-    last_indexed_commit: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    last_indexed_commit: Mapped[Optional[str]] = mapped_column(
+        String(64), nullable=True
+    )
 
     # Relationships
     project: Mapped["SoftwareProject"] = relationship(

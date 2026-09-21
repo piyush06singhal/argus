@@ -13,7 +13,7 @@ incidents, and change, so a failure can be explained instead of guessed at.
 [![FastAPI](https://img.shields.io/badge/FastAPI-async-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
 [![Next.js](https://img.shields.io/badge/Next.js-14-000000?logo=next.js&logoColor=white)](https://nextjs.org/)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169e1?logo=postgresql&logoColor=white)](https://www.postgresql.org/)
-[![Tests](https://img.shields.io/badge/tests-866%20backend%20%2B%2083%20frontend-brightgreen)](#verification)
+[![Tests](https://img.shields.io/badge/tests-1093%20backend%20%2B%20113%20frontend-brightgreen)](#verification)
 [![Migrations](https://img.shields.io/badge/migrations-reversible-informational)](docs/development.md)
 
 </div>
@@ -58,13 +58,16 @@ first-class, tested outcome — not a failure mode.
 | **4** | Root Cause & Causal Analysis — temporal/trace/dependency/change analysis, causal graph, scoring | ✅ shipped | [docs/phase-4.md](docs/phase-4.md) |
 | **5** | Failure Reproduction Engine — isolated sandbox, sanitized replay, controlled faults, comparison, hypothesis validation | ✅ shipped | [docs/phase-5.md](docs/phase-5.md) |
 | **6** | AI Debugger — code intelligence, trace→code mapping, evidence-grounded analysis, validated code claims | ✅ shipped | [docs/phase-6.md](docs/phase-6.md) |
+| **7** | Automated Fix Generation & Verification — fix hypotheses, patch generation, safety validation, isolated workspace, build/tests, two-sided regression test, verification, human review | ✅ shipped | [docs/phase-7.md](docs/phase-7.md) |
 
-Phases 4–6 do **not** patch, deploy or remediate. Phase 4 explains from
-stored evidence; Phase 5 runs a bounded experiment in a disposable sandbox and
-reports what it observed; Phase 6 maps the failure onto your indexed source
-code, validates every code claim against the pinned snapshot, and shows its
-full audit trail — nothing is changed in your systems or repositories, and no
-result is presented as proof.
+Phase 7 is the first phase that can produce a change — and it still does not
+merge, deploy or remediate. It plans a fix from evidence that already exists,
+generates the smallest defensible patch, validates it against scope and safety
+rules, applies it inside a disposable git workspace, runs the repository's own
+checks, proves the failure is gone with a two-sided regression test, compares
+before and after, stores the evidence hashed and immutable, and stops at a human
+decision. Nothing is changed in your repositories, and no result is presented as
+proof.
 
 ## How it works
 
@@ -94,9 +97,14 @@ result is presented as proof.
         repository snapshot ─► trace→code mapping ─► validated analysis
         ─► grounded hypotheses with citations ─► auditable timeline
                                  ▼
+                Fix Generation & Verification (Phase 7)
+        fix hypothesis ─► patch ─► safety validation ─► disposable workspace
+        ─► build/static/tests ─► two-sided regression test ─► reproduction
+        ─► comparison ─► VERIFIED | NOT_VERIFIED ─► human review
+                                 ▼
                      Next.js investigation UI
         system map · anomaly center · incidents · root cause analysis
-        · reproduction workspace · AI debugger
+        · reproduction workspace · AI debugger · fix & verification workspace
 ```
 
 ## Features
@@ -250,6 +258,44 @@ result is presented as proof.
   locations, rejected citations, degraded analyses, refused tool calls
 </details>
 
+<details>
+<summary><b>Automated fix generation &amp; verification (Phase 7)</b></summary>
+
+- **Fix hypotheses planned from evidence that already exists** — a debug
+  session's validated code locations seed the scope allowlist, sensitive areas
+  are excluded by default, and the category comes from the evidence text or
+  stays `UNKNOWN`
+- **Two generators, one contract:** a deterministic generator composes a real
+  unified diff from the pinned snapshot's stored bytes, and a model-assisted
+  generator receives only the scoped, redacted files. Both are parsed and
+  safety-validated before anything is stored; malformed output, hallucinated
+  files and out-of-scope diffs are recorded as failures, never repaired
+- **Safety validation before and after application:** scope, path traversal,
+  sensitive files (CI, auth, infrastructure, migrations), dependency and
+  configuration changes, introduced secrets, and test tampering
+  (deleted tests, weakened assertions, skips, disabled lint/typing) — a
+  tampering patch never reaches a workspace
+- **Disposable git workspaces:** a temp worktree on an `argus/fix/…` branch,
+  one per candidate, destroyed on every path. Your repository is opened
+  read-only and is byte-identical afterwards
+- **A command registry, not a shell:** named entries with fixed argv, timeouts,
+  environment passthrough and an offline network policy; discovery is
+  marker-based, so an unknown stack is reported rather than guessed
+- **A two-sided regression test derived from the patch itself:** it must fail on
+  the base commit and pass on the patched tree, or it is not evidence
+- **Verification levels with explicit reasons:** static → tests → reproduction →
+  regression validation → `FULLY_VERIFIED`, with before/after metrics compared
+  against configured thresholds and any breach refusing verification
+- **`NOT_VERIFIED` is a first-class result:** a patch that builds and passes
+  tests while the failure still reproduces is never "verified with caveats"
+- **Artifacts are hashed and immutable after a terminal run**, stored outside
+  the workspace, and exported with the §64 checklist and an explicit statement
+  that nothing was merged, deployed or released
+- **Human review is the end of the line:** `AWAITING_REVIEW` → approve, reject or
+  regenerate. Approval requires a stored `VERIFIED` run, a recorded decision is
+  final, and no code path merges or deploys
+</details>
+
 ## Quick start
 
 **Requirements:** Docker with Compose. Nothing else — no local Python or Node
@@ -307,17 +353,19 @@ they pass on repeat runs, not only on a pristine database.
 
 | Gate | Command | Result |
 | :--- | :--- | :--- |
-| Backend test suite | `cd apps/api && pytest -q` | **1008 passed** |
-| Lint / format / types | `ruff check`, `ruff format --check`, `mypy app` | clean |
-| Frontend tests | `cd apps/web && npm test` | **97 passed** |
+| Backend test suite | `cd apps/api && pytest -q` | **1093 passed** |
+| Lint / format / types | `cd apps/api && ruff check app tests && ruff format --check app tests && mypy app` | clean (206 files, 146 modules) |
+| Frontend tests | `cd apps/web && npm test` | **113 passed** |
 | Frontend type check | `cd apps/web && npx tsc --noEmit` | clean |
-| Frontend production build | `cd apps/web && npm run build` | succeeds, 24 routes |
+| Frontend production build | `cd apps/web && npm run build` | succeeds, 26 routes |
 | Phase 0/1 live gate | `bash infrastructure/e2e-smoke-phase1.sh` | **46/46** |
 | Phase 2 live gate | `bash infrastructure/e2e-smoke-phase2.sh` | **28/28** |
 | Phase 3 live gate | `bash infrastructure/e2e-smoke-phase3.sh` | **103/103** |
 | Phase 4 live gate | `bash infrastructure/e2e-smoke-phase4.sh` | **70/70** |
 | Phase 5 live gate | `bash infrastructure/e2e-smoke-phase5.sh` | **104/104** |
-| Phase 6 live gate | `bash infrastructure/e2e-smoke-phase6.sh` | **128/128** |
+| Phase 6 live gate | `bash infrastructure/e2e-smoke-phase6.sh` | **159/159** |
+| Phase 7 live gate | `bash infrastructure/e2e-smoke-phase7.sh` | **90/90** |
+| Phase 7 gate + DDL probe | `DDL_PROBE=1 bash infrastructure/e2e-smoke-phase7.sh` | **91/91** |
 | Migration under a live pool | `DDL_PROBE=1 bash infrastructure/e2e-smoke-phase4.sh` | **73/73** |
 | Fresh-database bootstrap | empty DB → `alembic upgrade head` → `seed_data.py` | 9 migrations apply from zero; demo incident, its analysis and its reproduction are derived correctly |
 | Migrations reversible | `alembic upgrade head` / `downgrade -1` on PostgreSQL 16 | verified both directions |
@@ -487,17 +535,23 @@ useless:
   "consistent with this experiment's evidence", not "proven".
 - **No authentication yet.** Isolation is server-side ownership validation on
   every request. Token auth and per-project authorization are on the roadmap.
-- **Later phases are not started.** Automatic debugging, patch generation,
-  remediation, autonomous deployment and predictive forecasting are deliberately
-  absent — and Phase 5 does none of them: it reproduces, replays, compares and
-  validates, nothing more.
+- **Phase 7 stops at review, by design.** There is no merge, pull-request
+  approval, deployment, rollback or remediation anywhere in the codebase. A
+  verified patch is a reviewed candidate, not a shipped change.
+- **Fix verification inherits your test coverage.** ARGUS adds a two-sided
+  regression test derived from the patch, but it cannot know what your suite
+  does not cover; the deterministic generator recognises a handful of defect
+  shapes, and anything else is refused or requires a configured model.
+- **Later phases are not started.** Autonomous remediation, deployment and
+  predictive forecasting are deliberately absent.
 
 ## Roadmap
 
 | Phase | Scope |
 | :--- | :--- |
 | 6 | ✅ AI Debugger — code intelligence, validated code claims, grounded debugging analysis |
-| 7 | Automated Fix Generation & Verification — candidates verified in isolation, never auto-applied |
+| 7 | ✅ Automated Fix Generation & Verification — candidates verified in isolation, never auto-applied |
+| 8 | Predictive Reliability — trend, capacity and reliability prediction; pre-incident signals |
 
 See [docs/roadmap.md](docs/roadmap.md) for detail.
 
@@ -511,6 +565,7 @@ See [docs/roadmap.md](docs/roadmap.md) for detail.
 | [Phase 4 — Root Cause & Causal Analysis](docs/phase-4.md) | Causal model, evidence model, analyzers, scoring, confidence, graph, frontend |
 | [Phase 5 — Failure Reproduction Engine](docs/phase-5.md) | Architecture, sandbox design, security model, lifecycle, replay, faults, capture, comparison, validation, artifacts, cleanup, limitations |
 | [Phase 6 — AI Debugger](docs/phase-6.md) | Code intelligence, snapshots, trace→code mapping, debug sessions, validation, grounded Q&amp;A, safety, limitations |
+| [Phase 7 — Automated Fix Generation & Verification](docs/phase-7.md) | Fix hypotheses, patch generation, safety validation, isolated workspaces, command registry, verification ladder, risk, artifacts, human review, limitations |
 | [Phase 2 Report](docs/phase2-implementation-report.md) · [Phase 3 Report](docs/phase3-implementation-report.md) · [Phase 4 Report](docs/phase4-implementation-report.md) · [Phase 5 Report](docs/phase5-implementation-report.md) · [Phase 6 Report](docs/phase6-implementation-report.md) | Delivery summaries, gate evidence, bugs found by live validation |
 | [Data model](docs/data-model.md) | Tables, relationships, enum domains, indexes |
 | [Observability model](docs/observability-model.md) | Signals, normalization, retention |

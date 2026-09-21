@@ -248,6 +248,37 @@ Three invariants shape this domain:
   status, result size and truncation for each model tool call — the analysis is
   reproducible as an audit even when the model is not.
 
+### 3.8 Phase 7 fix-generation & verification domain
+
+| Entity | Table | Key fields |
+|--------|-------|------------|
+| `FixHypothesis` | `fix_hypotheses` | `incident_id`, `debug_session_id`, `analysis_run_id`, `root_cause_candidate_id`, `reproduction_experiment_id`, `repository_id`, `snapshot_id`, `title`, `description`, `proposed_change`, `expected_behavior`, `category` (`BUG_FIX`/`ERROR_HANDLING`/`TIMEOUT_FIX`/`RETRY_FIX`/`VALIDATION_FIX`/`RESOURCE_HANDLING`/`CONCURRENCY_FIX`/`DATABASE_QUERY_FIX`/`API_CONTRACT_FIX`/`CONFIGURATION_FIX`/`DEPENDENCY_HANDLING`/`PERFORMANCE_FIX`/`UNKNOWN`), `scope_files`, `excluded_paths`, `supporting_evidence`, `target_symbols`, `risk_level`, `confidence`, `status` (`DRAFT`/`HYPOTHESIZED`/`PATCHING`/`PATCH_GENERATED`/`GENERATION_FAILED`/`REJECTED`/`SUPERSEDED`), `created_by` |
+| `Patch` | `patches` | `fix_hypothesis_id`, `patch_experiment_id`, `repository_id`, `snapshot_id`, `base_commit_sha`, `patch_format`, `patch_content`, `changed_files`, `lines_added/removed`, `symbols_modified`, `affected_paths`, `generated_by`, `generation_model`, `generation_version`, `status` (`GENERATED`/`PARSE_FAILED`/`VALIDATION_FAILED`/`APPLIED`/`BUILD_FAILED`/`TEST_FAILED`/`REPRODUCTION_FAILED`/`VERIFIED`/`REJECTED`/`SUPERSEDED`/`GENERATION_FAILED`), `explanation`, `failure_reason` |
+| `PatchWorkspace` | `patch_workspaces` | `patch_id`, `patch_experiment_id`, `repository_id`, `branch_name`, `base_commit_sha`, `patched_commit_sha`, `root_path`, `status` (`CREATING`/`READY`/`PATCH_APPLIED`/`BUSY`/`DESTROYED`/`FAILED`), `created_at_workspace`, `destroyed_at`, `workspace_metadata` |
+| `PatchVerificationRun` | `patch_verification_runs` | `patch_id`, `workspace_id`, `status` (`PENDING`/`RUNNING`/`VERIFIED`/`NOT_VERIFIED`/`FAILED`/`CANCELLED`), `level` (`NONE`/`STATIC_VALIDATED`/`TEST_VALIDATED`/`REPRODUCTION_VALIDATED`/`REGRESSION_VALIDATED`/`FULLY_VERIFIED`), `confidence`, `confidence_reason`, `tampering_flag`, `verification_env_intact`, `baseline_failure_reproduced`, `patched_failure_reproduced`, `regression_detected`, `duration_ms`, `verdict_reason`, `evidence` |
+| `PatchTestRun` | `patch_test_runs` | `verification_run_id`, `workspace_id`, `kind` (`STATIC`/`BUILD`/`UNIT`/`INTEGRATION`/`REGRESSION`/`FULL_SUITE`), `command_key`, `command_resolved`, `unknown_configuration`, `exit_code`, `timed_out`, `duration_ms`, `tests_total/passed/failed`, `output_tail`, `selected_tests`, `selection_reason` |
+| `PatchRegressionTest` | `patch_regression_tests` | `verification_run_id`, `name`, `file_path`, `origin`, `content_hash`, `ran_on_base`, `failed_on_base`, `ran_on_patched`, `passed_on_patched`, `valid`, `invalid_reason` |
+| `PatchComparison` | `patch_comparisons` | `verification_run_id`, `metrics`, `regressions`, `thresholds`, `summary`, `causal_chain_resolved`, `causal_chain_note` |
+| `PatchRiskAssessment` | `patch_risk_assessments` | `patch_id`, `risk_level` (`LOW`/`MEDIUM`/`HIGH`/`CRITICAL`), `signals`, `explanation` |
+| `PatchReviewAction` | `patch_review_actions` | `patch_id`, `action` (`APPROVE`/`REJECT`/`REQUEST_CHANGES`/`REGENERATE`/`EXPORT`), `actor`, `reason`, `new_patch_id`, `audit_metadata` |
+| `PatchArtifact` | `patch_artifacts` | `patch_id`, `verification_run_id`, `artifact_type`, `name`, `storage_path`, `size_bytes`, `content_hash` (SHA-256), `immutable`, `artifact_metadata` |
+
+Four invariants shape this domain:
+
+* **A suggestion is not a patch, and a patch is not a fix.** `status` moves
+  `GENERATED` → `APPLIED` → `VERIFIED` only through the verification engine's own
+  run; nothing sets `VERIFIED` as a side effect of generation or review.
+* **Every verdict cites stored rows.** A `VERIFIED` run points at the test runs,
+  the two-sided regression test and the comparison that produced it; the API
+  returns them with the verdict, and the export report derives its checklist from
+  them rather than restating them.
+* **Review is human and final.** `patch_review_actions` is the only path to an
+  `APPROVED` review state; approval additionally requires a stored `VERIFIED`
+  run, and a recorded decision refuses further actions on that candidate.
+* **Artifacts outlive the experiment.** Files are written outside the workspace
+  (which is destroyed unconditionally), hashed from the exact bytes on disk, and
+  marked immutable once the run is terminal.
+
 ## 4. Enum domains
 
 | Entity field | Enum values |

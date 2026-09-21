@@ -2523,6 +2523,166 @@ export const api = {
     apiFetch<DebuggerMetrics>(
       `/api/v1/debugger/metrics${scopeQuery(projectId)}`
     ),
+
+  // -- Phase 7 — fix generation & verification (§65) ----------------------
+
+  createFixHypothesis: (
+    incidentId: string,
+    projectId: string,
+    payload: CreateFixHypothesisPayload
+  ) =>
+    apiFetch<FixHypothesis>(
+      `/api/v1/incidents/${encodeURIComponent(
+        incidentId
+      )}/fixes?project_id=${encodeURIComponent(projectId)}`,
+      { method: 'POST', body: JSON.stringify(payload) }
+    ),
+
+  listIncidentFixes: (incidentId: string, projectId?: string) =>
+    apiFetch<FixHypothesisList>(
+      `/api/v1/incidents/${encodeURIComponent(
+        incidentId
+      )}/fixes${scopeQuery(projectId)}`
+    ),
+
+  listFixes: (options: {
+    projectId: string;
+    incidentId?: string;
+    status?: string;
+  }) => {
+    const params = new URLSearchParams({ project_id: options.projectId });
+    if (options.incidentId) {
+      params.set('incident_id', options.incidentId);
+    }
+    if (options.status) {
+      params.set('status', options.status);
+    }
+    return apiFetch<FixHypothesisList>(`/api/v1/fixes?${params}`);
+  },
+
+  getFixHypothesis: (hypothesisId: string, projectId?: string) =>
+    apiFetch<FixHypothesis>(
+      `/api/v1/fixes/${encodeURIComponent(
+        hypothesisId
+      )}${scopeQuery(projectId)}`
+    ),
+
+  generatePatch: (
+    hypothesisId: string,
+    projectId: string,
+    payload: GeneratePatchPayload = {}
+  ) =>
+    apiFetch<Patch>(
+      `/api/v1/fixes/${encodeURIComponent(
+        hypothesisId
+      )}/generate?project_id=${encodeURIComponent(projectId)}`,
+      { method: 'POST', body: JSON.stringify(payload) }
+    ),
+
+  listHypothesisPatches: (hypothesisId: string, projectId?: string) =>
+    apiFetch<PatchList>(
+      `/api/v1/fixes/${encodeURIComponent(
+        hypothesisId
+      )}/patches${scopeQuery(projectId)}`
+    ),
+
+  listPatches: (options: { projectId: string; status?: string }) => {
+    const params = new URLSearchParams({ project_id: options.projectId });
+    if (options.status) {
+      params.set('status', options.status);
+    }
+    return apiFetch<PatchList>(`/api/v1/patches?${params}`);
+  },
+
+  getPatch: (patchId: string, projectId?: string) =>
+    apiFetch<PatchDetail>(
+      `/api/v1/patches/${encodeURIComponent(patchId)}${scopeQuery(projectId)}`
+    ),
+
+  getPatchDiff: async (patchId: string, projectId?: string) => {
+    const detail = await apiFetch<PatchDetail>(
+      `/api/v1/patches/${encodeURIComponent(patchId)}${scopeQuery(projectId)}`
+    );
+    return detail.patch_content;
+  },
+
+  verifyPatch: (
+    patchId: string,
+    projectId: string,
+    payload: VerifyPatchPayload
+  ) =>
+    apiFetch<PatchVerificationRun>(
+      `/api/v1/patches/${encodeURIComponent(
+        patchId
+      )}/verify?project_id=${encodeURIComponent(projectId)}`,
+      { method: 'POST', body: JSON.stringify(payload) }
+    ),
+
+  getLatestVerification: (patchId: string, projectId?: string) =>
+    apiFetch<PatchVerificationRun>(
+      `/api/v1/patches/${encodeURIComponent(
+        patchId
+      )}/verification${scopeQuery(projectId)}`
+    ),
+
+  getPatchComparison: (patchId: string, projectId?: string) =>
+    apiFetch<Record<string, unknown>>(
+      `/api/v1/patches/${encodeURIComponent(
+        patchId
+      )}/comparison${scopeQuery(projectId)}`
+    ),
+
+  getPatchArtifacts: (patchId: string, projectId?: string) =>
+    apiFetch<Record<string, unknown>>(
+      `/api/v1/patches/${encodeURIComponent(
+        patchId
+      )}/artifacts${scopeQuery(projectId)}`
+    ),
+
+  /** §41, §71 — records a decision. Nothing merges or deploys. */
+  approvePatch: (
+    patchId: string,
+    projectId: string,
+    payload: ReviewPatchPayload = {}
+  ) =>
+    apiFetch<PatchReviewAction>(
+      `/api/v1/patches/${encodeURIComponent(
+        patchId
+      )}/approve?project_id=${encodeURIComponent(projectId)}`,
+      { method: 'POST', body: JSON.stringify({ ...payload, action: 'APPROVE' }) }
+    ),
+
+  rejectPatch: (patchId: string, projectId: string, payload: ReviewPatchPayload = {}) =>
+    apiFetch<PatchReviewAction>(
+      `/api/v1/patches/${encodeURIComponent(
+        patchId
+      )}/reject?project_id=${encodeURIComponent(projectId)}`,
+      { method: 'POST', body: JSON.stringify({ ...payload, action: 'REJECT' }) }
+    ),
+
+  regeneratePatch: (
+    patchId: string,
+    projectId: string,
+    payload: ReviewPatchPayload = {}
+  ) =>
+    apiFetch<Patch>(
+      `/api/v1/patches/${encodeURIComponent(
+        patchId
+      )}/regenerate?project_id=${encodeURIComponent(projectId)}`,
+      { method: 'POST', body: JSON.stringify({ ...payload, action: 'REGENERATE' }) }
+    ),
+
+  getVerificationReport: (patchId: string, projectId?: string) =>
+    apiFetch<Record<string, unknown>>(
+      `/api/v1/patches/${encodeURIComponent(
+        patchId
+      )}/report${scopeQuery(projectId)}`
+    ),
+
+  fixMetrics: (projectId: string) =>
+    apiFetch<FixMetrics>(
+      `/api/v1/fixes/metrics?project_id=${encodeURIComponent(projectId)}`
+    ),
 };
 
 // ---------------------------------------------------------------------------
@@ -3048,4 +3208,298 @@ export interface HistoryResult {
   items: CommitInfo[];
   truncated: boolean;
   reason?: string | null;
+}
+
+// ---------------------------------------------------------------------------
+// Phase 7 — Fix Generation & Verification (§5–§72)
+// ---------------------------------------------------------------------------
+
+export type FixCategory =
+  | 'BUG_FIX'
+  | 'ERROR_HANDLING'
+  | 'TIMEOUT_FIX'
+  | 'RETRY_FIX'
+  | 'VALIDATION_FIX'
+  | 'RESOURCE_HANDLING'
+  | 'CONCURRENCY_FIX'
+  | 'DATABASE_QUERY_FIX'
+  | 'API_CONTRACT_FIX'
+  | 'CONFIGURATION_FIX'
+  | 'DEPENDENCY_HANDLING'
+  | 'PERFORMANCE_FIX'
+  | 'UNKNOWN';
+
+export type FixStatus =
+  | 'DRAFT'
+  | 'HYPOTHESIZED'
+  | 'PATCHING'
+  | 'PATCH_GENERATED'
+  | 'GENERATION_FAILED'
+  | 'REJECTED'
+  | 'SUPERSEDED';
+
+export type PatchStatus =
+  | 'GENERATED'
+  | 'PARSE_FAILED'
+  | 'VALIDATION_FAILED'
+  | 'APPLIED'
+  | 'BUILD_FAILED'
+  | 'TEST_FAILED'
+  | 'REPRODUCTION_FAILED'
+  | 'VERIFIED'
+  | 'REJECTED'
+  | 'SUPERSEDED'
+  | 'GENERATION_FAILED';
+
+export type PatchFormat = 'UNIFIED_DIFF';
+
+export type RiskLevel = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+
+export type VerificationLevel =
+  | 'NONE'
+  | 'STATIC_VALIDATED'
+  | 'TEST_VALIDATED'
+  | 'REPRODUCTION_VALIDATED'
+  | 'REGRESSION_VALIDATED'
+  | 'FULLY_VERIFIED';
+
+export type VerificationStatus =
+  | 'PENDING'
+  | 'RUNNING'
+  | 'VERIFIED'
+  | 'NOT_VERIFIED'
+  | 'FAILED'
+  | 'CANCELLED';
+
+export type WorkspaceStatus =
+  | 'CREATING'
+  | 'READY'
+  | 'PATCH_APPLIED'
+  | 'BUSY'
+  | 'DESTROYED'
+  | 'FAILED';
+
+export type ReviewAction =
+  | 'APPROVE'
+  | 'REJECT'
+  | 'REQUEST_CHANGES'
+  | 'REGENERATE'
+  | 'EXPORT';
+
+export type ReviewState =
+  | 'AWAITING_REVIEW'
+  | 'CHANGES_REQUESTED'
+  | 'APPROVED'
+  | 'REJECTED';
+
+export type TamperingFlag =
+  | 'NONE'
+  | 'TEST_DELETED'
+  | 'ASSERTION_WEAKENED'
+  | 'TEST_SKIPPED'
+  | 'EXPECTATION_CHANGED'
+  | 'LINT_DISABLED'
+  | 'TYPECHECK_DISABLED'
+  | 'CI_MODIFIED'
+  | 'VERIFICATION_MODIFIED';
+
+export interface FixHypothesis {
+  id: string;
+  project_id: string;
+  incident_id: string;
+  debug_session_id?: string | null;
+  analysis_run_id?: string | null;
+  root_cause_candidate_id?: string | null;
+  reproduction_experiment_id?: string | null;
+  repository_id?: string | null;
+  snapshot_id?: string | null;
+  title: string;
+  description: string;
+  proposed_change: string;
+  expected_behavior?: string | null;
+  category: FixCategory;
+  scope_files: string[];
+  excluded_paths: string[];
+  supporting_evidence: Array<Record<string, unknown>>;
+  target_symbols: string[];
+  risk_level: RiskLevel;
+  confidence: string;
+  status: FixStatus;
+  created_by?: string | null;
+  created_at: string;
+}
+
+export interface FixHypothesisList {
+  items: FixHypothesis[];
+  total: number;
+  truncated: boolean;
+}
+
+export interface Patch {
+  id: string;
+  project_id: string;
+  fix_hypothesis_id: string;
+  patch_experiment_id?: string | null;
+  base_commit_sha?: string | null;
+  patch_format: PatchFormat;
+  changed_files: number;
+  lines_added: number;
+  lines_removed: number;
+  symbols_modified: string[];
+  affected_paths: string[];
+  generated_by: string;
+  generation_model?: string | null;
+  status: PatchStatus;
+  explanation: Record<string, unknown>;
+  failure_reason?: string | null;
+  created_at: string;
+  review_state?: ReviewState | null;
+}
+
+export interface PatchList {
+  items: Patch[];
+  total: number;
+  truncated: boolean;
+}
+
+export interface PatchTestRun {
+  id: string;
+  kind: string;
+  command_key: string;
+  command_resolved?: string | null;
+  unknown_configuration: boolean;
+  exit_code?: number | null;
+  timed_out: boolean;
+  duration_ms?: number | null;
+  tests_total?: number | null;
+  tests_passed?: number | null;
+  tests_failed?: number | null;
+  output_tail?: string | null;
+  selected_tests: string[];
+  selection_reason?: string | null;
+}
+
+export interface PatchRegressionTest {
+  id: string;
+  name: string;
+  file_path: string;
+  origin: string;
+  ran_on_base: boolean;
+  failed_on_base: boolean;
+  ran_on_patched: boolean;
+  passed_on_patched: boolean;
+  valid: boolean;
+  invalid_reason?: string | null;
+  content_hash?: string | null;
+}
+
+export interface PatchComparison {
+  id: string;
+  metrics: Record<string, unknown>;
+  regressions: unknown[];
+  thresholds: Record<string, unknown>;
+  causal_chain_resolved?: boolean | null;
+  causal_chain_note?: string | null;
+  summary?: string | null;
+}
+
+export interface PatchWorkspace {
+  id: string;
+  patch_id: string;
+  branch_name: string;
+  base_commit_sha?: string | null;
+  patched_commit_sha?: string | null;
+  status: WorkspaceStatus;
+  created_at_workspace?: string | null;
+  destroyed_at?: string | null;
+  workspace_metadata: Record<string, unknown>;
+}
+
+export interface PatchVerificationRun {
+  id: string;
+  patch_id: string;
+  workspace_id?: string | null;
+  status: VerificationStatus;
+  level: VerificationLevel;
+  confidence: string;
+  confidence_reason?: string | null;
+  tampering_flag: TamperingFlag;
+  verification_env_intact: boolean;
+  baseline_failure_reproduced: boolean;
+  patched_failure_reproduced?: boolean | null;
+  regression_detected: boolean;
+  started_at: string;
+  completed_at?: string | null;
+  duration_ms?: number | null;
+  verdict_reason?: string | null;
+  evidence: Record<string, unknown>;
+  test_runs: PatchTestRun[];
+  regression_tests: PatchRegressionTest[];
+  comparisons: PatchComparison[];
+}
+
+export interface PatchReviewAction {
+  id: string;
+  patch_id: string;
+  action: ReviewAction;
+  actor: string;
+  reason?: string | null;
+  new_patch_id?: string | null;
+  audit_metadata: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface PatchDetail extends Patch {
+  patch_content: string;
+  review_actions: PatchReviewAction[];
+  verification_runs: PatchVerificationRun[];
+  workspaces: PatchWorkspace[];
+}
+
+export interface FixMetrics {
+  hypotheses_total: number;
+  patches_total: number;
+  patches_verified: number;
+  patches_awaiting_review: number;
+  patches_rejected: number;
+  verification_runs_total: number;
+  tampering_flags_total: number;
+  regressions_detected_total: number;
+}
+
+export interface CreateFixHypothesisPayload {
+  debug_session_id: string;
+  title?: string | null;
+  scope_override?: string[] | null;
+  root_cause_candidate_id?: string | null;
+  reproduction_experiment_id?: string | null;
+}
+
+export interface GeneratePatchPayload {
+  generated_by?: string;
+  patch_experiment_id?: string | null;
+}
+
+export interface VerifyPatchPayload {
+  baseline_reproduced: boolean;
+  baseline_metrics?: Record<string, number> | null;
+  patched_metrics?: Record<string, number> | null;
+  baseline_failure_signature?: string;
+  patched_still_reproduces?: boolean;
+}
+
+export interface ReviewPatchPayload {
+  actor?: string;
+  reason?: string | null;
+  new_patch_id?: string | null;
+}
+
+export interface FixArtifact {
+  name: string;
+  kind: string;
+  content_hash: string;
+  size_bytes?: number | null;
+  immutable: boolean;
+  created_at: string;
+  reference?: Record<string, unknown>;
 }

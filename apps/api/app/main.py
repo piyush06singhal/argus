@@ -16,6 +16,7 @@ from app.core.config import get_settings
 from app.core.database import async_session_factory, close_db, init_db
 from app.services.anomaly_sweep import sweep_forever
 from app.services.code_sweep import sweep_code_intelligence_forever
+from app.services.fix_sweep import sweep_fix_forever
 from app.services.reproduction_sweep import sweep_reproductions_forever
 from app.services.worker_runner import make_worker
 
@@ -66,9 +67,21 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             sweep_code_intelligence_forever(async_session_factory)
         )
 
+    # Fix-workspace reaper (Phase 7 §48, §54). Destroys verification
+    # workspaces left behind by a dead process.
+    fix_sweep_task: Optional[asyncio.Task] = None
+    if not settings.is_testing and settings.FIX_SWEEP_ENABLED:
+        fix_sweep_task = asyncio.create_task(sweep_fix_forever(async_session_factory))
+
     yield
 
     # Shutdown
+    if fix_sweep_task is not None:
+        fix_sweep_task.cancel()
+        try:
+            await fix_sweep_task
+        except asyncio.CancelledError:
+            pass
     if code_sweep_task is not None:
         code_sweep_task.cancel()
         try:

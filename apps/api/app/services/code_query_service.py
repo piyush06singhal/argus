@@ -505,7 +505,9 @@ class CodeKnowledgeService:
         #: run would report a number that does not describe the stored rows.
         files = (
             await self.session.execute(
-                select(func.count(CodeFile.id)).where(CodeFile.snapshot_id == snapshot_id)
+                select(func.count(CodeFile.id)).where(
+                    CodeFile.snapshot_id == snapshot_id
+                )
             )
         ).scalar_one()
         symbols = (

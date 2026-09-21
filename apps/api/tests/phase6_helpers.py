@@ -382,13 +382,17 @@ async def _head_sha(session: AsyncSession, project_id) -> Optional[str]:
     from app.models.code import RepositorySnapshot
 
     row = (
-        await session.execute(
-            select(RepositorySnapshot)
-            .where(RepositorySnapshot.project_id == project_id)
-            .order_by(RepositorySnapshot.created_at.desc())
-            .limit(1)
+        (
+            await session.execute(
+                select(RepositorySnapshot)
+                .where(RepositorySnapshot.project_id == project_id)
+                .order_by(RepositorySnapshot.created_at.desc())
+                .limit(1)
+            )
         )
-    ).scalars().first()
+        .scalars()
+        .first()
+    )
     return row.commit_sha if row else None
 
 
@@ -406,7 +410,9 @@ async def build_project(session: AsyncSession, *, name: str = "Phase6 Fixture"):
     return project, environment, component
 
 
-async def build_scope(session: AsyncSession, project_id, *, component: str = "checkout-service"):
+async def build_scope(
+    session: AsyncSession, project_id, *, component: str = "checkout-service"
+):
     """Environment and component under an *existing* project id.
 
     Needed because the API tests create the project through HTTP and then seed

@@ -290,6 +290,13 @@ class Settings(BaseSettings):
     CODE_SWEEP_BATCH: int = 200
     #: Retention for Phase 6 indexed snapshots and debug sessions.
     RETENTION_CODE_SNAPSHOTS: int = 365
+    #: Phase 7 — patch verification workspace hygiene. Workspaces left by a
+    #: dead process are destroyed by the sweep after this grace period (§48).
+    FIX_SWEEP_ENABLED: bool = True
+    FIX_SWEEP_INTERVAL_SECONDS: int = 120
+    FIX_WORKSPACE_GRACE_SECONDS: int = 3600
+    #: Phase 7 — per-command budget ceilings the registry may not exceed.
+    FIX_COMMAND_TIMEOUT_SECONDS: int = 900
 
     @field_validator("CORS_ORIGINS", mode="before")
     @classmethod

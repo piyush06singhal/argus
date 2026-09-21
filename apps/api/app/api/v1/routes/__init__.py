@@ -8,6 +8,7 @@ from app.api.v1.routes.code import router as code_router
 from app.api.v1.routes.components import router as components_router
 from app.api.v1.routes.deployments import router as deployments_router
 from app.api.v1.routes.environments import router as environments_router
+from app.api.v1.routes.fix import router as fix_router
 from app.api.v1.routes.graph import router as graph_router
 from app.api.v1.routes.incidents import router as incidents_router
 from app.api.v1.routes.ingestion import router as ingestion_router
@@ -33,3 +34,4 @@ api_v1_router.include_router(anomalies_router)
 api_v1_router.include_router(causal_router)
 api_v1_router.include_router(reproduction_router)
 api_v1_router.include_router(code_router)
+api_v1_router.include_router(fix_router)

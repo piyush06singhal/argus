@@ -142,18 +142,30 @@ async def test_grounded_locations_are_validated_and_persisted(db_session, tmp_pa
     assert location.validation_detail.startswith("verified in snapshot")
 
     rows = (
-        await db_session.execute(
-            select(DebugCodeLocation).where(DebugCodeLocation.session_id == session.id)
+        (
+            await db_session.execute(
+                select(DebugCodeLocation).where(
+                    DebugCodeLocation.session_id == session.id
+                )
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     assert rows and all(row.label == "SUSPICIOUS_CODE_PATH" for row in rows)
     assert any(row.symbol_id for row in rows)
 
     run = (
-        await db_session.execute(
-            select(DebugAnalysisRun).where(DebugAnalysisRun.session_id == session.id)
+        (
+            await db_session.execute(
+                select(DebugAnalysisRun).where(
+                    DebugAnalysisRun.session_id == session.id
+                )
+            )
         )
-    ).scalars().first()
+        .scalars()
+        .first()
+    )
     assert run.status is DebugAnalysisStatus.COMPLETED
     assert run.context_bytes and run.context_bytes > 0
     assert run.context_snapshot, "the deterministic context is always stored (§43)"
@@ -228,7 +240,9 @@ async def test_fabricated_file_is_rejected_with_a_reason(db_session, tmp_path):
 async def test_fabricated_line_range_is_rejected_not_clamped(db_session, tmp_path):
     _, _, _, _, snapshot, incident = await _fixture(db_session, tmp_path)
     payload = _payload(
-        suspected_locations=[_location(start_line=CHECKOUT_LINES + 500, end_line=CHECKOUT_LINES + 520)]
+        suspected_locations=[
+            _location(start_line=CHECKOUT_LINES + 500, end_line=CHECKOUT_LINES + 520)
+        ]
     )
     result = await _analyse(db_session, snapshot, incident, payload)
 
@@ -261,7 +275,10 @@ async def test_a_path_fragment_is_not_accepted_as_a_symbol_name(db_session, tmp_
     payload = _payload(
         suspected_locations=[
             _location(
-                file_path="shop/checkout.py", symbol="py:process", start_line=15, end_line=23
+                file_path="shop/checkout.py",
+                symbol="py:process",
+                start_line=15,
+                end_line=23,
             )
         ],
         hypotheses=[],
@@ -269,9 +286,9 @@ async def test_a_path_fragment_is_not_accepted_as_a_symbol_name(db_session, tmp_
     result = await _analyse(db_session, snapshot, incident, payload)
 
     location = result.suspected_locations[0]
-    assert location.validation is LocationValidation.INVALID_SYMBOL, (
-        "the file's own extension must never be read as part of the symbol name"
-    )
+    assert (
+        location.validation is LocationValidation.INVALID_SYMBOL
+    ), "the file's own extension must never be read as part of the symbol name"
     assert result.valid_locations == 0
 
 
@@ -283,13 +300,13 @@ async def test_a_path_fragment_is_not_accepted_as_a_symbol_name(db_session, tmp_
         "shop/checkout.py:CheckoutService.process",
     ],
 )
-async def test_every_name_a_model_realistically_writes_resolves(db_session, tmp_path, written):
+async def test_every_name_a_model_realistically_writes_resolves(
+    db_session, tmp_path, written
+):
     """The fix must not turn a naming convention into a false rejection."""
     _, _, _, _, snapshot, incident = await _fixture(db_session, tmp_path)
     payload = _payload(
-        suspected_locations=[
-            _location(symbol=written, start_line=15, end_line=23)
-        ],
+        suspected_locations=[_location(symbol=written, start_line=15, end_line=23)],
         hypotheses=[],
     )
     result = await _analyse(db_session, snapshot, incident, payload)
@@ -332,7 +349,9 @@ async def test_reference_to_another_project_is_rejected(db_session, tmp_path):
     )
 
     _, _, _, _, snapshot, incident = await _fixture(db_session, tmp_path)
-    other_project, other_env, other_component = await build_project(db_session, name="Other")
+    other_project, other_env, other_component = await build_project(
+        db_session, name="Other"
+    )
     foreign = Anomaly(
         project_id=other_project.id,
         environment_id=other_env.id,
@@ -359,7 +378,10 @@ async def test_reference_to_a_nonexistent_commit_is_rejected(db_session, tmp_pat
     payload = _payload(supporting_evidence=["COMMIT:deadbeefdeadbeef"])
     result = await _analyse(db_session, snapshot, incident, payload)
     assert result.supporting_evidence == []
-    assert "not in this project's recorded history" in result.invalid_references[0]["reason"]
+    assert (
+        "not in this project's recorded history"
+        in result.invalid_references[0]["reason"]
+    )
 
 
 async def test_the_pinned_commit_is_accepted(db_session, tmp_path):
@@ -383,7 +405,9 @@ async def test_no_snapshot_means_no_location_can_be_claimed(db_session, tmp_path
 # ---------------------------------------------------------------------------
 # Confidence and validation status are evidence-driven
 # ---------------------------------------------------------------------------
-async def test_contradicting_evidence_produces_partially_supported(db_session, tmp_path):
+async def test_contradicting_evidence_produces_partially_supported(
+    db_session, tmp_path
+):
     project, _, _, repository, snapshot, incident = await _fixture(db_session, tmp_path)
     context = await DebugContextBuilder(db_session).build(incident, snapshot)
     ids = [item.id for item in context.evidence]
@@ -415,7 +439,9 @@ async def test_contradicting_evidence_produces_partially_supported(db_session, t
         db_session, ScriptedProvider(payload)
     ).run_analysis(session, incident=incident, repository=repository, snapshot=snapshot)
     hypothesis = outcome.result.hypotheses[0]
-    assert hypothesis.validation_status is HypothesisValidationStatus.PARTIALLY_SUPPORTED
+    assert (
+        hypothesis.validation_status is HypothesisValidationStatus.PARTIALLY_SUPPORTED
+    )
     assert "divided" in hypothesis.rationale
 
 
@@ -447,7 +473,9 @@ async def test_uncited_hypothesis_is_unverified(db_session, tmp_path):
 # ---------------------------------------------------------------------------
 # Degradation (§42, §43)
 # ---------------------------------------------------------------------------
-async def test_malformed_output_degrades_to_the_deterministic_view(db_session, tmp_path):
+async def test_malformed_output_degrades_to_the_deterministic_view(
+    db_session, tmp_path
+):
     project, _, _, repository, snapshot, incident = await _fixture(db_session, tmp_path)
     provider = ScriptedProvider({"not": "the schema"})
     manager = DebugSessionManager(db_session, provider)
@@ -468,10 +496,16 @@ async def test_malformed_output_degrades_to_the_deterministic_view(db_session, t
     assert result.summary
     assert result.recommended_inspections
     run = (
-        await db_session.execute(
-            select(DebugAnalysisRun).where(DebugAnalysisRun.session_id == session.id)
+        (
+            await db_session.execute(
+                select(DebugAnalysisRun).where(
+                    DebugAnalysisRun.session_id == session.id
+                )
+            )
         )
-    ).scalars().first()
+        .scalars()
+        .first()
+    )
     assert run.status is DebugAnalysisStatus.DEGRADED
     assert run.error and "schema" in run.error
 
@@ -513,13 +547,19 @@ async def test_mock_provider_is_declared_not_faked(db_session, tmp_path):
     assert "mock" in (outcome.result.degraded_reason or "")
     #: §43 — the deterministic view still names the causal candidates and the
     #: files to inspect, so "AI unavailable" never means "nothing to go on".
-    assert outcome.result.hypotheses, "the deterministic path surfaces causal candidates"
-    assert outcome.result.hypotheses[0].supporting, "candidates keep their causal evidence"
+    assert (
+        outcome.result.hypotheses
+    ), "the deterministic path surfaces causal candidates"
+    assert outcome.result.hypotheses[
+        0
+    ].supporting, "candidates keep their causal evidence"
     assert outcome.result.suspected_locations, "mapped code is still offered"
     assert outcome.result.confidence in {"LOW", "INSUFFICIENT"}
 
 
-async def test_summary_states_the_code_version_and_its_uncertainty(db_session, tmp_path):
+async def test_summary_states_the_code_version_and_its_uncertainty(
+    db_session, tmp_path
+):
     project, _, _, repository, snapshot, incident = await _fixture(db_session, tmp_path)
     context = await DebugContextBuilder(db_session).build(incident, snapshot)
     payload = _payload(summary="x" * 60)
@@ -595,8 +635,13 @@ async def test_secrets_are_redacted_before_the_prompt(db_session, tmp_path):
 
 async def test_context_budget_drops_sections_and_says_so(db_session, tmp_path):
     project, _, _, repository, snapshot, incident = await _fixture(db_session, tmp_path)
-    context = await DebugContextBuilder(db_session).build(incident, snapshot, max_bytes=1200)
-    assert context.budget.bytes_used <= max(context.budget.max_bytes, 1) or context.budget.dropped
+    context = await DebugContextBuilder(db_session).build(
+        incident, snapshot, max_bytes=1200
+    )
+    assert (
+        context.budget.bytes_used <= max(context.budget.max_bytes, 1)
+        or context.budget.dropped
+    )
     assert context.budget.dropped, "the smallest budget must drop something"
     assert any("omitted" in caveat for caveat in context.caveats)
     #: Evidence that only existed for a dropped section is removed too, so the
@@ -669,17 +714,23 @@ async def test_question_answer_is_recorded_with_its_budget(db_session, tmp_path)
     assert answer["degraded_reason"]
     assert "budget" in answer
     messages = (
-        await db_session.execute(
-            select(DebugMessage)
-            .where(DebugMessage.session_id == session.id)
-            .order_by(DebugMessage.created_at)
+        (
+            await db_session.execute(
+                select(DebugMessage)
+                .where(DebugMessage.session_id == session.id)
+                .order_by(DebugMessage.created_at)
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     roles = [row.role.value for row in messages]
     assert "ENGINEER" in roles and "ARGUS" in roles
 
 
-async def test_tool_loop_is_bounded_even_if_the_model_keeps_asking(db_session, tmp_path):
+async def test_tool_loop_is_bounded_even_if_the_model_keeps_asking(
+    db_session, tmp_path
+):
     project, _, _, repository, snapshot, incident = await _fixture(db_session, tmp_path)
 
     #: A provider that always asks for one more read and never answers.
@@ -758,17 +809,27 @@ async def test_hypothesis_rows_record_their_evidence_counts(db_session, tmp_path
         session, incident=incident, repository=repository, snapshot=snapshot
     )
     hypothesis = (
-        await db_session.execute(
-            select(DebugHypothesis).where(DebugHypothesis.session_id == session.id)
+        (
+            await db_session.execute(
+                select(DebugHypothesis).where(DebugHypothesis.session_id == session.id)
+            )
         )
-    ).scalars().first()
+        .scalars()
+        .first()
+    )
     assert hypothesis.hypothesis_metadata["supporting_count"] == 2
     assert hypothesis.hypothesis_metadata["contradicting_count"] == 1
     evidence = (
-        await db_session.execute(
-            select(DebugEvidence).where(DebugEvidence.hypothesis_id == hypothesis.id)
+        (
+            await db_session.execute(
+                select(DebugEvidence).where(
+                    DebugEvidence.hypothesis_id == hypothesis.id
+                )
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     assert {row.polarity.value for row in evidence} == {"SUPPORTING", "CONTRADICTING"}
     assert all(row.valid for row in evidence)
 
@@ -799,10 +860,16 @@ async def _analyse(db_session, snapshot, incident, payload, *, project=None):
         from app.models.project import SoftwareProject
 
         project = (
-            await db_session.execute(
-                _select(SoftwareProject).where(SoftwareProject.id == incident.project_id)
+            (
+                await db_session.execute(
+                    _select(SoftwareProject).where(
+                        SoftwareProject.id == incident.project_id
+                    )
+                )
             )
-        ).scalars().first()
+            .scalars()
+            .first()
+        )
     context = await DebugContextBuilder(db_session).build(incident, snapshot)
     return await AIDebugger(db_session, ScriptedProvider(payload)).analyze(
         context, snapshot=snapshot, incident_id=incident.id, project_id=project.id

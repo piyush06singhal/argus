@@ -159,7 +159,9 @@ class ChangeRelevanceReport:
     def as_dict(self) -> dict:
         return {
             "onset": self.onset.isoformat() if self.onset else None,
-            "window_start": self.window_start.isoformat() if self.window_start else None,
+            "window_start": self.window_start.isoformat()
+            if self.window_start
+            else None,
             "considered_mapped_files": self.considered_mapped_files[:40],
             "considered_signal_files": self.considered_signal_files[:40],
             "assessments": [item.as_dict() for item in self.assessments],
@@ -218,17 +220,21 @@ class ChangeRelevanceAnalyzer:
             )
 
         deployments = (
-            await self.session.execute(
-                select(DeploymentEvent)
-                .where(
-                    DeploymentEvent.project_id == incident.project_id,
-                    DeploymentEvent.deployed_at >= window_start,
-                    DeploymentEvent.deployed_at <= onset,
+            (
+                await self.session.execute(
+                    select(DeploymentEvent)
+                    .where(
+                        DeploymentEvent.project_id == incident.project_id,
+                        DeploymentEvent.deployed_at >= window_start,
+                        DeploymentEvent.deployed_at <= onset,
+                    )
+                    .order_by(DeploymentEvent.deployed_at.desc())
+                    .limit(20)
                 )
-                .order_by(DeploymentEvent.deployed_at.desc())
-                .limit(20)
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         if not deployments:
             report.notes.append(
                 f"no deployment was recorded in the {days} days before onset"
@@ -266,7 +272,10 @@ class ChangeRelevanceAnalyzer:
 
     # ------------------------------------------------------------------
     async def _relevant_paths(
-        self, incident: Incident, snapshot: Optional[RepositorySnapshot], named: list[str]
+        self,
+        incident: Incident,
+        snapshot: Optional[RepositorySnapshot],
+        named: list[str],
     ) -> tuple[set[str], set[str]]:
         """Files the incident demonstrably touched, from two independent sources."""
         mapped: set[str] = set()
@@ -367,9 +376,7 @@ class ChangeRelevanceAnalyzer:
             #: A non-VCS provider cannot diff at all. Stated, never smoothed over.
             assessment.diff_error = str(error)
             assessment.classification = ChangeRelevance.UNKNOWN
-            assessment.reason = (
-                f"the changes in {deployment.commit_sha[:12]} could not be listed: {error}"
-            )
+            assessment.reason = f"the changes in {deployment.commit_sha[:12]} could not be listed: {error}"
             return assessment
 
         changed = sorted({entry.path for entry in entries})

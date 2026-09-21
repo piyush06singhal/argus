@@ -57,7 +57,9 @@ async def _fixture(
     compared against (a first commit has none, and "cannot be listed" is then the
     honest answer rather than the interesting one).
     """
-    project, environment, component = await build_project(db_session, name="Phase6 Demo")
+    project, environment, component = await build_project(
+        db_session, name="Phase6 Demo"
+    )
     repository, snapshot, run = await build_repository(db_session, project, tmp_path)
     deployed_sha = snapshot.commit_sha
     if shrunken_timeout:
@@ -69,10 +71,20 @@ async def _fixture(
         with open(f"{root}/shop/inventory.py") as handle:
             source = handle.read()
         with open(f"{root}/shop/inventory.py", "w") as handle:
-            handle.write(source.replace("DB_TIMEOUT_SECONDS = 0.5", "DB_TIMEOUT_SECONDS = 0.25"))
+            handle.write(
+                source.replace("DB_TIMEOUT_SECONDS = 0.5", "DB_TIMEOUT_SECONDS = 0.25")
+            )
         subprocess.run(["git", "-C", root, "add", "-A"], check=True)
         subprocess.run(
-            ["git", "-C", root, "commit", "-q", "-m", "perf: halve the database timeout"],
+            [
+                "git",
+                "-C",
+                root,
+                "commit",
+                "-q",
+                "-m",
+                "perf: halve the database timeout",
+            ],
             check=True,
         )
         deployed_sha = subprocess.run(
@@ -96,10 +108,16 @@ async def _fixture(
     )
     if shrunken_timeout:
         deployment = (
-            await db_session.execute(
-                select(DeploymentEvent).where(DeploymentEvent.project_id == project.id)
+            (
+                await db_session.execute(
+                    select(DeploymentEvent).where(
+                        DeploymentEvent.project_id == project.id
+                    )
+                )
             )
-        ).scalars().first()
+            .scalars()
+            .first()
+        )
         deployment.commit_sha = deployed_sha
         deployment.description = "halved the inventory database timeout"
     await db_session.commit()
@@ -109,7 +127,9 @@ async def _fixture(
 # ---------------------------------------------------------------------------
 # §60 — code-level failure
 # ---------------------------------------------------------------------------
-async def test_demo_locates_the_failing_service_and_its_timeout_config(db_session, tmp_path):
+async def test_demo_locates_the_failing_service_and_its_timeout_config(
+    db_session, tmp_path
+):
     project, _, _, repository, snapshot, incident = await _fixture(
         db_session, tmp_path, shrunken_timeout=True
     )
@@ -159,7 +179,9 @@ async def test_demo_locates_the_failing_service_and_its_timeout_config(db_sessio
     assert frames[0]["snapshot_path"] == "shop/checkout.py"
 
     #: 4. The deployment is in the window and its changed file is connected.
-    deployments = (context.sections.get("recent_changes") or {}).get("deployments") or []
+    deployments = (context.sections.get("recent_changes") or {}).get(
+        "deployments"
+    ) or []
     assert deployments, "the deployment before onset is part of the context"
     assert deployments[0]["seconds_before_onset"] > 0
 
@@ -205,15 +227,18 @@ async def test_demo_change_relevance_connects_the_timeout_commit(db_session, tmp
     assessment = report.assessments[0]
     assert assessment.commit_sha == snapshot.commit_sha
     assert assessment.diff_error is None, "the commit's changes were readable"
-    assert assessment.changed_files == ["shop/inventory.py"], (
-        f"the changed file is listed: {assessment.changed_files}"
-    )
+    assert assessment.changed_files == [
+        "shop/inventory.py"
+    ], f"the changed file is listed: {assessment.changed_files}"
     #: The change touched a file the incident's trace maps into, so it is
     #: connected — at file granularity, and without any claim of causation.
     assert assessment.classification is ChangeRelevance.SUSPICIOUS_CHANGE
     assert assessment.matched_mapped_files == ["shop/inventory.py"]
     assert assessment.matched_mapped_files or assessment.relevant_files
-    assert any("not evidence of causation" in note or "granularity" in note for note in report.notes)
+    assert any(
+        "not evidence of causation" in note or "granularity" in note
+        for note in report.notes
+    )
     assert "not evidence that the change caused" in report.as_dict()["disclaimer"]
 
 
@@ -233,7 +258,10 @@ async def test_context_carries_the_relevance_verdict(db_session, tmp_path):
     assert relevance["assessments"]
     assert relevance["disclaimer"]
     #: And it is indexed as evidence, so a claim about it can be cited.
-    assert any(item.label.startswith(("SUSPICIOUS_CHANGE", "RELEVANT_CHANGE")) for item in context.evidence)
+    assert any(
+        item.label.startswith(("SUSPICIOUS_CHANGE", "RELEVANT_CHANGE"))
+        for item in context.evidence
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -241,7 +269,9 @@ async def test_context_carries_the_relevance_verdict(db_session, tmp_path):
 # ---------------------------------------------------------------------------
 async def test_demo_does_not_blame_an_unrelated_recent_commit(db_session, tmp_path):
     """A newer commit that touches nothing the incident exercised is *not* a cause."""
-    project, environment, component = await build_project(db_session, name="Phase6 Counter")
+    project, environment, component = await build_project(
+        db_session, name="Phase6 Counter"
+    )
     repository, snapshot, _ = await build_repository(db_session, project, tmp_path)
 
     #: A second commit that only touches an unrelated file, deployed just before
@@ -268,10 +298,14 @@ async def test_demo_does_not_blame_an_unrelated_recent_commit(db_session, tmp_pa
     from app.services.trace_code_mapper import TraceCodeMapper
 
     deployment = (
-        await db_session.execute(
-            select(DeploymentEvent).where(DeploymentEvent.project_id == project.id)
+        (
+            await db_session.execute(
+                select(DeploymentEvent).where(DeploymentEvent.project_id == project.id)
+            )
         )
-    ).scalars().first()
+        .scalars()
+        .first()
+    )
     deployment.commit_sha = unrelated_sha
     await db_session.flush()
     await TraceCodeMapper(db_session).map_incident(incident, snapshot)
@@ -282,9 +316,9 @@ async def test_demo_does_not_blame_an_unrelated_recent_commit(db_session, tmp_pa
     )
     assessment = report.assessments[0]
     assert assessment.commit_sha == unrelated_sha
-    assert assessment.classification is ChangeRelevance.TEMPORALLY_RECENT_UNRELATED, (
-        f"an unrelated commit must not be called relevant: {assessment.reason}"
-    )
+    assert (
+        assessment.classification is ChangeRelevance.TEMPORALLY_RECENT_UNRELATED
+    ), f"an unrelated commit must not be called relevant: {assessment.reason}"
     assert assessment.changed_files == ["docs/notes.md"]
     assert not assessment.matched_mapped_files
     assert "none of which this incident's evidence connects" in assessment.reason
@@ -313,16 +347,22 @@ async def test_demo_does_not_blame_an_unrelated_recent_commit(db_session, tmp_pa
     assert relevance["relevant_count"] == 0
 
 
-async def test_demo_reports_a_commit_whose_changes_cannot_be_listed(db_session, tmp_path):
+async def test_demo_reports_a_commit_whose_changes_cannot_be_listed(
+    db_session, tmp_path
+):
     """A commit that cannot be diffed is UNKNOWN, never presumed harmless."""
     project, _, _, repository, snapshot, incident = await _fixture(db_session, tmp_path)
     from app.models.deployment import DeploymentEvent
 
     deployment = (
-        await db_session.execute(
-            select(DeploymentEvent).where(DeploymentEvent.project_id == project.id)
+        (
+            await db_session.execute(
+                select(DeploymentEvent).where(DeploymentEvent.project_id == project.id)
+            )
         )
-    ).scalars().first()
+        .scalars()
+        .first()
+    )
     #: A sha the repository does not contain (a shallow clone, or another fork).
     deployment.commit_sha = "0" * 40
     await db_session.flush()
@@ -397,7 +437,9 @@ async def test_demo_says_so_when_the_trace_is_missing(db_session, tmp_path):
 
 
 async def test_demo_says_so_when_there_is_no_code_snapshot_at_all(db_session, tmp_path):
-    project, environment, component = await build_project(db_session, name="Phase6 NoSnap")
+    project, environment, component = await build_project(
+        db_session, name="Phase6 NoSnap"
+    )
     incident = await build_incident(db_session, project, environment, component)
     await db_session.commit()
 
@@ -421,10 +463,16 @@ async def test_demo_says_so_when_there_is_no_code_snapshot_at_all(db_session, tm
     assert any("snapshot" in caveat for caveat in context.caveats)
     assert result.summary.startswith("This is ARGUS's deterministic investigation")
     stored = (
-        await db_session.execute(
-            select(DebugCodeLocation).where(DebugCodeLocation.session_id == session.id)
+        (
+            await db_session.execute(
+                select(DebugCodeLocation).where(
+                    DebugCodeLocation.session_id == session.id
+                )
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     assert stored == [], "nothing unverifiable is persisted as a location"
 
 
@@ -461,12 +509,17 @@ async def test_demo_partial_mapping_is_reported_not_hidden(db_session, tmp_path)
     )
     #: An out-of-snapshot frame is never turned into a location.
     assert all(
-        "handler.py" not in item.file_path for item in outcome.result.suspected_locations
+        "handler.py" not in item.file_path
+        for item in outcome.result.suspected_locations
     )
 
 
-async def test_demo_insufficient_evidence_still_answers_a_question(db_session, tmp_path):
-    project, environment, component = await build_project(db_session, name="Phase6 Ask62")
+async def test_demo_insufficient_evidence_still_answers_a_question(
+    db_session, tmp_path
+):
+    project, environment, component = await build_project(
+        db_session, name="Phase6 Ask62"
+    )
     incident = await build_incident(db_session, project, environment, component)
     await db_session.commit()
     manager = DebugSessionManager(db_session, MockAIProvider())
@@ -486,12 +539,16 @@ async def test_demo_insufficient_evidence_still_answers_a_question(db_session, t
     )
     #: It must refuse to answer, and say what is missing (§43, §62).
     assert "No model analysis is available" in answer["answer"]
-    assert "No trace-to-code mapping" in answer["answer"] or "snapshot" in answer["answer"]
+    assert (
+        "No trace-to-code mapping" in answer["answer"] or "snapshot" in answer["answer"]
+    )
     assert answer["missing_evidence"]
     assert answer["confidence"] == "INSUFFICIENT"
 
 
-async def test_demo_scripted_model_answer_may_not_invent_a_location(db_session, tmp_path):
+async def test_demo_scripted_model_answer_may_not_invent_a_location(
+    db_session, tmp_path
+):
     """A model that names a file the snapshot lacks gets it rejected (§30)."""
     project, _, _, repository, snapshot, incident = await _fixture(db_session, tmp_path)
     payload = {
@@ -542,14 +599,21 @@ async def test_demo_scripted_model_answer_may_not_invent_a_location(db_session, 
     assert result.confidence == "LOW", "an unverified HIGH verdict is downgraded"
     assert result.invalid_references
     assert any(
-        "does not exist in snapshot" in item["reason"] for item in result.invalid_references
+        "does not exist in snapshot" in item["reason"]
+        for item in result.invalid_references
     )
     #: The claim is retained for audit but flagged as refused.
     stored = (
-        await db_session.execute(
-            select(DebugCodeLocation).where(DebugCodeLocation.session_id == session.id)
+        (
+            await db_session.execute(
+                select(DebugCodeLocation).where(
+                    DebugCodeLocation.session_id == session.id
+                )
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     assert stored
     assert all(row.validation is not LocationValidation.VALID for row in stored)
     assert all(row.validation_detail for row in stored)
@@ -563,10 +627,14 @@ async def test_demo_source_fixture_matches_what_the_debugger_sees(db_session, tm
     from app.models.code import CodeFile
 
     files = (
-        await db_session.execute(
-            select(CodeFile).where(CodeFile.snapshot_id == snapshot.id)
+        (
+            await db_session.execute(
+                select(CodeFile).where(CodeFile.snapshot_id == snapshot.id)
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     by_path = {row.path: row for row in files}
     assert "shop/checkout.py" in by_path
     assert by_path["shop/checkout.py"].line_count == len(CHECKOUT_SOURCE.splitlines())
