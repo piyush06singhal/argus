@@ -5,9 +5,11 @@ source registry routes, batch ingestion, config/health events, stats.
 from __future__ import annotations
 
 import re
+import socket
 import uuid
 from datetime import datetime, timezone
 
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -38,6 +40,20 @@ def _create_project(client: TestClient) -> dict:
     )
     assert resp.status_code == 201
     return resp.json()
+
+
+def _broker_reachable() -> bool:
+    """Whether a Redis broker is listening, checked without importing redis."""
+    from app.core.config import get_settings
+
+    settings = get_settings()
+    try:
+        with socket.create_connection(
+            (settings.REDIS_HOST, settings.REDIS_PORT), timeout=1.0
+        ):
+            return True
+    except OSError:
+        return False
 
 
 # ---------------------------------------------------------------------------
@@ -761,7 +777,15 @@ class TestIngestionQueueDegradation:
     def test_queue_endpoint_returns_202_when_broker_available(
         self, client: TestClient
     ) -> None:
-        """When Redis is available, the queue endpoint returns 202 accepted."""
+        """When Redis is available, the queue endpoint returns 202 accepted.
+
+        Skips — rather than fails — when no broker is reachable. The assertion
+        is about what the endpoint does *given* a broker; a machine without
+        Redis cannot make a claim either way, and a suite that fails there is
+        reporting the environment, not the code.
+        """
+        if not _broker_reachable():
+            pytest.skip("no Redis broker reachable, so 202 cannot be observed")
         project = _create_project(client)
         resp = client.post(
             "/api/v1/ingestion/queue",

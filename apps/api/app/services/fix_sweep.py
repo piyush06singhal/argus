@@ -62,10 +62,23 @@ async def sweep_fix_workspaces_once(
         "destroyed": 0,
         "destroy_errors": 0,
         "marked_failed": 0,
+        "paused_skipped": 0,
         "errors": [],
     }
 
     async with session_factory() as session:
+        #: Phase 9 §10: a pause on fix_sweep is honoured per row, so pausing it
+        #: for one project never withholds reaping from another.
+        from app.services.remediation_controls import safely_paused_scope_ids
+
+        global_pause, paused_projects = await safely_paused_scope_ids(
+            session, "fix_sweep", now=now
+        )
+        if global_pause:
+            logger.info("fix workspace sweep skipped: paused for every scope")
+            summary["paused_skipped"] = -1
+            return summary
+
         rows = (
             (
                 await session.execute(
@@ -84,6 +97,9 @@ async def sweep_fix_workspaces_once(
         )
 
         for row in rows:
+            if row.project_id is not None and row.project_id in paused_projects:
+                summary["paused_skipped"] += 1
+                continue
             anchor = row.created_at_workspace or row.created_at
             if anchor is None or _aware(anchor) > cutoff:
                 continue

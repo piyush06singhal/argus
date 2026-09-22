@@ -108,6 +108,22 @@ async def sweep_reliability_once(
         warning_service = EarlyWarningService(session)
 
         for pid in project_ids:
+            # Phase 9 §10: the reliability pipeline is stoppable through ARGUS's
+            # own control plane, so an operator (or an autonomous remediation) can
+            # pause forecasting for one project without touching configuration.
+            from app.services.remediation_controls import (
+                safely_feature_enabled,
+                safely_is_paused,
+            )
+
+            if await safely_is_paused(session, "reliability_sweep", project_id=pid):
+                summary.setdefault("skipped_projects", []).append(str(pid))
+                continue
+            if not await safely_feature_enabled(
+                session, "reliability_forecasting", project_id=pid
+            ):
+                summary.setdefault("skipped_projects", []).append(str(pid))
+                continue
             targets: list[Optional[Any]] = environments.get(pid) or [None]
             for environment_id in targets:
                 try:

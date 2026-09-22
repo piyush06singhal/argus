@@ -111,6 +111,8 @@ async def run_detection_sweep(
         result.skipped = True
         return result
 
+    from app.services.remediation_controls import safely_is_paused
+
     async with session_factory() as session:
         project_ids, envs_by_project = await _discover_scopes(
             session,
@@ -129,6 +131,23 @@ async def run_detection_sweep(
             result.scopes += 1
             # Own session per scope: isolation between projects/environments.
             async with session_factory() as session:
+                # A PAUSE_BACKGROUND_JOB remediation on this job is a real effect,
+                # so the sweep has to honour it — a pause the detector ignored
+                # would be the one thing this phase must not ship (Phase 9 §10).
+                if await safely_is_paused(
+                    session,
+                    "anomaly_sweep",
+                    project_id=project_id,
+                    environment_id=environment_id,
+                    now=now,
+                ):
+                    logger.info(
+                        "detection sweep paused for project %s environment %s",
+                        project_id,
+                        environment_id,
+                    )
+                    result.suppressed += 1
+                    continue
                 try:
                     service = AnomalyDetectionService(session, now=now)
                     run_result = await service.run(

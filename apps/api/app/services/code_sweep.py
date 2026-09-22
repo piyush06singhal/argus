@@ -75,6 +75,28 @@ async def sweep_code_intelligence_once(
 
 async def _sweep(session: AsyncSession) -> dict[str, Any]:
     now = datetime.now(timezone.utc)
+    #: Phase 9 §10: a PAUSE_BACKGROUND_JOB remediation must actually stop the
+    #: job it names. This reaper has no project loop of its own, so the pause is
+    #: honoured per row: a project that paused code_sweep keeps its own rows, and
+    #: no other project is affected by that decision.
+    from app.services.remediation_controls import safely_paused_scope_ids
+
+    global_pause, paused_projects = await safely_paused_scope_ids(
+        session, "code_sweep", now=now
+    )
+    if global_pause:
+        logger.info("code-intelligence sweep skipped: paused for every scope")
+        return {
+            "runs_failed": [],
+            "sessions_failed": [],
+            "repos_reset": [],
+            "paused_skipped": True,
+        }
+
+    def _paused(row: Any) -> bool:
+        project_id = getattr(row, "project_id", None)
+        return project_id is not None and project_id in paused_projects
+
     #: A run is stale when it has outlived its own budget times the grace
     #: multiplier. The manager's internal timeout makes any older RUNNING row
     #: un-driven, because the driver would have aborted and finalised it.
@@ -98,7 +120,11 @@ async def _sweep(session: AsyncSession) -> dict[str, Any]:
     )
 
     timed_out: list[str] = []
+    paused_skipped = 0
     for run in stale_runs:
+        if _paused(run):
+            paused_skipped += 1
+            continue
         run.status = DebugAnalysisStatus.FAILED
         run.error = (
             "analysis abandoned: the process driving it stopped responding and the "
@@ -127,6 +153,9 @@ async def _sweep(session: AsyncSession) -> dict[str, Any]:
 
     sessions_closed: list[str] = []
     for debug_session in stale_sessions:
+        if _paused(debug_session):
+            paused_skipped += 1
+            continue
         debug_session.status = DebugSessionStatus.FAILED
         debug_session.summary = (
             "investigation abandoned: the process driving it stopped responding; "
@@ -156,6 +185,9 @@ async def _sweep(session: AsyncSession) -> dict[str, Any]:
 
     repos_reset: list[str] = []
     for repository in stuck_repos:
+        if _paused(repository):
+            paused_skipped += 1
+            continue
         repository.index_status = RepositoryIndexStatus.FAILED
         repos_reset.append(str(repository.id))
 
@@ -170,6 +202,7 @@ async def _sweep(session: AsyncSession) -> dict[str, Any]:
         "runs_failed": timed_out,
         "sessions_failed": sessions_closed,
         "repos_reset": repos_reset,
+        "paused_skipped": paused_skipped,
     }
 
 

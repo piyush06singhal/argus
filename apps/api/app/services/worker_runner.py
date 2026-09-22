@@ -105,6 +105,43 @@ def _as_datetime(value: Any, *, field: str) -> datetime:
         raise ValueError(f"{field} is not a valid ISO-8601 timestamp: {value!r}") from e
 
 
+async def _control_gate(
+    session_factory: async_sessionmaker[AsyncSession],
+    *,
+    project_id: Optional[uuid_mod.UUID],
+    job: Optional[str] = None,
+    flag: Optional[str] = None,
+) -> bool:
+    """Whether ARGUS's own control plane permits this job to run (Phase 9 §10).
+
+    This is the other half of a native remediation: the executor writes a control
+    row, and every producer of work reads it here before producing anything. A
+    pause that the worker ignored would be a very expensive no-op.
+
+    Fails **open** — a lookup error means the job runs — because an availability
+    problem in the control table must not silently switch the platform off.
+    """
+    if project_id is None:
+        return True
+    from app.services.remediation_controls import (
+        safely_feature_enabled,
+        safely_is_paused,
+    )
+
+    async with session_factory() as session:
+        if job is not None:
+            paused = await safely_is_paused(session, job, project_id=project_id)
+            if paused:
+                logger.info("job kind gated by a remediation control: job=%s", job)
+                return False
+        if flag is not None:
+            enabled = await safely_feature_enabled(session, flag, project_id=project_id)
+            if not enabled:
+                logger.info("job kind gated by a disabled ARGUS flag: flag=%s", flag)
+                return False
+    return True
+
+
 async def process_event_job(
     session_factory: async_sessionmaker[AsyncSession],
     *,
@@ -119,6 +156,35 @@ async def process_event_job(
     (Phase 2 knowledge-graph extraction). Unknown kinds raise so they land in
     the dead-letter table with an explicit message.
     """
+    job_project_id = _as_uuid(payload.get("project_id"), field="project_id")
+
+    #: Each producing job consults the control plane before doing any work. The
+    #: mapping is deliberately explicit: which flag and which pause gate which
+    #: kind of work is a decision, not a derivation.
+    if kind in (
+        "graph_extract",
+        "anomaly_detect",
+        "incident_correlate",
+        "reproduction_run",
+        "reliability_forecast",
+        "event",
+    ):
+        gates: dict[str, tuple[Optional[str], Optional[str]]] = {
+            "graph_extract": (None, "graph_extraction"),
+            "anomaly_detect": ("anomaly_sweep", "anomaly_detection"),
+            "incident_correlate": ("anomaly_sweep", "anomaly_detection"),
+            "reproduction_run": ("reproduction_sweep", "reproduction_execution"),
+            "reliability_forecast": ("reliability_sweep", "reliability_forecasting"),
+            "event": ("ingestion_worker", None),
+        }
+        job, flag = gates.get(kind, (None, None))
+        permitted = await _control_gate(
+            session_factory, project_id=job_project_id, job=job, flag=flag
+        )
+        if not permitted:
+            # Not an error and not a failure: the platform was told to stop.
+            return 0
+
     if kind == "graph_extract":
         await process_graph_extract_job(session_factory, payload=payload)
         return 0
@@ -136,6 +202,9 @@ async def process_event_job(
         return 0
     if kind == "reliability_evaluate":
         await process_reliability_evaluate_job(session_factory, payload=payload)
+        return 0
+    if kind == "remediation_run":
+        await process_remediation_run_job(session_factory, payload=payload)
         return 0
     if kind != "event":
         raise NotImplementedError(
@@ -579,6 +648,72 @@ async def process_reliability_forecast_job(
         summary["refusals"],
     )
     return summary
+
+
+async def process_remediation_run_job(
+    session_factory: async_sessionmaker[AsyncSession],
+    *,
+    payload: dict[str, Any],
+) -> dict[str, Any]:
+    """Process a ``remediation_run`` job (Phase 9 §39).
+
+    Reads the action from the database — the queue message carries ids only — and
+    runs it through the gate pipeline. The gates are re-checked here, so a message
+    that was queued before a policy change, an emergency stop or a breaker trip
+    cannot execute an action those gates would now refuse.
+
+    Dead-letters a missing project or action rather than retrying: a deleted
+    action will not reappear.
+    """
+    from sqlalchemy import select as _select
+
+    from app.models.project import SoftwareProject
+    from app.models.remediation import RemediationAction, RemediationStatus
+    from app.services.remediation_service import RemediationService
+
+    action_id = _as_uuid(payload.get("action_id"), field="action_id")
+    if action_id is None:
+        raise PermanentJobError("remediation_run job missing required action_id")
+    project_id = _as_uuid(payload.get("project_id"), field="project_id")
+
+    async with session_factory() as session:
+        if project_id is not None:
+            exists = await session.scalar(
+                select(
+                    _select(SoftwareProject.id)
+                    .where(SoftwareProject.id == project_id)
+                    .exists()
+                )
+            )
+            if not exists:
+                raise PermanentJobError(f"SoftwareProject {project_id} not found")
+        action = await session.get(RemediationAction, action_id)
+        if action is None:
+            raise PermanentJobError(f"RemediationAction {action_id} not found")
+
+        if action.status == RemediationStatus.VERIFYING:
+            verdict = await RemediationService(session).verify(
+                action, actor="remediation-worker"
+            )
+            await session.commit()
+            return {
+                "action_id": str(action_id),
+                "status": action.status.value,
+                "verdict": verdict.verdict.value,
+            }
+
+        result = await RemediationService(session).run(
+            action, actor="remediation-worker"
+        )
+        await session.commit()
+
+    logger.info(
+        "remediation_run action=%s status=%s outcome=%s",
+        action_id,
+        result.get("status"),
+        result.get("outcome"),
+    )
+    return result
 
 
 async def process_reliability_evaluate_job(

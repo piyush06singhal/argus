@@ -18,6 +18,7 @@ from app.services.anomaly_sweep import sweep_forever
 from app.services.code_sweep import sweep_code_intelligence_forever
 from app.services.fix_sweep import sweep_fix_forever
 from app.services.reliability_sweep import sweep_reliability_forever
+from app.services.remediation_sweep import sweep_remediations_forever
 from app.services.reproduction_sweep import sweep_reproductions_forever
 from app.services.worker_runner import make_worker
 
@@ -89,9 +90,32 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             sweep_reliability_forever(async_session_factory)
         )
 
+    # Scheduled remediation sweep (Phase 9 §39). Without it an action that policy
+    # authorized and that no worker picked up — or one whose verification window
+    # has since filled — would never reach a terminal state. The sweep never
+    # authorizes anything and never decides anything: it expires what nobody acted
+    # on, closes attempts a dead process abandoned, cools breakers, retires
+    # controls past their deadline, and executes only what already cleared every
+    # gate. Skipped under ``test`` so tests never race a timer.
+    remediation_sweep_task: Optional[asyncio.Task] = None
+    if (
+        not settings.is_testing
+        and settings.REMEDIATION_EXECUTION_ENABLED
+        and settings.REMEDIATION_SWEEP_ENABLED
+    ):
+        remediation_sweep_task = asyncio.create_task(
+            sweep_remediations_forever(async_session_factory)
+        )
+
     yield
 
     # Shutdown
+    if remediation_sweep_task is not None:
+        remediation_sweep_task.cancel()
+        try:
+            await remediation_sweep_task
+        except asyncio.CancelledError:
+            pass
     if reliability_sweep_task is not None:
         reliability_sweep_task.cancel()
         try:

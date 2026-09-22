@@ -680,6 +680,18 @@ async def verify_patch_route(
     bounded by the command registry's timeouts and the caller sees the verdict
     it caused."""
     await require_project(db, project_id)
+    # Phase 9 §10: patch verification spends real compute inside a workspace, so
+    # it is one of the platform behaviours an ARGUS remediation can switch off.
+    from app.services.remediation_controls import safely_feature_enabled
+
+    if not await safely_feature_enabled(db, "fix_verification", project_id=project_id):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "patch verification is disabled for this project by a remediation "
+                "control"
+            ),
+        )
     patch = await _require_patch(db, patch_id, project_id)
     _ = patch
     try:

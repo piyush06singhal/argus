@@ -174,11 +174,20 @@ See [docs/predictive-reliability.md](predictive-reliability.md) for the full des
 
 **Explicitly not included:** rollback, deployment, scaling, production configuration changes, automatic patching and any other autonomous remediation. Phase 8 is *predict, explain, evaluate, warn, human decides* — not *act*.
 
-## Phase 9 — Safe Autonomous Remediation
+## Phase 9 — Safe Autonomous Remediation ✅
 
-- Proposal → Verification → Policy Check → Approval → Execution
-- Strict policy enforcement; no unrestricted capabilities
-- Built on the predictive, causal, reproduction and verified-fix intelligence from Phases 4–8; Phase 8 supplies the forecast and the warning, Phase 9 would supply the controlled action
+- ✅ A closed action registry (twelve declared actions; no command, shell, script or credential parameter anywhere)
+- ✅ Proposal → safety assessment → policy decision → human approval or autonomous authority → controlled execution → verification → rollback if required → hash-chained audit
+- ✅ Strict policy enforcement with default deny: no policy row means `OBSERVE_ONLY`; configuration can only narrow, and a process kill switch refuses every live effect whatever the database says
+- ✅ Autonomous execution only in a scope whose name *and* declared type both say non-production, only for registry-eligible actions, only under the risk ceiling — six regimes, each verified individually (`OBSERVE_ONLY`, `DRY_RUN`, `SHADOW`, `HUMAN_APPROVAL`, `AUTONOMOUS`, `EMERGENCY_STOP`)
+- ✅ A real control plane: a pause is a row the ingestion worker and every background sweep consult before doing work, scoped per project and environment, honoured on read past its own deadline
+- ✅ Loop protection: bounded attempts with backoff, per-scope budgets and cooldowns, concurrency caps, and a circuit breaker that is unique per `(project, environment, action_type)` in the database
+- ✅ Verification decides success, not the handler: checks read real telemetry over a window, `NOT_OBSERVABLE` is never a pass, a dry run is never a verified outcome
+- ✅ 1487 backend tests (254 Phase 9) + 161 vitest tests; live Phase 9 gate (`infrastructure/e2e-smoke-phase9.sh`, 69 checks; 70 with the DDL probe) driving the whole pipeline over the real HTTP API, leaving nothing behind
+
+See [docs/safe-autonomous-remediation.md](safe-autonomous-remediation.md) for the full design and [docs/phase-9-report.md](phase-9-report.md) for the delivery report, including the defects live validation caught.
+
+**Explicitly not included:** editing your repositories, deployments, vendor infrastructure, unbounded retries, self-modifying policy. Phase 9 acts on ARGUS's own runtime through an explicit registry and stops everywhere else — Phase 10 would learn from what it did, and still not widen the boundary on its own.
 
 ## Phase 10 — Reliability Intelligence Platform
 

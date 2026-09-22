@@ -310,6 +310,44 @@ Four invariants shape this domain:
   can neither retrain nor activate a model; an evaluation run scores each elapsed
   horizon exactly once.
 
+### Phase 9 — Safe autonomous remediation
+
+Twelve tables, one per object the remediation pipeline reasons about: the
+operator's intent (policy), what was suggested (proposal), what will be done
+(action), what each gate concluded (assessment, decision, approval), what
+happened (execution), whether it helped (verification, rollback) and who did what
+(audit event) — plus the two books the safety guarantees live in (circuit
+breaker, control).
+
+| Entity | Table | Key fields |
+| :--- | :--- | :--- |
+| `RemediationPolicy` | `remediation_policies` | `project_id`, `environment_id`, `execution_mode`, `autonomous_max_risk`, `allowed_action_types`, `allowed_environment_names`, `max_actions_per_window`, `cooldown_seconds`, `max_concurrent_actions`, `canary_enabled`, `canary_percent`, `max_blast_radius_percent`, `circuit_*`, `approval_ttl_seconds`, `verification_*`, `max_execution_attempts`, `action_expiry_seconds`, `emergency_stop_*`, `revision`, `updated_by` |
+| `RemediationProposal` | `remediation_proposals` | `action_type`, `source_type`/`source_id` (incident, causal analysis, candidate, patch, forecast, operator), `strategy`, `problem`, `expected_effect`, `supporting_evidence`, `parameters`, `risk_level`, `blast_radius`, `preconditions`, `verification_plan`, `rollback_plan`, `confidence`, `limitations`, `fingerprint` |
+| `RemediationAction` | `remediation_actions` | `proposal_id`, `action_type`, `status` (the §5 lifecycle), `parameters`, `risk_level`, `blast_radius`, `blast_radius_percent`, `affected_resource_count`, `safety_status`, `policy_status`, `authorization_status`, `execution_status`, `execution_mode`, `rollback_plan`, `verification_plan`, `canary_*`, `attempt`, `max_retries`, `failure_reason`, `outcome`, `post_analysis_status`, `expires_at`, `approved_by`, `authorized_by`, `executed_by`, `fingerprint` |
+| `RemediationAssessment` | `remediation_assessments` | `action_id`, `status` (`PASSED`/`PASSED_WITH_WARNINGS`/`FAILED`), `checks` (JSON, one entry per check with name/result/severity), `blocking`, `warnings`, `reversible`, `rollback_plan`, `blast_radius`, `requires_human_approval`, `reason`, `assessed_by` |
+| `RemediationPolicyDecision` | `remediation_policy_decisions` | `action_id`, `decision` (`ALLOW`/`ALLOW_WITH_CANARY`/`REQUIRE_APPROVAL`/`DENY`), `execution_mode`, `matched_rules`, `reasons`, `failure_reason`, `requires_canary`, `budget_state`, `circuit_state`, `policy_revision`, `evaluated_by` |
+| `RemediationApproval` | `remediation_approvals` | `action_id`, `status` (`PENDING`/`APPROVED`/`REJECTED`/`EXPIRED`), `actor_type` (`HUMAN`/`AUTONOMOUS_POLICY`), `actor`, `decided_at`, `expires_at`, `reason`, `scope_snapshot` (JSON — what the approver saw) |
+| `RemediationExecution` | `remediation_executions` | `action_id`, `attempt` (unique with the action), `status`, `mode`, `dry_run`, `effect_applied`, `adapter_kind`, `adapter_name`, `steps`, `output_summary`, `error`, `failure_reason`, `control_ids`, `idempotency_key`, `duration_ms`, `executed_by` |
+| `RemediationVerification` | `remediation_verifications` | `action_id`, `execution_id`, `verdict` (`VERIFIED`/`PARTIALLY_VERIFIED`/`FAILED`/`INCONCLUSIVE`/`NOT_EXECUTED`), `checks` (JSON), `attempt`, `window_start`/`window_end`/`observation_seconds`, `passed_count`, `failed_count`, `not_observable_count`, `summary`, `limitations`, `verified_by` |
+| `RemediationRollback` | `remediation_rollbacks` | `action_id`, `status` (`PENDING`/`RUNNING`/`SUCCEEDED`/`FAILED`/`NOT_AVAILABLE`), `strategy`, `plan`, `steps`, `trigger`, `controls_reverted`, `inverse_action_id`, `verification_verdict` (the reversal's own verification), `requested_by`, `error`, `failure_reason` |
+| `RemediationAuditEvent` | `remediation_audit_events` | `action_id`, `sequence`, `event_type`, `actor_type`, `actor`, `from_status`, `to_status`, `summary`, `detail`, `occurred_at`, `entry_hash`, `prev_hash` |
+| `RemediationCircuitBreaker` | `remediation_circuit_breakers` | `project_id`, `environment_id`, `action_type`, `state` (`CLOSED`/`OPEN`/`HALF_OPEN`), `consecutive_failures`, `total_*`, `threshold`, `opened_at`, `opened_until`, `last_trip_reason` — unique on the scope, `NULLS NOT DISTINCT` |
+| `RemediationControl` | `remediation_controls` | `kind` (`BACKGROUND_JOB`/`FEATURE_FLAG`/`DEPENDENCY_SUPPRESSION`), `scope_key`, `state`, `previous_state`, `is_current`, `revision`, `project_id`, `environment_id`, `component_id`, `applied_by_action_id`, `applied_by`, `reason`, `effective_from`, `expires_at`, `reverted_at` |
+
+Four invariants shape this domain:
+
+* **The action row is the ledger.** Every gate writes its own table and the
+  action carries the resulting status; nothing is inferred from a missing row.
+* **Identity is content.** A proposal and its action share a `fingerprint`
+  (action type + scope + source + parameters), which is what makes a duplicate a
+  refusal rather than a queue of identical actions.
+* **Approval is scoped evidence.** `scope_snapshot` freezes what the approver saw;
+  an autonomous approval is `actor_type=AUTONOMOUS_POLICY`, so "who decided" is
+  never ambiguous.
+* **The audit chain is tamper-evident.** `entry_hash` binds the entry's content
+  and `prev_hash` binds its predecessor, so the chain can be recomputed and a
+  break located.
+
 ## 4. Enum domains
 
 | Entity field | Enum values |

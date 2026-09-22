@@ -34,10 +34,32 @@ settings = get_settings()
 async def sweep_reproductions_once(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> dict[str, Any]:
-    """Run one reaper pass. Returns the summary it acted on."""
+    """Run one reaper pass. Returns the summary it acted on.
+
+    Phase 9 §10: a ``PAUSE_BACKGROUND_JOB`` remediation on ``reproduction_sweep``
+    is honoured here, per project. The reaper has no project loop of its own, so
+    the paused scopes are read once and passed down rather than the whole pass
+    being skipped — that would let one project's pause withhold reaping from
+    every other, which is not what the action claimed.
+    """
+    from app.services.remediation_controls import safely_paused_scope_ids
+
+    async with session_factory() as session:
+        global_pause, paused_projects = await safely_paused_scope_ids(
+            session, "reproduction_sweep"
+        )
+    if global_pause:
+        logger.info("reproduction sweep skipped: paused for every scope")
+        return {
+            "timed_out": [],
+            "sandboxes_cleaned": [],
+            "cleanup_failures": [],
+            "paused_skipped": True,
+        }
+
     orchestrator = ReproductionOrchestrator(session_factory)
     try:
-        summary = await orchestrator.sweep_stale()
+        summary = await orchestrator.sweep_stale(paused_project_ids=paused_projects)
     except Exception as exc:  # noqa: BLE001 - the sweep must survive its own bugs
         logger.error("Reproduction sweep failed: %s", exc)
         return {"error": f"{type(exc).__name__}: {exc}"}

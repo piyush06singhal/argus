@@ -60,6 +60,7 @@ first-class, tested outcome — not a failure mode.
 | **6** | AI Debugger — code intelligence, trace→code mapping, evidence-grounded analysis, validated code claims | ✅ shipped | [docs/phase-6.md](docs/phase-6.md) |
 | **7** | Automated Fix Generation & Verification — fix hypotheses, patch generation, safety validation, isolated workspace, build/tests, two-sided regression test, verification, human review | ✅ shipped | [docs/phase-7.md](docs/phase-7.md) |
 | **8** | Predictive Reliability — feature engineering, deterministic baseline predictors, risk policy, evaluation & calibration, walk-forward backtesting, leakage prevention, drift, early warnings, human-only | ✅ shipped | [docs/predictive-reliability.md](docs/predictive-reliability.md) |
+| **9** | Safe Autonomous Remediation — action registry, safety & policy gates, approval or autonomous authorization, controlled execution, verification, rollback, audit, six execution regimes | ✅ shipped | [docs/safe-autonomous-remediation.md](docs/safe-autonomous-remediation.md) |
 
 Phase 7 is the first phase that can produce a change — and it still does not
 merge, deploy or remediate. It plans a fix from evidence that already exists,
@@ -77,6 +78,19 @@ never a fact, never creates an incident, and never claims a component "will
 fail"; the four statistical predictors are labelled baselines because a "model"
 with no training data would be decoration. Expectations ship with their
 confidence, calibration, coverage, evidence and limitations attached.
+
+Phase 9 is the first phase that can *act*. It is built so that acting is the
+hardest thing ARGUS does: a remediation is a proposal until it clears validation,
+a safety assessment and a policy decision, and it executes only through an
+explicit action registry — no shell, no arbitrary command, no provider
+credentials, no deployment. Every action declares its risk, its blast radius, its
+verification and its reversal up front; an irreversible one always needs a person;
+autonomous execution is considered only in a scope whose name *and* declared type
+both say non-production, only for actions the registry says may run unattended,
+and only under the risk ceiling. Success means the system's behaviour changed for
+the better over a verification window, not that a handler returned. Everything
+that happens is hash-chained, reversible where the action allows, and stoppable
+with one emergency-stop call. It ships disabled.
 
 ## How it works
 
@@ -116,10 +130,16 @@ confidence, calibration, coverage, evidence and limitations attached.
         ─► risk policy ─► forecast + signals ─► evaluation · calibration
         ─► walk-forward backtest · drift ─► early warnings ─► human decides
                                  ▼
+                Safe Autonomous Remediation (Phase 9)
+        proposal ─► safety ─► policy ─► approval | autonomous authority
+        ─► controlled execution ─► verification ─► rollback if required
+        ─► post-analysis ─► hash-chained audit ─► human or emergency stop
+                                 ▼
                      Next.js investigation UI
         system map · anomaly center · incidents · root cause analysis
         · reproduction workspace · AI debugger · fix & verification workspace
         · predictive reliability dashboard, heatmap and component profiles
+        · remediation console, action detail and policy editor
 ```
 
 ## Features
@@ -351,6 +371,48 @@ confidence, calibration, coverage, evidence and limitations attached.
   explanation and says so
 </details>
 
+<details>
+<summary><b>Safe Autonomous Remediation (Phase 9)</b></summary>
+
+- **A closed action registry, not a command runner:** twelve declared actions —
+  pause/resume a background job, enable/disable a feature flag, suppress a
+  degraded dependency, restart, roll back a deployment or configuration, scale
+  within a limit, route traffic, apply a verified patch. Each declares its
+  parameters, allowed environments, risk, required permissions, verification
+  plan, rollback strategy, maximum blast radius and whether it may ever run
+  unattended. No action accepts a command, a shell, a script or a credential.
+- **Five gates in a fixed order, each recorded either way:** validation →
+  safety → policy → approval/authority → execution-time re-check. An action is
+  refused with a reason, never silently dropped, and a failed safety assessment
+  cannot be overridden by policy.
+- **Default deny:** no policy row means `OBSERVE_ONLY`. Configuration can only
+  narrow — the process's hard ceilings clamp whatever a stored policy says, and a
+  process-level kill switch refuses every live effect whatever the database says.
+- **Two signals decide autonomy:** an environment counts as non-production only
+  when its name is in the configured allow-list *and* its declared
+  `environment_type` is not `PRODUCTION`. Otherwise the action waits for a person.
+- **Six regimes, all individually verified:** `OBSERVE_ONLY`, `DRY_RUN`,
+  `SHADOW`, `HUMAN_APPROVAL`, `AUTONOMOUS`, `EMERGENCY_STOP`.
+- **Loop protection:** bounded attempts with backoff, per-scope budgets and
+  cooldowns, concurrency caps, and a circuit breaker that is unique per
+  `(project, environment, action_type)` in the database.
+- **Verification decides success, not the handler:** checks read real telemetry
+  over a window; `NOT_OBSERVABLE` is never a pass, and a dry run is never
+  reported as a verified outcome.
+- **Rollback and post-mortem:** the reversal is planned before execution, its
+  own verification is recorded, and a rollback of something never applied is
+  refused.
+- **A real control plane:** a pause is a row the ingestion worker and every
+  background sweep consult before doing work, scoped per project and environment,
+  and honoured on read so an expired pause holds nothing down.
+- **Hash-chained, attributable audit:** every state change and gate decision
+  binds its predecessor; tampering is detectable, and `GET …/audit/verify` names
+  the first break.
+- **A remediation console:** action list with filters and platform metrics,
+  action detail with the full evidence/gate/execution/verification trail and the
+  human decision controls, and a policy editor that shows the clamped values.
+</details>
+
 ## Quick start
 
 **Requirements:** Docker with Compose. Nothing else — no local Python or Node
@@ -408,11 +470,11 @@ they pass on repeat runs, not only on a pristine database.
 
 | Gate | Command | Result |
 | :--- | :--- | :--- |
-| Backend test suite | `cd apps/api && pytest -q` | **1234 passed** |
+| Backend test suite | `cd apps/api && pytest -q` | **1487 passed, 1 skipped** |
 | Lint / format / types | `cd apps/api && ruff check app tests && ruff format --check app tests && mypy app` | clean |
-| Frontend tests | `cd apps/web && npm test` | **132 passed** |
+| Frontend tests | `cd apps/web && npm test` | **161 passed** |
 | Frontend type check | `cd apps/web && npx tsc --noEmit` | clean |
-| Frontend production build | `cd apps/web && npm run build` | succeeds, 36 routes |
+| Frontend production build | `cd apps/web && npm run build` | succeeds, 39 routes |
 | Phase 0/1 live gate | `bash infrastructure/e2e-smoke-phase1.sh` | **46/46** |
 | Phase 2 live gate | `bash infrastructure/e2e-smoke-phase2.sh` | **28/28** |
 | Phase 3 live gate | `bash infrastructure/e2e-smoke-phase3.sh` | **103/103** |
@@ -423,8 +485,10 @@ they pass on repeat runs, not only on a pristine database.
 | Phase 7 gate + DDL probe | `DDL_PROBE=1 bash infrastructure/e2e-smoke-phase7.sh` | **91/91** |
 | Phase 8 live gate | `bash infrastructure/e2e-smoke-phase8.sh` | **42/42** |
 | Phase 8 gate + DDL probe | `DDL_PROBE=1 bash infrastructure/e2e-smoke-phase8.sh` | **43/43** |
+| Phase 9 live gate | `bash infrastructure/e2e-smoke-phase9.sh` | **69/69** |
+| Phase 9 gate + DDL probe | `DDL_PROBE=1 bash infrastructure/e2e-smoke-phase9.sh` | **70/70** |
 | Migration under a live pool | `DDL_PROBE=1 bash infrastructure/e2e-smoke-phase4.sh` | **73/73** |
-| Fresh-database bootstrap | empty DB → `alembic upgrade head` → `seed_data.py` | 12 migrations apply from zero into 86 tables (10 for Phase 8); demo incident, its analysis, its reproduction and its forecasts are derived correctly |
+| Fresh-database bootstrap | empty DB → `alembic upgrade head` → `seed_data.py` | 13 migrations apply from zero into 98 tables (12 for Phase 9); demo incident, its analysis, its reproduction, its forecasts and its remediations are derived correctly |
 | Migrations reversible | `alembic upgrade head` / `downgrade -1` on PostgreSQL 16 | verified both directions |
 
 The Phase 4 gate also exercises the browser views and proves that several
@@ -543,10 +607,12 @@ and tested explicitly:
   experiment requires a matching project scope; knowing an id is not authority to
   run it.
 
-Remediation, when it arrives, will follow:
+Remediation (Phase 9) follows exactly that shape, with the registry, policy and
+reversal rules added where they belong:
 
 ```
-Proposal → Verification → Policy Check → Approval → Execution
+Proposal → Safety → Policy → Approval | Autonomous authority
+        → Execution → Verification → Rollback if required → Audit
 ```
 
 See [docs/architecture.md](docs/architecture.md) for the full boundary and trust
@@ -571,6 +637,7 @@ All endpoints are versioned under `/api/v1`; interactive documentation is at
 | Reliability | `/projects/{id}/{reliability-metrics,incident-dashboard}` |
 | Causal analysis | `/incidents/{id}/{analyze,causal-analysis,causal-graph,causal-chain,root-causes,hypotheses,evidence-analysis}` |
 | Reproduction | `/incidents/{id}/reproductions`, `/reproductions`, `/reproductions/metrics`, `/reproductions/{id}/{plan,safety,status,inputs,telemetry,artifacts,comparison,validation,environment,faults,manifest,start,cancel,retry}` |
+| Remediation | `/remediation/{action-types,actions,actions/{id},proposals,assessments,policy,policy-decisions,approvals,executions,verifications,rollbacks,audit,breakers,controls,metrics,sweep,emergency-stop}` and `/incidents/{id}/remediation` |
 | Ops | `/health/{live,ready,dependencies}`, `/metrics` |
 
 List endpoints share one pagination contract:
@@ -602,9 +669,19 @@ useless:
   "consistent with this experiment's evidence", not "proven".
 - **No authentication yet.** Isolation is server-side ownership validation on
   every request. Token auth and per-project authorization are on the roadmap.
-- **Phase 7 stops at review, by design.** There is no merge, pull-request
-  approval, deployment, rollback or remediation anywhere in the codebase. A
-  verified patch is a reviewed candidate, not a shipped change.
+- **Phase 7 stops at review, by design.** There is still no merge, no
+  pull-request approval and no deployment anywhere in the codebase: a verified
+  patch is a reviewed candidate, not a shipped change. Phase 9 can remediate, but
+  only through its closed registry and effectively only against ARGUS's own
+  runtime — it never edits your repositories, deploys, or reaches your
+  infrastructure.
+- **Environment classification needs configuration to be right.** A scope counts
+  as non-production only when its name is in the allow-list and its declared
+  `environment_type` is not `PRODUCTION`; an environment typed `DEVELOPMENT` that
+  is in fact carrying customer traffic is still described as non-production.
+- **Verification observes a window.** A remediation whose problem recurs after
+  the verification window is not caught by that verification — the breaker and
+  the post-analysis pass exist for the rest, and neither is proof.
 - **Fix verification inherits your test coverage.** ARGUS adds a two-sided
   regression test derived from the patch, but it cannot know what your suite
   does not cover; the deterministic generator recognises a handful of defect
@@ -614,8 +691,19 @@ useless:
   interactions, they need enough history before they will speak at all
   (`UNKNOWN` when they do not have it), and their calibration cannot be judged
   until horizons elapsed. False positives and false negatives are both expected.
-- **Later phases are not started.** Autonomous remediation, deployment and
-  scaling are deliberately absent.
+- **Remediation reaches ARGUS's own runtime.** Phase 9 executes entirely through
+  a closed registry whose shipped, executable actions act on ARGUS's own control
+  plane: pausing and resuming background jobs, and enabling or disabling ARGUS's
+  own feature flags. Anything that would touch your infrastructure — restarts,
+  deployments, scaling, traffic routing, applying a patch — is refused with
+  `ADAPTER_UNAVAILABLE` until an operator configures an adapter.
+- **Autonomous execution carries residual risk.** It is bounded, scoped,
+  reversible where the action allows, breaker-limited, audited and revocable by
+  one call, and it ships disabled (`REMEDIATION_EXECUTION_ENABLED` and a default
+  regime of `OBSERVE_ONLY`).
+- **Deployment and vendor operations are not started.** ARGUS proposes and can
+  act on its own runtime; shipping a change to your systems remains a human or
+  CD decision.
 
 ## Roadmap
 
@@ -624,7 +712,8 @@ useless:
 | 6 | ✅ AI Debugger — code intelligence, validated code claims, grounded debugging analysis |
 | 7 | ✅ Automated Fix Generation & Verification — candidates verified in isolation, never auto-applied |
 | 8 | ✅ Predictive Reliability — evidence-backed forecasts, evaluation, backtesting, drift, warnings |
-| 9 | Safe Autonomous Remediation — proposal → verification → policy check → approval → execution |
+| 9 | ✅ Safe Autonomous Remediation — registry-gated proposals, approval or policy-scoped autonomy, verification, rollback, audit |
+| 10 | Reliability Intelligence & Autonomous Learning — learn from incident, prediction, remediation and fix outcomes |
 
 See [docs/roadmap.md](docs/roadmap.md) for detail.
 
@@ -640,7 +729,8 @@ See [docs/roadmap.md](docs/roadmap.md) for detail.
 | [Phase 6 — AI Debugger](docs/phase-6.md) | Code intelligence, snapshots, trace→code mapping, debug sessions, validation, grounded Q&amp;A, safety, limitations |
 | [Phase 7 — Automated Fix Generation & Verification](docs/phase-7.md) | Fix hypotheses, patch generation, safety validation, isolated workspaces, command registry, verification ladder, risk, artifacts, human review, limitations |
 | [Phase 8 — Predictive Reliability](docs/predictive-reliability.md) | Forecast domain, feature engineering, predictors, risk policy, lifecycle, backtesting, leakage prevention, calibration, drift, warnings, API, UI, limitations |
-| [Phase 2 Report](docs/phase2-implementation-report.md) · [Phase 3 Report](docs/phase3-implementation-report.md) · [Phase 4 Report](docs/phase4-implementation-report.md) · [Phase 5 Report](docs/phase5-implementation-report.md) · [Phase 6 Report](docs/phase6-implementation-report.md) · [Phase 8 Report](docs/phase-8-report.md) | Delivery summaries, gate evidence, bugs found by live validation |
+| [Phase 9 — Safe Autonomous Remediation](docs/safe-autonomous-remediation.md) | Action registry, state machine, gate-by-gate pipeline, blast radius and canary, failure containment, the control plane, API, UI, what it deliberately does not do, limitations |
+| [Phase 2 Report](docs/phase2-implementation-report.md) · [Phase 3 Report](docs/phase3-implementation-report.md) · [Phase 4 Report](docs/phase4-implementation-report.md) · [Phase 5 Report](docs/phase5-implementation-report.md) · [Phase 6 Report](docs/phase6-implementation-report.md) · [Phase 8 Report](docs/phase-8-report.md) · [Phase 9 Report](docs/phase-9-report.md) | Delivery summaries, gate evidence, bugs found by live validation |
 | [Data model](docs/data-model.md) | Tables, relationships, enum domains, indexes |
 | [Observability model](docs/observability-model.md) | Signals, normalization, retention |
 | [Development](docs/development.md) | Local setup, migrations, testing conventions |

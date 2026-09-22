@@ -2856,6 +2856,210 @@ export const api = {
       )}/dismiss?project_id=${encodeURIComponent(projectId)}`,
       { method: 'POST', body: JSON.stringify(payload) }
     ),
+
+  // -- Phase 9 — safe autonomous remediation (§44, §47, §48) ---------------
+
+  listRemediationActionTypes: () =>
+    apiFetch<RemediationActionTypeList>('/api/v1/remediation/action-types'),
+
+  getRemediationPolicy: (projectId: string, environmentId?: string) =>
+    apiFetch<RemediationPolicy>(
+      `/api/v1/remediation/policy?project_id=${encodeURIComponent(
+        projectId
+      )}${environmentId ? `&environment_id=${encodeURIComponent(environmentId)}` : ''}`
+    ),
+
+  updateRemediationPolicy: (
+    projectId: string,
+    payload: RemediationPolicyUpdate
+  ) =>
+    apiFetch<RemediationPolicy>(
+      `/api/v1/remediation/policy?project_id=${encodeURIComponent(projectId)}`,
+      { method: 'PUT', body: JSON.stringify(payload) }
+    ),
+
+  setEmergencyStop: (
+    projectId: string,
+    payload: { engage: boolean; actor: string; reason?: string }
+  ) =>
+    apiFetch<RemediationPolicy>(
+      `/api/v1/remediation/emergency-stop?project_id=${encodeURIComponent(
+        projectId
+      )}`,
+      { method: 'POST', body: JSON.stringify(payload) }
+    ),
+
+  listRemediationControls: (projectId: string, environmentId?: string) =>
+    apiFetch<RemediationControlList>(
+      `/api/v1/remediation/controls?project_id=${encodeURIComponent(
+        projectId
+      )}${environmentId ? `&environment_id=${encodeURIComponent(environmentId)}` : ''}`
+    ),
+
+  listRemediationBreakers: (projectId: string) =>
+    apiFetch<RemediationBreakerList>(
+      `/api/v1/remediation/breakers?project_id=${encodeURIComponent(projectId)}`
+    ),
+
+  planRemediations: (payload: RemediationPlanRequest) =>
+    apiFetch<RemediationPlanResult>('/api/v1/remediation/actions/plan', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  proposeRemediation: (payload: RemediationProposeRequest) =>
+    apiFetch<RemediationAction>('/api/v1/remediation/actions/propose', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  listRemediationActions: (params: Record<string, string | number | undefined>) =>
+    apiFetch<RemediationActionList>(
+      `/api/v1/remediation/actions?${toQuery(params)}`
+    ),
+
+  getRemediationAction: (actionId: string, projectId?: string) =>
+    apiFetch<RemediationActionDetail>(
+      `/api/v1/remediation/actions/${encodeURIComponent(
+        actionId
+      )}${scopeQuery(projectId)}`
+    ),
+
+  incidentRemediationActions: (incidentId: string, projectId?: string) =>
+    apiFetch<RemediationActionList>(
+      `/api/v1/remediation/incidents/${encodeURIComponent(
+        incidentId
+      )}/actions${scopeQuery(projectId)}`
+    ),
+
+  getRemediationAudit: (actionId: string, projectId?: string) =>
+    apiFetch<RemediationAuditEvent[]>(
+      `/api/v1/remediation/actions/${encodeURIComponent(
+        actionId
+      )}/audit${scopeQuery(projectId)}`
+    ),
+
+  verifyRemediationAudit: (actionId: string, projectId?: string) =>
+    apiFetch<RemediationAuditChain>(
+      `/api/v1/remediation/actions/${encodeURIComponent(
+        actionId
+      )}/audit/verify${scopeQuery(projectId)}`
+    ),
+
+  assessRemediationAction: (actionId: string, projectId: string) =>
+    apiFetch<RemediationAction>(
+      `/api/v1/remediation/actions/${encodeURIComponent(
+        actionId
+      )}/assess?project_id=${encodeURIComponent(projectId)}`,
+      { method: 'POST' }
+    ),
+
+  evaluateRemediationPolicy: (actionId: string, projectId: string) =>
+    apiFetch<RemediationAction>(
+      `/api/v1/remediation/actions/${encodeURIComponent(
+        actionId
+      )}/evaluate?project_id=${encodeURIComponent(projectId)}`,
+      { method: 'POST' }
+    ),
+
+  verifyRemediationAction: (actionId: string, projectId: string) =>
+    apiFetch<RemediationAction>(
+      `/api/v1/remediation/actions/${encodeURIComponent(
+        actionId
+      )}/verify?project_id=${encodeURIComponent(projectId)}`,
+      { method: 'POST' }
+    ),
+
+  approveRemediationAction: (
+    actionId: string,
+    payload: RemediationDecisionRequest,
+    projectId: string
+  ) =>
+    apiFetch<RemediationAction>(
+      `/api/v1/remediation/actions/${encodeURIComponent(
+        actionId
+      )}/approve?project_id=${encodeURIComponent(projectId)}`,
+      { method: 'POST', body: JSON.stringify(payload) }
+    ),
+
+  rejectRemediationAction: (
+    actionId: string,
+    payload: RemediationDecisionRequest,
+    projectId: string
+  ) =>
+    apiFetch<RemediationAction>(
+      `/api/v1/remediation/actions/${encodeURIComponent(
+        actionId
+      )}/reject?project_id=${encodeURIComponent(projectId)}`,
+      { method: 'POST', body: JSON.stringify(payload) }
+    ),
+
+  executeRemediationAction: (
+    actionId: string,
+    projectId: string,
+    payload: { actor?: string; dry_run?: boolean; async_execution?: boolean } = {}
+  ) =>
+    apiFetch<RemediationRunResult>(
+      `/api/v1/remediation/actions/${encodeURIComponent(
+        actionId
+      )}/execute?project_id=${encodeURIComponent(projectId)}`,
+      { method: 'POST', body: JSON.stringify(payload) }
+    ),
+
+  runRemediationAction: (actionId: string, projectId: string) =>
+    apiFetch<RemediationRunResult>(
+      `/api/v1/remediation/actions/${encodeURIComponent(
+        actionId
+      )}/run?project_id=${encodeURIComponent(projectId)}`,
+      { method: 'POST' }
+    ),
+
+  rollbackRemediationAction: (
+    actionId: string,
+    projectId: string,
+    payload: { actor: string; reason?: string }
+  ) =>
+    apiFetch<RemediationRunResult>(
+      `/api/v1/remediation/actions/${encodeURIComponent(
+        actionId
+      )}/rollback?project_id=${encodeURIComponent(projectId)}`,
+      { method: 'POST', body: JSON.stringify(payload) }
+    ),
+
+  cancelRemediationAction: (
+    actionId: string,
+    projectId: string,
+    payload: { actor: string; reason?: string }
+  ) =>
+    apiFetch<RemediationAction>(
+      `/api/v1/remediation/actions/${encodeURIComponent(
+        actionId
+      )}/cancel?project_id=${encodeURIComponent(projectId)}`,
+      { method: 'POST', body: JSON.stringify(payload) }
+    ),
+
+  recordRemediationExecution: (
+    actionId: string,
+    projectId: string,
+    payload: { actor: string; note: string; outcome_expected?: string }
+  ) =>
+    apiFetch<RemediationAction>(
+      `/api/v1/remediation/actions/${encodeURIComponent(
+        actionId
+      )}/record-execution?project_id=${encodeURIComponent(projectId)}`,
+      { method: 'POST', body: JSON.stringify(payload) }
+    ),
+
+  runRemediationSweep: (payload: { project_id?: string; plan?: boolean } = {}) =>
+    apiFetch<Record<string, unknown>>('/api/v1/remediation/sweep', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  remediationMetrics: (projectId?: string) =>
+    apiFetch<RemediationMetrics>(
+      `/api/v1/remediation/metrics${scopeQuery(projectId)}`
+    ),
 };
 
 // ---------------------------------------------------------------------------
@@ -4078,4 +4282,517 @@ export interface BacktestPayload {
 export interface WarningActionPayload {
   actor?: string;
   reason?: string | null;
+}
+
+// ---------------------------------------------------------------------------
+// Phase 9 — safe autonomous remediation (§2–§5, §12, §21, §44)
+// ---------------------------------------------------------------------------
+
+export type RemediationActionTypeValue =
+  | 'RESTART_SERVICE'
+  | 'RESTART_INSTANCE'
+  | 'SCALE_SERVICE_WITHIN_LIMIT'
+  | 'DISABLE_FEATURE_FLAG'
+  | 'ENABLE_FEATURE_FLAG'
+  | 'PAUSE_BACKGROUND_JOB'
+  | 'RESUME_BACKGROUND_JOB'
+  | 'DISABLE_DEGRADED_DEPENDENCY'
+  | 'ROUTE_TRAFFIC_TO_HEALTHY_INSTANCE'
+  | 'ROLLBACK_DEPLOYMENT'
+  | 'ROLLBACK_CONFIGURATION'
+  | 'APPLY_VERIFIED_PATCH';
+
+export type RemediationStatusValue =
+  | 'PROPOSED'
+  | 'VALIDATING'
+  | 'POLICY_REVIEW'
+  | 'AWAITING_APPROVAL'
+  | 'AUTHORIZED'
+  | 'SCHEDULED'
+  | 'EXECUTING'
+  | 'VERIFYING'
+  | 'VERIFIED'
+  | 'FAILED'
+  | 'ROLLING_BACK'
+  | 'ROLLED_BACK'
+  | 'REJECTED'
+  | 'CANCELLED'
+  | 'EXPIRED'
+  | 'BLOCKED';
+
+export type RemediationExecutionModeValue =
+  | 'OBSERVE_ONLY'
+  | 'DRY_RUN'
+  | 'SHADOW'
+  | 'HUMAN_APPROVAL'
+  | 'AUTONOMOUS'
+  | 'EMERGENCY_STOP';
+
+export type RemediationRiskLevelValue = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+
+export type PolicyDecisionValue =
+  | 'ALLOW'
+  | 'ALLOW_WITH_CANARY'
+  | 'REQUIRE_APPROVAL'
+  | 'DENY';
+
+export type SafetyStatusValue = 'PASSED' | 'PASSED_WITH_WARNINGS' | 'FAILED';
+
+export type BlastRadiusScopeValue =
+  | 'SINGLE_INSTANCE'
+  | 'SINGLE_COMPONENT'
+  | 'SINGLE_ENVIRONMENT'
+  | 'LIMITED_PERCENT'
+  | 'PROJECT_WIDE';
+
+export type RemediationOutcomeValue =
+  | 'EFFECTIVE'
+  | 'PARTIALLY_EFFECTIVE'
+  | 'INEFFECTIVE'
+  | 'HARMFUL'
+  | 'UNKNOWN';
+
+export interface RemediationActionParameter {
+  name: string;
+  kind: string;
+  required: boolean;
+  choices?: string[] | null;
+  choices_from?: string | null;
+  minimum?: number | null;
+  maximum?: number | null;
+  default?: unknown;
+  description: string;
+}
+
+export interface RemediationActionTypeInfo {
+  action_type: RemediationActionTypeValue;
+  description: string;
+  risk_level: RemediationRiskLevelValue;
+  adapter_kind: string;
+  parameters: RemediationActionParameter[];
+  verification_plan: string[];
+  rollback_strategy: string;
+  inverse_action?: RemediationActionTypeValue | null;
+  maximum_blast_radius: BlastRadiusScopeValue;
+  production_effect: boolean;
+  supports_canary: boolean;
+  supports_autonomous_execution: boolean;
+  requires_human_approval: boolean;
+  reversible: boolean;
+  executable_in_build: boolean;
+  unavailable_reason?: string | null;
+  notes: string[];
+}
+
+export interface RemediationActionTypeList {
+  actions: RemediationActionTypeInfo[];
+  count: number;
+  execution_enabled: boolean;
+}
+
+export interface RemediationPolicy {
+  id?: string | null;
+  project_id?: string | null;
+  environment_id?: string | null;
+  source: string;
+  revision?: number | null;
+  enabled: boolean;
+  execution_mode: RemediationExecutionModeValue;
+  autonomous_max_risk: RemediationRiskLevelValue;
+  allowed_action_types?: string[] | null;
+  allowed_environment_names?: string[] | null;
+  max_actions_per_window: number;
+  action_window_seconds: number;
+  cooldown_seconds: number;
+  max_concurrent_actions: number;
+  max_blast_radius_percent: number;
+  max_blast_radius_scope: BlastRadiusScopeValue;
+  canary_enabled: boolean;
+  canary_percent: number;
+  approval_ttl_seconds: number;
+  verification_window_seconds: number;
+  execution_timeout_seconds: number;
+  action_expiry_seconds: number;
+  emergency_stop_active: boolean;
+  emergency_stop_reason?: string | null;
+  emergency_stop_at?: string | null;
+  emergency_stop_by?: string | null;
+  updated_by?: string | null;
+  clamped: string[];
+  notes?: string | null;
+}
+
+export interface RemediationPolicyUpdate {
+  enabled?: boolean;
+  execution_mode?: RemediationExecutionModeValue;
+  autonomous_max_risk?: RemediationRiskLevelValue;
+  allowed_action_types?: string[] | null;
+  allowed_environment_names?: string[] | null;
+  max_actions_per_window?: number;
+  action_window_seconds?: number;
+  cooldown_seconds?: number;
+  max_concurrent_actions?: number;
+  max_blast_radius_percent?: number;
+  canary_enabled?: boolean;
+  canary_percent?: number;
+  approval_ttl_seconds?: number;
+  verification_window_seconds?: number;
+  execution_timeout_seconds?: number;
+  action_expiry_seconds?: number;
+  environment_id?: string | null;
+  notes?: string | null;
+  updated_by?: string | null;
+}
+
+export interface RemediationControl {
+  id: string;
+  kind: string;
+  scope_key: string;
+  state: string;
+  previous_state?: string | null;
+  is_current: boolean;
+  revision: number;
+  applied_at?: string | null;
+  expires_at?: string | null;
+  reverted_at?: string | null;
+  applied_by?: string | null;
+  reason?: string | null;
+  applied_by_action_id?: string | null;
+  effective: boolean;
+}
+
+export interface RemediationControlList {
+  controls: RemediationControl[];
+  count: number;
+}
+
+export interface RemediationBreaker {
+  action_type: RemediationActionTypeValue;
+  state: string;
+  consecutive_failures: number;
+  total_attempts: number;
+  total_failures: number;
+  total_successes: number;
+  threshold: number;
+  opened_at?: string | null;
+  opened_until?: string | null;
+  last_failure_at?: string | null;
+  last_success_at?: string | null;
+  last_trip_reason?: string | null;
+}
+
+export interface RemediationBreakerList {
+  breakers: RemediationBreaker[];
+  count: number;
+}
+
+export interface RemediationProposal {
+  id: string;
+  project_id: string;
+  environment_id?: string | null;
+  component_id?: string | null;
+  action_type: RemediationActionTypeValue;
+  source_type: string;
+  source_id?: string | null;
+  strategy?: string | null;
+  problem: string;
+  recommended_action: string;
+  expected_effect: string;
+  supporting_evidence?: Array<Record<string, unknown>> | null;
+  parameters?: Record<string, unknown> | null;
+  risk_level: RemediationRiskLevelValue;
+  blast_radius: BlastRadiusScopeValue;
+  blast_radius_percent?: number | null;
+  preconditions?: Array<Record<string, unknown>> | null;
+  verification_plan?: Record<string, unknown> | null;
+  rollback_plan?: Record<string, unknown> | null;
+  confidence?: number | null;
+  confidence_reason?: string | null;
+  limitations?: string[] | null;
+  rationale?: string | null;
+  generated_by: string;
+  model_version?: string | null;
+  incident_id?: string | null;
+  forecast_id?: string | null;
+  causal_analysis_id?: string | null;
+  root_cause_candidate_id?: string | null;
+  patch_id?: string | null;
+  fingerprint: string;
+  created_at?: string | null;
+}
+
+export interface RemediationAction {
+  id: string;
+  project_id: string;
+  environment_id?: string | null;
+  component_id?: string | null;
+  proposal_id?: string | null;
+  action_type: RemediationActionTypeValue;
+  status: RemediationStatusValue;
+  description: string;
+  reason?: string | null;
+  headline: string;
+  risk_level: RemediationRiskLevelValue;
+  blast_radius: BlastRadiusScopeValue;
+  blast_radius_percent?: number | null;
+  affected_resource_count: number;
+  source_type: string;
+  source_id?: string | null;
+  parameters?: Record<string, unknown> | null;
+  safety_status?: SafetyStatusValue | null;
+  policy_status?: PolicyDecisionValue | null;
+  authorization_status?: string | null;
+  execution_status?: string | null;
+  execution_mode: RemediationExecutionModeValue;
+  adapter_kind: string;
+  rollback_strategy: string;
+  rollback_available: boolean;
+  rollback_plan?: Record<string, unknown> | null;
+  verification_plan?: Record<string, unknown> | null;
+  preconditions?: Array<Record<string, unknown>> | null;
+  canary_required: boolean;
+  canary_stage: string;
+  canary_percent?: number | null;
+  attempt: number;
+  retry_count: number;
+  max_retries: number;
+  failure_reason?: string | null;
+  failure_detail?: string | null;
+  outcome?: RemediationOutcomeValue | null;
+  post_analysis_status: string;
+  fingerprint: string;
+  incident_id?: string | null;
+  forecast_id?: string | null;
+  patch_id?: string | null;
+  created_by: string;
+  approved_by?: string | null;
+  authorized_by?: string | null;
+  executed_by?: string | null;
+  created_at?: string | null;
+  approved_at?: string | null;
+  authorized_at?: string | null;
+  started_at?: string | null;
+  completed_at?: string | null;
+  expires_at?: string | null;
+  rollback_performed_at?: string | null;
+}
+
+export interface RemediationActionList {
+  actions: RemediationAction[];
+  count: number;
+  total: number;
+}
+
+export interface RemediationAssessment {
+  id: string;
+  status: SafetyStatusValue;
+  checks?: Array<Record<string, unknown>> | null;
+  blocking?: string[] | null;
+  warnings?: string[] | null;
+  reversible: boolean;
+  rollback_plan?: Record<string, unknown> | null;
+  blast_radius: BlastRadiusScopeValue;
+  blast_radius_percent?: number | null;
+  affected_resource_count: number;
+  requires_human_approval: boolean;
+  reason?: string | null;
+  assessed_by: string;
+  created_at?: string | null;
+}
+
+export interface RemediationPolicyDecision {
+  id: string;
+  policy_id?: string | null;
+  decision: PolicyDecisionValue;
+  execution_mode: RemediationExecutionModeValue;
+  policy_revision?: number | null;
+  matched_rules?: Array<Record<string, unknown>> | null;
+  reasons?: string[] | null;
+  failure_reason?: string | null;
+  requires_canary: boolean;
+  budget_state?: Record<string, unknown> | null;
+  circuit_state?: Record<string, unknown> | null;
+  evaluated_by: string;
+  created_at?: string | null;
+}
+
+export interface RemediationApproval {
+  id: string;
+  status: string;
+  actor_type: string;
+  actor?: string | null;
+  decided_at?: string | null;
+  expires_at?: string | null;
+  reason?: string | null;
+  scope_snapshot?: Record<string, unknown> | null;
+  created_at?: string | null;
+}
+
+export interface RemediationExecutionRecord {
+  id: string;
+  attempt: number;
+  mode: RemediationExecutionModeValue;
+  adapter_kind: string;
+  adapter_name?: string | null;
+  status: string;
+  effect_applied: boolean;
+  steps?: Array<Record<string, unknown>> | null;
+  control_ids?: string[] | null;
+  output_summary?: string | null;
+  failure_reason?: string | null;
+  error?: string | null;
+  idempotency_key: string;
+  started_at?: string | null;
+  completed_at?: string | null;
+  duration_ms?: number | null;
+  executed_by: string;
+}
+
+export interface RemediationVerificationRecord {
+  id: string;
+  execution_id?: string | null;
+  verdict: string;
+  checks?: Array<Record<string, unknown>> | null;
+  passed_count: number;
+  failed_count: number;
+  not_observable_count: number;
+  window_start?: string | null;
+  window_end?: string | null;
+  observation_seconds: number;
+  summary?: string | null;
+  limitations?: string[] | null;
+  verified_by: string;
+  created_at?: string | null;
+}
+
+export interface RemediationRollbackRecord {
+  id: string;
+  trigger: string;
+  strategy: string;
+  status: string;
+  plan?: Record<string, unknown> | null;
+  steps?: Array<Record<string, unknown>> | null;
+  controls_reverted?: string[] | null;
+  verification_verdict?: string | null;
+  failure_reason?: string | null;
+  error?: string | null;
+  requested_by?: string | null;
+  started_at?: string | null;
+  completed_at?: string | null;
+  created_at?: string | null;
+}
+
+export interface RemediationAuditEvent {
+  id: string;
+  sequence: number;
+  event_type: string;
+  actor_type: string;
+  actor?: string | null;
+  from_status?: RemediationStatusValue | null;
+  to_status?: RemediationStatusValue | null;
+  summary: string;
+  detail?: Record<string, unknown> | null;
+  occurred_at?: string | null;
+  entry_hash: string;
+  prev_hash?: string | null;
+}
+
+export interface RemediationAuditChain {
+  action_id: string;
+  intact: boolean;
+  events: number;
+  broken_at?: number | null;
+  reason?: string | null;
+}
+
+export interface RemediationActionDetail {
+  action: RemediationAction;
+  proposal?: RemediationProposal | null;
+  assessments: RemediationAssessment[];
+  policy_decisions: RemediationPolicyDecision[];
+  approvals: RemediationApproval[];
+  executions: RemediationExecutionRecord[];
+  verifications: RemediationVerificationRecord[];
+  rollbacks: RemediationRollbackRecord[];
+  audit: RemediationAuditEvent[];
+  audit_chain?: RemediationAuditChain | null;
+  post_analysis?: Record<string, unknown> | null;
+  allowed_transitions: RemediationStatusValue[];
+}
+
+export interface RemediationPlanRequest {
+  project_id: string;
+  environment_id?: string | null;
+  incident_id?: string | null;
+  forecast_id?: string | null;
+  auto_assess?: boolean;
+}
+
+export interface RemediationPlanResult {
+  project_id: string;
+  proposals_created: number;
+  actions_created: number;
+  actions: RemediationAction[];
+  skipped_duplicates: number;
+  detail?: string | null;
+}
+
+export interface RemediationProposeRequest {
+  project_id: string;
+  action_type: RemediationActionTypeValue;
+  description: string;
+  reason?: string | null;
+  environment_id?: string | null;
+  component_id?: string | null;
+  incident_id?: string | null;
+  forecast_id?: string | null;
+  patch_id?: string | null;
+  parameters?: Record<string, unknown>;
+  blast_radius?: BlastRadiusScopeValue | null;
+  blast_radius_percent?: number | null;
+  created_by?: string;
+  auto_assess?: boolean;
+}
+
+export interface RemediationDecisionRequest {
+  actor: string;
+  reason?: string | null;
+}
+
+export interface RemediationRunStep {
+  action_id: string;
+  status: RemediationStatusValue;
+  step: string;
+  detail: string;
+  failure_reason?: string | null;
+}
+
+export interface RemediationRunResult {
+  action_id: string;
+  status: RemediationStatusValue;
+  outcome?: RemediationOutcomeValue | null;
+  detail?: string | null;
+  steps: RemediationRunStep[];
+}
+
+export interface RemediationMetrics {
+  project_id?: string | null;
+  total_actions: number;
+  by_status: Record<string, number>;
+  by_action_type: Record<string, number>;
+  by_failure_reason: Record<string, number>;
+  outcomes: Record<string, number>;
+  executions_attempted: number;
+  executions_with_effect: number;
+  verifications_passed: number;
+  verifications_failed: number;
+  verifications_inconclusive: number;
+  rollbacks_succeeded: number;
+  rollbacks_failed: number;
+  controls_in_force: number;
+  open_breakers: number;
+  awaiting_approval: number;
+  autonomous_authorizations: number;
+  human_authorizations: number;
+  emergency_stop_active: boolean;
 }

@@ -412,6 +412,127 @@ class Settings(BaseSettings):
     #: about a real system is worse than no prose.
     RELIABILITY_NARRATIVE_PROVIDER: str = "none"
 
+    # ------------------------------------------------------------------
+    # Phase 9 — Safe Autonomous Remediation (§40, §41, §45)
+    # ------------------------------------------------------------------
+    #: Master kill switch. When false, **no** action may apply a live effect
+    #: anywhere, whatever a project's policy says. This is the switch an
+    #: operator flips in an incident, so it is deliberately independent of the
+    #: per-scope policy engine: losing the database of policies must not be
+    #: able to turn execution back on.
+    REMEDIATION_EXECUTION_ENABLED: bool = True
+    #: The regime used when a project has no policy row. ``OBSERVE_ONLY`` — a
+    #: missing policy is a restrictive default, never a permissive one (§2).
+    REMEDIATION_DEFAULT_MODE: str = "OBSERVE_ONLY"
+    #: Environments whose names mark them as non-production. Autonomous
+    #: execution is only ever considered here, and only for low-risk actions.
+    REMEDIATION_NON_PRODUCTION_ENVIRONMENT_NAMES: List[str] = [
+        "development",
+        "dev",
+        "test",
+        "testing",
+        "staging",
+        "sandbox",
+        "local",
+        "preview",
+        "demo",
+    ]
+    #: Action types execution is willing to attempt at all. Anything absent is
+    #: refused with ``ENVIRONMENT_NOT_ALLOWED`` before a handler is selected.
+    REMEDIATION_ENABLED_ACTION_TYPES: List[str] = [
+        "PAUSE_BACKGROUND_JOB",
+        "RESUME_BACKGROUND_JOB",
+        "DISABLE_FEATURE_FLAG",
+        "ENABLE_FEATURE_FLAG",
+        "DISABLE_DEGRADED_DEPENDENCY",
+    ]
+    #: ARGUS-owned feature flags a plan may target (§10). An unknown flag name
+    #: is a validation failure, not a no-op.
+    REMEDIATION_KNOWN_FEATURE_FLAGS: List[str] = [
+        "anomaly_detection",
+        "reliability_forecasting",
+        "code_indexing",
+        "fix_verification",
+        "reproduction_execution",
+        "graph_extraction",
+    ]
+    #: Background jobs a plan may pause (§10).
+    REMEDIATION_KNOWN_BACKGROUND_JOBS: List[str] = [
+        "ingestion_worker",
+        "anomaly_sweep",
+        "reliability_sweep",
+        "code_sweep",
+        "fix_sweep",
+        "reproduction_sweep",
+        "remediation_sweep",
+    ]
+
+    #: Hard ceilings the policy engine cannot exceed, whatever a policy says.
+    #: Configuration is a *narrowing* mechanism: no row in the database can
+    #: raise these (§21, §45).
+    REMEDIATION_HARD_MAX_RISK_AUTONOMOUS: str = "LOW"
+    REMEDIATION_HARD_MAX_ACTIONS_PER_WINDOW: int = 20
+    REMEDIATION_HARD_MAX_CONCURRENT_ACTIONS: int = 3
+    REMEDIATION_HARD_MAX_BLAST_RADIUS_PERCENT: float = 50.0
+    REMEDIATION_HARD_EXECUTION_TIMEOUT_SECONDS: int = 600
+    #: Widest blast-radius scope any action may reach, as a structural ceiling.
+    #: The default is the widest scope ARGUS defines, because the *per-action*
+    #: bound is already the action definition's own ``maximum_blast_radius`` and a
+    #: process ceiling narrower than a registered action's scope would make that
+    #: action permanently unauthorizable — every control-plane action ARGUS can
+    #: actually execute is environment-scoped, so a narrower default would leave
+    #: the phase able to propose and unable to do anything. Narrowing this to
+    #: ``SINGLE_COMPONENT`` (or lower) is a deliberate operator choice to forbid
+    #: wider reaches; it is applied to every stored policy on top of its own
+    #: limits and can only ever make the effective policy stricter.
+    REMEDIATION_HARD_MAX_BLAST_RADIUS_SCOPE: str = "ENVIRONMENT"
+
+    #: Guard-rail defaults for the fallback policy (§25, §27).
+    REMEDIATION_ACTION_WINDOW_SECONDS: int = 3600
+    REMEDIATION_DEFAULT_MAX_ACTIONS_PER_WINDOW: int = 5
+    REMEDIATION_DEFAULT_COOLDOWN_SECONDS: int = 60
+    REMEDIATION_DEFAULT_MAX_CONCURRENT_ACTIONS: int = 1
+    REMEDIATION_CIRCUIT_FAILURE_THRESHOLD: int = 3
+    REMEDIATION_CIRCUIT_RESET_SECONDS: int = 900
+    REMEDIATION_CIRCUIT_HALF_OPEN_PROBES: int = 1
+    REMEDIATION_MAX_EXECUTION_ATTEMPTS: int = 2
+    REMEDIATION_EXECUTION_TIMEOUT_SECONDS: int = 120
+    REMEDIATION_APPROVAL_TTL_SECONDS: int = 1800
+    REMEDIATION_ACTION_EXPIRY_SECONDS: int = 86400
+
+    #: Canary (§23).
+    REMEDIATION_CANARY_ENABLED: bool = True
+    REMEDIATION_CANARY_PERCENT: float = 10.0
+
+    #: Verification window (§28–§31). An action is verified over a window of
+    #: real telemetry, not by reading back its own command exit code.
+    REMEDIATION_VERIFICATION_WINDOW_SECONDS: int = 300
+    REMEDIATION_VERIFICATION_GRACE_SECONDS: int = 30
+    REMEDIATION_MAX_VERIFICATION_ATTEMPTS: int = 2
+    #: A verification needs at least this many samples to be conclusive; below
+    #: it the verdict is INCONCLUSIVE rather than a pass (§30).
+    REMEDIATION_VERIFICATION_MIN_SAMPLES: int = 3
+    #: Tolerance for "not worse than baseline" comparisons (relative).
+    REMEDIATION_ERROR_RATE_TOLERANCE: float = 0.2
+    REMEDIATION_LATENCY_TOLERANCE: float = 0.25
+
+    #: Planning (§8, §14).
+    REMEDIATION_PLANNER_ENABLED: bool = True
+    REMEDIATION_MAX_PROPOSALS_PER_RUN: int = 10
+    REMEDIATION_PROPOSAL_DEDUP_WINDOW_SECONDS: int = 3600
+    #: Confidence floor below which the planner stores a proposal as
+    #: NON-actionable rather than proposing execution (§9).
+    REMEDIATION_MIN_PROPOSAL_CONFIDENCE: float = 0.2
+
+    #: Scheduling (§39).
+    REMEDIATION_ASYNC: bool = True
+    REMEDIATION_SWEEP_ENABLED: bool = True
+    REMEDIATION_SWEEP_INTERVAL_SECONDS: int = 60
+    REMEDIATION_SWEEP_BATCH: int = 25
+    #: Retention: remediation history is the audit trail; it is pruned only
+    #: when explicitly configured to a positive number of days.
+    RETENTION_REMEDIATION_ACTIONS: int = 730
+
     @field_validator("CORS_ORIGINS", mode="before")
     @classmethod
     def parse_cors_origins(cls, v: Any) -> List[str]:

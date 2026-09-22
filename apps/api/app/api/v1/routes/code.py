@@ -755,6 +755,18 @@ async def index_repository(
     a partial index is visible rather than implied.
     """
     await require_project(db, project_id)
+    # Phase 9 §10: an ARGUS remediation may have disabled indexing for this
+    # project. Checking here means the flag actually stops new index runs, rather
+    # than being a setting nothing reads.
+    from app.services.remediation_controls import safely_feature_enabled
+
+    if not await safely_feature_enabled(db, "code_indexing", project_id=project_id):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "code indexing is disabled for this project by a remediation " "control"
+            ),
+        )
     repository = await _get_repository(
         db, repository_id, project_id=project_id, require_scope=True
     )

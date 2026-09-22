@@ -1712,18 +1712,30 @@ class ReproductionOrchestrator:
             experiment = await session.get(ReproductionExperiment, experiment_id)
             return bool(experiment and experiment.cancel_requested_at)
 
-    async def sweep_stale(self) -> dict[str, Any]:
+    async def sweep_stale(
+        self,
+        *,
+        paused_project_ids: Optional[set[uuid.UUID]] = None,
+    ) -> dict[str, Any]:
         """Reap timed-out experiments and orphaned sandboxes (§39, §54, §55).
 
         Runs from the periodic sweep. Two jobs: close experiments whose deadline
         passed while nobody was driving them, and destroy sandbox rows whose
         experiment is terminal or gone. Both are reported, because a reaper that
         silently fails is indistinguishable from a leak.
+
+        ``paused_project_ids`` carries the scopes a Phase 9 ``PAUSE_BACKGROUND_JOB``
+        remediation has paused this reaper in. The reaper has no project loop of
+        its own, so a pause is honoured per row — pausing ``reproduction_sweep``
+        for one project must not withhold reaping from every other project, which
+        would be a far wider effect than the action's own blast radius.
         """
         now = datetime.now(timezone.utc)
+        paused_project_ids = paused_project_ids or set()
         timed_out: list[str] = []
         cleaned: list[str] = []
         orphans: list[str] = []
+        paused_skipped = 0
 
         async with self._factory() as session:
             stale = list(
@@ -1747,6 +1759,9 @@ class ReproductionOrchestrator:
                 .all()
             )
         for experiment in stale:
+            if getattr(experiment, "project_id", None) in paused_project_ids:
+                paused_skipped += 1
+                continue
             await self._set_status(
                 experiment.id,
                 ExperimentStatus.TIMED_OUT,
@@ -1776,6 +1791,9 @@ class ReproductionOrchestrator:
                 .all()
             )
         for sandbox in live_sandboxes:
+            if getattr(sandbox, "project_id", None) in paused_project_ids:
+                paused_skipped += 1
+                continue
             owner = await self._get_optional(sandbox.experiment_id)
             should_clean = owner is None or is_experiment_terminal(owner.status)
             if not should_clean and owner is not None and owner.timeout_at:
@@ -1795,6 +1813,7 @@ class ReproductionOrchestrator:
             "timed_out": timed_out,
             "sandboxes_cleaned": cleaned,
             "cleanup_failures": orphans,
+            "paused_skipped": paused_skipped,
             "checked_at": now.isoformat(),
         }
 

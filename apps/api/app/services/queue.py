@@ -46,12 +46,17 @@ QUEUE_REPRODUCTION = "argus:repro:runs"
 #: Phase 8 predictive reliability. Its own queue so a slow forecast sweep can
 #: never delay ingestion or detection.
 QUEUE_RELIABILITY = "argus:reliability:jobs"
+#: Phase 9 safe autonomous remediation. Its own queue because an action can be
+#: gated, verified over a window and (worst case) rolled back, none of which may
+#: delay the telemetry that would let an operator see what is happening.
+QUEUE_REMEDIATION = "argus:remediate:actions"
 ALL_QUEUES = [
     QUEUE_EVENTS,
     QUEUE_TRACES,
     QUEUE_DETECTION,
     QUEUE_REPRODUCTION,
     QUEUE_RELIABILITY,
+    QUEUE_REMEDIATION,
 ]
 
 MAX_RETRIES = 3
@@ -290,6 +295,34 @@ async def enqueue_reliability_evaluate(*, project_id: Optional[Any] = None) -> b
         return True
     except QueueUnavailable as e:
         logger.info("Reliability evaluate enqueue skipped (queue unavailable): %s", e)
+        return False
+
+
+async def enqueue_remediation_action(*, action_id: Any, project_id: Any) -> bool:
+    """Queue an authorized remediation action (Phase 9 §39).
+
+    The payload carries opaque ids only — never parameters, never a target. The
+    worker re-reads the action from the database and re-checks every gate before
+    applying anything, so a queued message cannot be used to execute something the
+    gates would refuse.
+
+    No-op when ``REMEDIATION_ASYNC`` is disabled. Returns ``False`` when the broker
+    is unreachable; the action stays ``AUTHORIZED`` and the remediation sweep picks
+    it up, so a Redis outage cannot lose an approved remediation.
+    """
+    if not settings.REMEDIATION_ASYNC:
+        return False
+    payload = {
+        "action_id": str(action_id),
+        "project_id": str(project_id),
+    }
+    try:
+        await IngestionQueue(QUEUE_REMEDIATION).push(
+            make_job(kind="remediation_run", payload=payload)
+        )
+        return True
+    except QueueUnavailable as e:
+        logger.warning("Remediation enqueue skipped (queue unavailable): %s", e)
         return False
 
 
