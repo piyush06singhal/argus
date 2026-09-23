@@ -1049,6 +1049,12 @@ class RemediationService:
         from app.services.learning_hooks import record_remediation_completed
 
         await record_remediation_completed(self._session, action=action, actor=actor)
+
+        #: Phase 11 §9: the control plane sees the same completion, so a case's
+        #: timeline carries the action's outcome and its execution mode.
+        from app.services.platform_hooks import record_remediation_event
+
+        await record_remediation_event(self._session, action=action, event="completed")
         return result
 
     async def _latest_successful_execution(
@@ -1114,6 +1120,14 @@ class RemediationService:
 
             await record_rollback_completed(
                 self._session, action=action, rollback=result.rollback
+            )
+
+            #: Phase 11 §9. A rollback is a platform event in its own right: the
+            #: case timeline must show that the platform undid something.
+            from app.services.platform_hooks import record_remediation_event
+
+            await record_remediation_event(
+                self._session, action=action, event="rolled_back"
             )
             await self._record_breaker_outcome(
                 action, success=False, reason=RemediationFailureReason.HANDLER_ERROR

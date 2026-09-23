@@ -1080,6 +1080,12 @@ class ReproductionOrchestrator:
                 from app.services.learning_hooks import record_reproduction_result
 
                 await record_reproduction_result(session, experiment=experiment)
+
+                #: Phase 11 §9: the same terminal transition is a platform event,
+                #: so a case's timeline shows the reproduction outcome.
+                from app.services.platform_hooks import record_reproduction_finished
+
+                await record_reproduction_finished(session, experiment=experiment)
                 await session.commit()
 
     @staticmethod

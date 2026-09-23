@@ -634,6 +634,17 @@ async def verify_patch(
         verification=run,
         incident_id=getattr(hypothesis, "incident_id", None),
     )
+
+    #: Phase 11 §9: the control plane's timeline records the verification too, so
+    #: a case shows the patch outcome without the reader visiting another phase.
+    from app.services.platform_hooks import record_patch_verified
+
+    await record_patch_verified(
+        db,
+        patch=patch,
+        verification=run,
+        incident_id=getattr(hypothesis, "incident_id", None),
+    )
     return run
 
 

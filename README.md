@@ -13,7 +13,7 @@ incidents, and change, so a failure can be explained instead of guessed at.
 [![FastAPI](https://img.shields.io/badge/FastAPI-async-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
 [![Next.js](https://img.shields.io/badge/Next.js-14-000000?logo=next.js&logoColor=white)](https://nextjs.org/)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169e1?logo=postgresql&logoColor=white)](https://www.postgresql.org/)
-[![Tests](https://img.shields.io/badge/tests-1234%20backend%20%2B%20132%20frontend-brightgreen)](#verification)
+[![Tests](https://img.shields.io/badge/tests-1912%20backend%20%2B%20231%20frontend-brightgreen)](#verification)
 [![Migrations](https://img.shields.io/badge/migrations-reversible-informational)](docs/development.md)
 
 </div>
@@ -62,6 +62,7 @@ first-class, tested outcome — not a failure mode.
 | **8** | Predictive Reliability — feature engineering, deterministic baseline predictors, risk policy, evaluation & calibration, walk-forward backtesting, leakage prevention, drift, early warnings, human-only | ✅ shipped | [docs/predictive-reliability.md](docs/predictive-reliability.md) |
 | **9** | Safe Autonomous Remediation — action registry, safety & policy gates, approval or autonomous authorization, controlled execution, verification, rollback, audit, six execution regimes | ✅ shipped | [docs/safe-autonomous-remediation.md](docs/safe-autonomous-remediation.md) |
 | **10** | Reliability Intelligence & Autonomous Learning — normalized experiences, nine pattern miners, validation, knowledge lifecycle with versions and human review, component profiles, learned relationships, grounded search, recommendations | ✅ shipped | [docs/reliability-intelligence.md](docs/reliability-intelligence.md) · [docs/learning-governance.md](docs/learning-governance.md) |
+| **11** | Unified Reliability Platform — derived system state, Reliability Cases, cross-phase workflow orchestration, service catalog, SLOs & error budgets, change intelligence, global search, governance & audit, notifications, platform health and graceful degradation, reports & postmortems | ✅ shipped | [docs/unified-reliability-platform.md](docs/unified-reliability-platform.md) · [docs/phase-11-report.md](docs/phase-11-report.md) |
 
 Phase 7 is the first phase that can produce a change — and it still does not
 merge, deploy or remediate. It plans a fix from evidence that already exists,
@@ -92,6 +93,19 @@ and only under the risk ceiling. Success means the system's behaviour changed fo
 the better over a verification window, not that a handler returned. Everything
 that happens is hash-chained, reversible where the action allows, and stoppable
 with one emergency-stop call. It ships disabled.
+
+Phase 11 is the consolidation: everything above becomes one platform. It adds no
+new intelligence and no new authority — it derives one **system state** from the
+rows the other phases own, gives the work a single operational object (a
+**Reliability Case**) with one timeline, drives a case through a **workflow** whose
+stages advance only when their evidence exists, and surfaces governance, search,
+objectives, change intelligence, data quality, notifications and the platform's own
+health in one place. Nothing is duplicated: no `platform_incidents` table exists,
+because a second table with an opinion about whether something is resolved is
+exactly the contradiction this phase removes. Phase 9 stays authoritative over
+every live effect, ARGUS still cannot reach your infrastructure, and the AI case
+assistant ships off and answers only from one case's stored rows, with citations
+and its unknowns attached.
 
 Phase 10 turns that accumulated history into reusable knowledge — and is
 careful about what "knowledge" means. Outcomes that completed (an incident
@@ -154,6 +168,12 @@ or dismisses.
         ─► validation ─► knowledge (versioned, reviewed) ─► profiles · learned
         relationships ─► grounded search ─► recommendations ─► human decides
                                  ▼
+         Unified Reliability Platform (Phase 11) — the control plane
+        derived system state ─► platform events ─► Reliability Case ─► workflow
+        (10 evidence-gated stages) ─► objectives · error budgets · change
+        intelligence · search · data quality · governance & audit · reports
+        ─► platform health, degradation and self-monitoring
+                                 ▼
                      Next.js investigation UI
         system map · anomaly center · incidents · root cause analysis
         · reproduction workspace · AI debugger · fix & verification workspace
@@ -161,6 +181,9 @@ or dismisses.
         · remediation console, action detail and policy editor
         · reliability intelligence center, pattern explorer, learned
         relationships, recommendation queue and grounded search
+        · unified platform overview, reliability cases, service catalog,
+        objectives & error budgets, changes, search, data quality, governance,
+        reports, activity and platform health workspaces
 ```
 
 ## Features
@@ -435,6 +458,65 @@ or dismisses.
 </details>
 
 <details>
+<summary><b>Unified Reliability Platform (Phase 11)</b></summary>
+
+- **One derived system state, with reasons.** Every component resolves through a
+  single precedence (incident → remediating → at-risk → degraded → healthy), and a
+  component with *no* evidence is `UNKNOWN`, never `HEALTHY`. Each state ships the
+  evidence behind it, and the precedence is tested as a table — a precedence bug is
+  the one that renders a resolved incident as healthy.
+- **Reliability Cases: the object a person actually works on.** `CASE-<n>`
+  references, one legal-transition table shared by API and UI, a deduplicated
+  timeline that records its source, and evidence *assembled at request time* from
+  the phases that own the rows — so a case cannot show yesterday's anomalies while
+  a component keeps degrading.
+- **A workflow that is evidence-gated, not timer-driven.** Ten stages from
+  `DETECTED` to `LEARNED`, each entered only when stored rows satisfy its
+  precondition; stops are first-class with a reason; and a terminal run cannot be
+  resurrected. `AUTHORIZED` is reached only through Phase 9's gates.
+- **Objectives and error budgets that name what they measure.** An objective must
+  name its metric; target bounds are per indicator family (a ratio is `0..1`, a
+  latency target is milliseconds); evaluation records compliance, sample count and
+  data quality; a never-evaluated objective is `UNKNOWN`; burn thresholds live in
+  configuration so API, sweep and UI cannot disagree.
+- **Change intelligence that refuses to equate recent with guilty:** failure rates,
+  correlated incidents and graph-affected components, with temporal relevance kept
+  separate from causal relevance.
+- **Global search with one query language:** grouped results, the filters actually
+  applied returned on the response, an honest no-match answer, an unknown filter
+  reported rather than ignored, and project isolation enforced in SQL.
+- **A service catalog per component** — ownership (team, contact, on-call,
+  documentation), dependencies, endpoints, blast radius, objectives and operational
+  state — with sections it cannot compute named instead of returned empty.
+- **A data-quality center that reports and never repairs:** cross-phase consistency
+  checks (an incident with no component, a prediction with no snapshot, a
+  remediation with no authorization, knowledge with no evidence) become dispositions
+  an operator owns. A check that *errors* is asserted to be a bug, not a finding.
+- **Versioned configuration and append-only history:** a write names its scope and
+  its reason, only the scopes the platform owns are writable, secrets never
+  round-trip, and a rollback is a *new* version that records what it restored.
+- **Notifications that cannot become a second outage:** nine kinds, deduplicated
+  and cooldown-limited per subject, over a channel abstraction that says when a
+  channel is not configured.
+- **Platform health that includes ARGUS:** subsystems labelled required or
+  optional, a readiness split, and a dependency contract stating what degrades when
+  an optional subsystem is missing — plus self-monitoring thresholds for queue
+  depth, ingestion failures, slow queries and pool saturation.
+- **Reports and postmortems that state their limitations**, and a postmortem that
+  falls back to the incident's own timeline when no case exists.
+- **An AI case assistant that is off by default and grounded when on:** retrieval
+  first, answers only from one case's stored rows, citations with every claim,
+  facts/hypotheses/predictions labelled separately, unknowns listed, and a refusal
+  for an action, an out-of-scope question or a root cause that is not a stored
+  candidate. Its capability sheet is served either way.
+- **Concurrency that was made real, not assumed:** one writer per project
+  (`SELECT … FOR UPDATE`), deterministic sweep ordering, savepoint-isolated steps and
+  atomic claims for derived-but-unique rows. Running this phase live found and fixed
+  two genuine PostgreSQL deadlocks and a duplicate-key race — see the
+  [delivery report](docs/phase-11-report.md#defects-found-by-running-phase-11-live-and-fixed).
+</details>
+
+<details>
 <summary><b>Reliability Intelligence &amp; Autonomous Learning (Phase 10)</b></summary>
 
 - **Experiences, not a second copy of history:** every outcome in Phases 1–9 is
@@ -532,11 +614,12 @@ they pass on repeat runs, not only on a pristine database.
 
 | Gate | Command | Result |
 | :--- | :--- | :--- |
-| Backend test suite | `cd apps/api && pytest -q` | **1746 passed, 1 skipped** |
-| Lint / format / types | `cd apps/api && ruff check app tests && ruff format --check app tests && mypy app` | clean (199 modules) |
-| Frontend tests | `cd apps/web && npm test` | **203 passed** |
+| Backend test suite | `cd apps/api && pytest -q` | **1912 passed, 1 skipped** |
+| Lint / format / types | `cd apps/api && ruff check app tests && ruff format --check app tests && mypy app` | clean (224 modules) |
+| Frontend tests | `cd apps/web && npm test` | **231 passed** |
 | Frontend type check | `cd apps/web && npx tsc --noEmit` | clean |
-| Frontend production build | `cd apps/web && npm run build` | succeeds, 51 routes |
+| Frontend lint | `cd apps/web && npx next lint --dir app/platform` | clean |
+| Frontend production build | `cd apps/web && npm run build` | succeeds, 65 routes |
 | Phase 0/1 live gate | `bash infrastructure/e2e-smoke-phase1.sh` | **46/46** |
 | Phase 2 live gate | `bash infrastructure/e2e-smoke-phase2.sh` | **28/28** |
 | Phase 3 live gate | `bash infrastructure/e2e-smoke-phase3.sh` | **103/103** |
@@ -551,8 +634,10 @@ they pass on repeat runs, not only on a pristine database.
 | Phase 9 gate + DDL probe | `DDL_PROBE=1 bash infrastructure/e2e-smoke-phase9.sh` | **70/70** |
 | Phase 10 live gate | `bash infrastructure/e2e-smoke-phase10.sh` | **87/87** |
 | Phase 10 gate + DDL probe | `DDL_PROBE=1 bash infrastructure/e2e-smoke-phase10.sh` | **89/89** (both Phase 10 revisions reverse and re-apply) |
+| Phase 11 live gate | `bash infrastructure/e2e-smoke-phase11.sh` | **90/90** (five consecutive runs) |
+| Phase 11 gate + DDL probe | `DDL_PROBE=1 bash infrastructure/e2e-smoke-phase11.sh` | **91/91** (the Phase 11 revision reverses and re-applies) |
 | Migration under a live pool | `DDL_PROBE=1 bash infrastructure/e2e-smoke-phase4.sh` | **73/73** |
-| Fresh-database bootstrap | empty DB → `alembic upgrade head` → `seed_data.py` | 13 migrations apply from zero into 98 tables (12 for Phase 9); demo incident, its analysis, its reproduction, its forecasts and its remediations are derived correctly |
+| Fresh-database bootstrap | empty DB → `alembic upgrade head` → `seed_data.py` | 19 migrations apply from zero into 121 tables (11 for Phase 11); demo incident, its analysis, its reproduction, its forecasts, its remediations, its cases and its state are derived correctly |
 | Migrations reversible | `alembic upgrade head` / `downgrade -1` on PostgreSQL 16 | verified both directions |
 
 The Phase 4 gate also exercises the browser views and proves that several
@@ -560,6 +645,28 @@ projects can be analysed side by side without contaminating each other: a second
 system's evidence-free incident stays `UNKNOWN` while another project holds a
 `HIGH`-confidence analysis, and every candidate resolves to a component of the
 project being analysed.
+
+The Phase 11 gate walks the whole control plane over the real API against an
+isolated scratch project, in 18 steps: ingest → detect → correlate → derived system
+state → sweep opens a case → case timeline and transitions → the assistant's
+capability sheet and its refusal while switched off → catalog and recorded ownership
+→ objectives, evaluation and error budgets → grouped search and isolation → data
+quality → versioned configuration, ledger and rollback → feature flags →
+notifications → reports, metrics and improvement plan → platform health, readiness
+and graceful degradation → cross-project isolation → all eleven workspace pages →
+cleanup that deletes everything the run created. It fails if the pipeline produces *nothing* —
+zero components, no incident, no case — rather than reporting a pass for an empty
+run, and it asserts what ARGUS refuses: a missing project scope, a foreign
+identifier, an unknown status, an out-of-range objective target, an objective with
+no metric, a write to a scope the platform does not own.
+
+Running it against PostgreSQL found six real defects that the unit suite could not
+— two genuine deadlocks, a duplicate-key race on case references, a fatal
+reference race, a failing sweep step poisoning the pass, and concurrent detection
+colliding on the fingerprint registry — plus two frontend/API vocabulary mismatches
+(the objective form and the configuration editor offered values the API does not
+accept). All eight are fixed with regression tests; the details are in the
+[Phase 11 delivery report](docs/phase-11-report.md#defects-found-by-running-phase-11-live-and-fixed).
 
 The Phase 10 gate ingests four multi-component episodes over the real API,
 correlates them into incidents, remediates and verifies one, leaves one open,
@@ -602,7 +709,7 @@ or cleanup failure in the engine metrics.
 ```
 apps/
   api/                    FastAPI backend (async SQLAlchemy 2.0, Pydantic v2)
-    app/api/v1/routes/    REST endpoints (150 paths, 185 operations)
+    app/api/v1/routes/    REST endpoints (290 paths, 333 operations)
     app/core/             config, database, logging, dependencies
     app/models/           SQLAlchemy ORM models
     app/schemas/          request/response schemas
@@ -616,9 +723,11 @@ apps/
     app/anomalies/        anomaly center and rules
     app/reproductions/    reproduction workspace (safety gate, live run, comparison, verdict)
     app/debugger/         AI debugger workspace (sessions, analysis audit, hypotheses, conversation)
+    app/platform/         unified platform: overview, cases, catalog, objectives, changes,
+                          search, data quality, governance, reports, activity, health
     lib/                  typed API client, presentation rules, pure helpers
 infrastructure/
-  e2e-smoke-phase{1,2,3,4,5,6}.sh live end-to-end gates
+  e2e-smoke-phase{1,2,3,4,5,6,7,8,9,10,11}.sh live end-to-end gates
   graph-benchmark.py            graph performance benchmark
   anomaly-benchmark.py          detection/correlation benchmark
 docs/                     architecture, data model, per-phase design + reports
@@ -695,9 +804,18 @@ Proposal → Safety → Policy → Approval | Autonomous authority
         → Execution → Verification → Rollback if required → Audit
 ```
 
+The unified platform (Phase 11) adds observability and orchestration without adding
+capability: its own overview endpoint states the control-plane boundary in the
+payload, the workflow reaches `AUTHORIZED` only through Phase 9's gates, governance
+refuses to write any scope the platform does not own, secrets are redacted before
+they can round-trip, and dashboard content is treated as *data* — never as an
+instruction to the assistant or to any service.
+
 See [docs/architecture.md](docs/architecture.md) for the full boundary and trust
-model, and [docs/phase-5.md](docs/phase-5.md) §6 for the reproduction boundary
-specifically.
+model, [docs/phase-5.md](docs/phase-5.md) §6 for the reproduction boundary
+specifically, and
+[docs/unified-reliability-platform.md](docs/unified-reliability-platform.md) for the
+control plane.
 
 ## API overview
 
@@ -719,6 +837,12 @@ All endpoints are versioned under `/api/v1`; interactive documentation is at
 | Reproduction | `/incidents/{id}/reproductions`, `/reproductions`, `/reproductions/metrics`, `/reproductions/{id}/{plan,safety,status,inputs,telemetry,artifacts,comparison,validation,environment,faults,manifest,start,cancel,retry}` |
 | Remediation | `/remediation/{action-types,actions,actions/{id},proposals,assessments,policy,policy-decisions,approvals,executions,verifications,rollbacks,audit,breakers,controls,metrics,sweep,emergency-stop}` and `/incidents/{id}/remediation` |
 | Learning | `/intelligence/{health,dashboard,metrics,knowledge,knowledge/{id},knowledge/{id}/versions,knowledge/{id}/review,patterns,patterns/{id},experiences,experiences/{id},relationships,components/{id}/profile,remediation-effectiveness,remediation-effectiveness/compare,recommendations,recommendations/{id},recommendations/{id}/decide,recommendations/{id}/outcome,incidents/{id}/recommendations,learning-runs,learning-runs/{id},sweep,event-hooks,experiments,search}` |
+| Platform control plane | `/platform/{overview,state,state/recompute,state/components/{id}/history,live,health,readiness,dependencies,metrics,activity,engineering,context,projects,environments/compare,dependencies,story/{correlation_id},sweep}` |
+| Cases & workflow | `/platform/cases`, `/platform/cases/{id}`, `/platform/cases/{id}/{status,story,ask}`, `/platform/case-assistant` |
+| Service catalog & ownership | `/platform/services`, `/platform/services/{id}`, `/platform/services/{id}/{blast-radius,ownership}` |
+| Objectives & changes | `/platform/{slo,slo/evaluate,slo/{id},slo/{id}/error-budget,changes,changes/risk,changes/failure-rate}` |
+| Search & data quality | `/platform/{search,search/help,data-quality,data-quality/check,data-quality/{id}/status}` |
+| Governance & reports | `/platform/{configuration,configuration/rollback,feature-flags,integrations,notifications,notifications/{id}/read,reports,improvement-plan,incidents/{id}/postmortem,webhooks/{source},webhooks/requirements}` |
 | Ops | `/health/{live,ready,dependencies}`, `/metrics` |
 
 List endpoints share one pagination contract:
@@ -798,6 +922,27 @@ useless:
 - **A learned relationship is not a dependency.** It says two components failed
   together; where the evidence has no direction, the relationship stays
   undirected, and it never writes to the declared dependency or graph tables.
+- **Unified state is derived, so it is as good as its inputs.** A `DEGRADED`
+  component is degraded *according to stored telemetry*; where nothing was
+  instrumented the state is `UNKNOWN`, which means a quiet system and an unobserved
+  one look alike unless you read the evidence coverage.
+- **A case is an index, not an answer.** It gathers what the phases concluded; if
+  Phase 4 declined to name a root cause, the case shows the decline.
+- **Phase 11 unifies surfaces, not reasoning.** Two projects are still separate
+  causal universes, knowledge still does not pool across them, and cross-project
+  intelligence ships off.
+- **The case assistant is an explainer, off by default.** No decision path consults
+  it, it cannot change state, policy or lessons, and it answers only from one case's
+  stored rows.
+- **Notifications are in-app by default.** `EMAIL` and `WEBHOOK` exist as channels a
+  deployment must configure and test; nothing pages anyone out of the box.
+- **Workflow deadlines are wall-clock.** A run whose evidence has not arrived stops
+  at the configured deadline and says so — honest, but a slow upstream phase becomes
+  a stopped run.
+- **Sweep throughput is a deployment concern.** Writers are serialised per project
+  and sweeps iterate in a fixed order, so a very large project count wants a
+  deliberately raised batch size rather than an expectation that one pass finishes
+  everything.
 
 ## Roadmap
 
@@ -807,6 +952,8 @@ useless:
 | 7 | ✅ Automated Fix Generation & Verification — candidates verified in isolation, never auto-applied |
 | 8 | ✅ Predictive Reliability — evidence-backed forecasts, evaluation, backtesting, drift, warnings |
 | 9 | ✅ Safe Autonomous Remediation — registry-gated proposals, approval or policy-scoped autonomy, verification, rollback, audit |
+| 10 | ✅ Reliability Intelligence & Autonomous Learning — experiences, nine miners, validated versioned knowledge, grounded search, recommendations |
+| 11 | ✅ Unified Reliability Platform — derived system state, reliability cases, evidence-gated workflow, SLOs & budgets, governance, search, platform health |
 | 10 | ✅ Reliability Intelligence & Autonomous Learning — normalized experiences, nine miners, validation, versioned knowledge, human review, grounded advice |
 | 11 | Full product surface — reliability command center across projects, orgs and teams; enhanced UI, reporting, insights |
 

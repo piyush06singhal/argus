@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.anomaly import (
     Anomaly,
     AnomalyBaseline,
+    AnomalyFingerprint,
     AnomalyObservation,
     AnomalyRule,
     AnomalySeverity,
@@ -886,3 +887,93 @@ class TestExactScopeIsolation:
         )
         assert result.anomalies_opened == 0
         assert await _count_anomalies(db_session) == 0
+
+
+class TestConcurrentDetection:
+    """Two detectors, one sample, one fingerprint row.
+
+    Detection runs in two places at once: an explicit ``/anomalies/detect`` call
+    and the background sweep that evaluates every active project. Both can reach
+    the same sample with no registry row yet, and both then insert the same
+    ``(project_id, fingerprint)``. The loser used to fail the whole request with
+    an ``IntegrityError`` — a live platform run showed it as a 500 on detection.
+
+    The claim is therefore atomic: a lost insert is retried as an *adoption* of
+    the rival's row, and when that row is still uncommitted (invisible to this
+    session) nothing is opened on a guess.
+    """
+
+    async def test_claiming_a_taken_fingerprint_adopts_the_existing_row(
+        self, db_session: AsyncSession
+    ) -> None:
+        project_id, prod_id, component_id = await _seed(db_session)
+        taken = AnomalyFingerprint(
+            project_id=project_id,
+            environment_id=prod_id,
+            component_id=component_id,
+            fingerprint="fingerprint-owned-by-the-rival",
+            anomaly_type=AnomalyType.METRIC_THRESHOLD,
+            anomaly_id=None,
+            occurrence_count=0,
+            first_seen_at=NOW,
+            last_seen_at=NOW,
+        )
+        db_session.add(taken)
+        await db_session.flush()
+
+        claimed = await AnomalyDetectionService(db_session, now=NOW)._claim_registry(
+            project_id=project_id,
+            environment_id=prod_id,
+            component_id=component_id,
+            fingerprint="fingerprint-owned-by-the-rival",
+            anomaly_type=AnomalyType.METRIC_THRESHOLD,
+        )
+        assert claimed is not None and claimed.id == taken.id
+        assert await _count_registries(db_session) == 1
+
+    async def test_an_uncommitted_rival_neither_fails_nor_invents_a_state(
+        self, db_session: AsyncSession, monkeypatch
+    ) -> None:
+        project_id, prod_id, component_id = await _seed(db_session)
+        taken = AnomalyFingerprint(
+            project_id=project_id,
+            environment_id=prod_id,
+            component_id=component_id,
+            fingerprint="fingerprint-in-flight",
+            anomaly_type=AnomalyType.METRIC_THRESHOLD,
+            anomaly_id=None,
+            occurrence_count=0,
+            first_seen_at=NOW,
+            last_seen_at=NOW,
+        )
+        db_session.add(taken)
+        await db_session.flush()
+
+        service = AnomalyDetectionService(db_session, now=NOW)
+
+        async def invisible(project_id_arg, fingerprint_arg):
+            """What a rival's uncommitted row looks like from this session."""
+            return None
+
+        monkeypatch.setattr(service, "_fingerprint_row", invisible)
+
+        claimed = await service._claim_registry(
+            project_id=project_id,
+            environment_id=prod_id,
+            component_id=component_id,
+            fingerprint="fingerprint-in-flight",
+            anomaly_type=AnomalyType.METRIC_THRESHOLD,
+        )
+        #: No exception, no second row, and no fabricated state: the caller is
+        #: told it cannot count this cycle rather than being handed a lie.
+        assert claimed is None
+        assert await _count_registries(db_session) == 1
+        #: And the savepoint held the damage: the transaction is still usable.
+        assert await db_session.scalar(select(Anomaly)) is None
+
+
+async def _count_registries(db_session: AsyncSession) -> int:
+    return int(
+        await db_session.scalar(select(func.count()).select_from(AnomalyFingerprint))
+        or 0
+    )

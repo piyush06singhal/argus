@@ -3242,6 +3242,520 @@ export const api = {
       }force=${force ? 'true' : 'false'}`,
       { method: 'POST' }
     ),
+
+  // -------------------------------------------------------------------------
+  // Phase 11 — unified reliability platform
+  // -------------------------------------------------------------------------
+
+  platformProjects: () => apiFetch<PlatformProjectCard[]>('/api/v1/platform/projects'),
+
+  platformOverview: (projectId: string, environmentId?: string) =>
+    apiFetch<OverviewResponse>(
+      `/api/v1/platform/overview?${toQuery({
+        project_id: projectId,
+        environment_id: environmentId,
+      })}`
+    ),
+
+  platformEngineering: (projectId: string) =>
+    apiFetch<Record<string, unknown>>(
+      `/api/v1/platform/engineering?${toQuery({ project_id: projectId })}`
+    ),
+
+  platformActivity: (
+    projectId: string,
+    options: { eventType?: string; limit?: number; offset?: number } = {}
+  ) =>
+    apiFetch<ActivityResponse>(
+      `/api/v1/platform/activity?${toQuery({
+        project_id: projectId,
+        event_type: options.eventType,
+        limit: options.limit,
+        offset: options.offset,
+      })}`
+    ),
+
+  platformStory: (correlationId: string) =>
+    apiFetch<StoryResponse>(
+      `/api/v1/platform/story/${encodeURIComponent(correlationId)}`
+    ),
+
+  platformState: (
+    projectId: string,
+    options: { environmentId?: string; include?: string } = {}
+  ) =>
+    apiFetch<SystemStateResponse>(
+      `/api/v1/platform/state?${toQuery({
+        project_id: projectId,
+        environment_id: options.environmentId,
+        include: options.include,
+      })}`
+    ),
+
+  platformRecomputeState: (projectId: string, environmentId?: string) =>
+    apiFetch<SystemStateResponse>(
+      `/api/v1/platform/state/recompute?${toQuery({
+        project_id: projectId,
+        environment_id: environmentId,
+      })}`,
+      { method: 'POST' }
+    ),
+
+  platformComponentStateHistory: (
+    componentId: string,
+    projectId: string,
+    days = 30
+  ) =>
+    apiFetch<StateHistoryResponse>(
+      `/api/v1/platform/state/components/${encodeURIComponent(
+        componentId
+      )}/history?${toQuery({ project_id: projectId, days })}`
+    ),
+
+  platformContext: (
+    projectId: string,
+    options: { componentId?: string; incidentId?: string } = {}
+  ) =>
+    apiFetch<ContextResponse>(
+      `/api/v1/platform/context?${toQuery({
+        project_id: projectId,
+        component_id: options.componentId,
+        incident_id: options.incidentId,
+      })}`
+    ),
+
+  platformSnapshotContext: (params: {
+    projectId: string;
+    incidentId?: string;
+    componentId?: string;
+    caseId?: string;
+    includeState?: boolean;
+    actor?: string;
+  }) =>
+    apiFetch<ContextSnapshotResponse>(
+      `/api/v1/platform/context/snapshots?${toQuery({
+        project_id: params.projectId,
+        incident_id: params.incidentId,
+        component_id: params.componentId,
+        case_id: params.caseId,
+        include_state: params.includeState,
+        actor: params.actor,
+      })}`,
+      { method: 'POST' }
+    ),
+
+  platformCases: (
+    projectId: string,
+    options: {
+      status?: string;
+      environmentId?: string;
+      limit?: number;
+      offset?: number;
+    } = {}
+  ) =>
+    apiFetch<CaseListResponse>(
+      `/api/v1/platform/cases?${toQuery({
+        project_id: projectId,
+        status: options.status,
+        environment_id: options.environmentId,
+        limit: options.limit,
+        offset: options.offset,
+      })}`
+    ),
+
+  platformOpenCase: (params: {
+    projectId: string;
+    title: string;
+    trigger?: string;
+    componentId?: string;
+    environmentId?: string;
+    summary?: string;
+    actor?: string;
+  }) =>
+    apiFetch<CaseSummary>(
+      `/api/v1/platform/cases?${toQuery({
+        project_id: params.projectId,
+        title: params.title,
+        trigger: params.trigger,
+        component_id: params.componentId,
+        environment_id: params.environmentId,
+        summary: params.summary,
+        actor: params.actor,
+      })}`,
+      { method: 'POST' }
+    ),
+
+  platformCase: (
+    caseId: string,
+    projectId: string,
+    includeEvidence = false
+  ) =>
+    apiFetch<CaseDetailResponse>(
+      `/api/v1/platform/cases/${encodeURIComponent(caseId)}?${toQuery({
+        project_id: projectId,
+        include_evidence: includeEvidence,
+      })}`
+    ),
+
+  platformCaseStatus: (params: {
+    caseId: string;
+    projectId: string;
+    status: string;
+    reason?: string;
+    actor?: string;
+  }) =>
+    apiFetch<CaseSummary>(
+      `/api/v1/platform/cases/${encodeURIComponent(
+        params.caseId
+      )}/status?${toQuery({ project_id: params.projectId })}`,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          status: params.status,
+          reason: params.reason,
+          actor: params.actor,
+        }),
+      }
+    ),
+
+  platformCaseAsk: (params: {
+    caseId: string;
+    projectId: string;
+    question: string;
+    includeEvidence?: boolean;
+  }) =>
+    apiFetch<AssistantAnswerResponse>(
+      `/api/v1/platform/cases/${encodeURIComponent(
+        params.caseId
+      )}/ask?${toQuery({ project_id: params.projectId })}`,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          question: params.question,
+          include_evidence: params.includeEvidence ?? false,
+        }),
+      }
+    ),
+
+  platformCaseStory: (caseId: string, projectId: string) =>
+    apiFetch<StoryResponse>(
+      `/api/v1/platform/cases/${encodeURIComponent(caseId)}/story?${toQuery({
+        project_id: projectId,
+      })}`
+    ),
+
+  platformSearch: (params: {
+    projectId: string;
+    query: string;
+    kind?: string;
+    environmentId?: string;
+    limit?: number;
+  }) =>
+    apiFetch<SearchResponse>(
+      `/api/v1/platform/search?${toQuery({
+        project_id: params.projectId,
+        q: params.query,
+        kind: params.kind,
+        environment_id: params.environmentId,
+        limit: params.limit,
+      })}`
+    ),
+
+  platformSearchHelp: () =>
+    apiFetch<SearchHelpResponse>('/api/v1/platform/search/help'),
+
+  platformServices: (projectId: string, environmentId?: string) =>
+    apiFetch<CatalogListResponse>(
+      `/api/v1/platform/services?${toQuery({
+        project_id: projectId,
+        environment_id: environmentId,
+      })}`
+    ),
+
+  platformService: (componentId: string, projectId: string, windowDays = 30) =>
+    apiFetch<CatalogEntryResponse>(
+      `/api/v1/platform/services/${encodeURIComponent(
+        componentId
+      )}?${toQuery({ project_id: projectId, window_days: windowDays })}`
+    ),
+
+  platformSetOwnership: (params: {
+    componentId: string;
+    projectId: string;
+    team: string;
+    ownerName?: string;
+    contactEmail?: string;
+    repositoryOwner?: string;
+    onCall?: string;
+    documentationUrl?: string;
+    actor?: string;
+  }) =>
+    apiFetch<Record<string, unknown>>(
+      `/api/v1/platform/services/${encodeURIComponent(
+        params.componentId
+      )}/ownership?${toQuery({ project_id: params.projectId })}`,
+      {
+        method: 'PUT',
+        body: JSON.stringify({
+          team: params.team,
+          owner_name: params.ownerName,
+          contact_email: params.contactEmail,
+          repository_owner: params.repositoryOwner,
+          on_call: params.onCall,
+          documentation_url: params.documentationUrl,
+          actor: params.actor,
+        }),
+      }
+    ),
+
+  platformBlastRadius: (componentId: string, projectId: string, maxHops = 2) =>
+    apiFetch<Record<string, unknown>>(
+      `/api/v1/platform/services/${encodeURIComponent(
+        componentId
+      )}/blast-radius?${toQuery({ project_id: projectId, max_hops: maxHops })}`
+    ),
+
+  platformSlo: (projectId: string) =>
+    apiFetch<SloOverviewResponse>(
+      `/api/v1/platform/slo?${toQuery({ project_id: projectId })}`
+    ),
+
+  platformCreateSlo: (projectId: string, payload: SloCreateRequest) =>
+    apiFetch<Record<string, unknown>>(
+      `/api/v1/platform/slo?${toQuery({ project_id: projectId })}`,
+      {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      }
+    ),
+
+  platformEvaluateSlo: (projectId: string, sloId?: string) =>
+    apiFetch<SloEvaluationResponse | SloEvaluationResponse[]>(
+      `/api/v1/platform/slo/evaluate?${toQuery({
+        project_id: projectId,
+        slo_id: sloId,
+      })}`,
+      { method: 'POST' }
+    ),
+
+  platformSloDetail: (sloId: string, projectId: string) =>
+    apiFetch<SloEvaluationResponse>(
+      `/api/v1/platform/slo/${encodeURIComponent(sloId)}?${toQuery({
+        project_id: projectId,
+      })}`
+    ),
+
+  platformErrorBudget: (sloId: string, projectId: string, limit = 50) =>
+    apiFetch<ErrorBudgetResponse>(
+      `/api/v1/platform/slo/${encodeURIComponent(
+        sloId
+      )}/error-budget?${toQuery({ project_id: projectId, limit })}`
+    ),
+
+  platformChanges: (
+    projectId: string,
+    options: { environmentId?: string; days?: number; limit?: number } = {}
+  ) =>
+    apiFetch<ChangeListResponse>(
+      `/api/v1/platform/changes?${toQuery({
+        project_id: projectId,
+        environment_id: options.environmentId,
+        days: options.days,
+        limit: options.limit,
+      })}`
+    ),
+
+  platformChangeRisk: (projectId: string, deploymentId: string) =>
+    apiFetch<Record<string, unknown>>(
+      `/api/v1/platform/changes/risk?${toQuery({
+        project_id: projectId,
+        deployment_id: deploymentId,
+      })}`
+    ),
+
+  platformChangeFailureRate: (projectId: string, days?: number) =>
+    apiFetch<ChangeFailureRateResponse>(
+      `/api/v1/platform/changes/failure-rate?${toQuery({
+        project_id: projectId,
+        days,
+      })}`
+    ),
+
+  platformCompareEnvironments: (
+    projectId: string,
+    left: string,
+    right: string
+  ) =>
+    apiFetch<EnvironmentComparisonResponse>(
+      `/api/v1/platform/environments/compare?${toQuery({
+        project_id: projectId,
+        left,
+        right,
+      })}`
+    ),
+
+  platformHealth: () =>
+    apiFetch<PlatformHealthResponse>('/api/v1/platform/health'),
+
+  platformReadiness: () =>
+    apiFetch<ReadinessResponse>('/api/v1/platform/readiness'),
+
+  platformDependencies: () =>
+    apiFetch<DependencyHealthResponse>('/api/v1/platform/dependencies'),
+
+  platformLive: () => apiFetch<Record<string, unknown>>('/api/v1/platform/live'),
+
+  platformDataQuality: (
+    projectId: string,
+    options: { status?: string; limit?: number } = {}
+  ) =>
+    apiFetch<DataQualityResponse>(
+      `/api/v1/platform/data-quality?${toQuery({
+        project_id: projectId,
+        status: options.status,
+        limit: options.limit,
+      })}`
+    ),
+
+  platformDataQualityCheck: (projectId: string, persist = true) =>
+    apiFetch<DataQualityCheckResponse>(
+      `/api/v1/platform/data-quality/check?${toQuery({
+        project_id: projectId,
+        persist,
+      })}`,
+      { method: 'POST' }
+    ),
+
+  platformDataQualityStatus: (params: {
+    issueId: string;
+    projectId: string;
+    status: string;
+    actor?: string;
+  }) =>
+    apiFetch<Record<string, unknown>>(
+      `/api/v1/platform/data-quality/${encodeURIComponent(
+        params.issueId
+      )}/status?${toQuery({ project_id: params.projectId })}`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ status: params.status, actor: params.actor }),
+      }
+    ),
+
+  platformConfiguration: (projectId: string) =>
+    apiFetch<ConfigurationResponse>(
+      `/api/v1/platform/configuration?${toQuery({ project_id: projectId })}`
+    ),
+
+  platformWriteConfiguration: (
+    projectId: string,
+    payload: ConfigurationUpdateRequest
+  ) =>
+    apiFetch<Record<string, unknown>>(
+      `/api/v1/platform/configuration?${toQuery({ project_id: projectId })}`,
+      { method: 'POST', body: JSON.stringify(payload) }
+    ),
+
+  platformRollbackConfiguration: (
+    projectId: string,
+    payload: ConfigurationRollbackRequest
+  ) =>
+    apiFetch<Record<string, unknown>>(
+      `/api/v1/platform/configuration/rollback?${toQuery({
+        project_id: projectId,
+      })}`,
+      { method: 'POST', body: JSON.stringify(payload) }
+    ),
+
+  platformFeatureFlags: (projectId: string) =>
+    apiFetch<FeatureFlagsResponse>(
+      `/api/v1/platform/feature-flags?${toQuery({ project_id: projectId })}`
+    ),
+
+  platformNotifications: (
+    projectId: string,
+    options: { status?: string; limit?: number } = {}
+  ) =>
+    apiFetch<NotificationListResponse>(
+      `/api/v1/platform/notifications?${toQuery({
+        project_id: projectId,
+        status: options.status,
+        limit: options.limit,
+      })}`
+    ),
+
+  platformReadNotification: (params: {
+    notificationId: string;
+    projectId: string;
+    actor?: string;
+    acknowledge?: boolean;
+  }) =>
+    apiFetch<Record<string, unknown>>(
+      `/api/v1/platform/notifications/${encodeURIComponent(
+        params.notificationId
+      )}/read?${toQuery({ project_id: params.projectId })}`,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          actor: params.actor,
+          acknowledge: params.acknowledge ?? false,
+        }),
+      }
+    ),
+
+  platformReport: (
+    projectId: string,
+    options: { kind?: string; days?: number; format?: string } = {}
+  ) =>
+    apiFetch<ReportResponse>(
+      `/api/v1/platform/reports?${toQuery({
+        project_id: projectId,
+        kind: options.kind,
+        days: options.days,
+        format: options.format,
+      })}`
+    ),
+
+  platformPostmortem: (
+    incidentId: string,
+    projectId: string,
+    draftNarrative = false
+  ) =>
+    apiFetch<PostmortemResponse>(
+      `/api/v1/platform/incidents/${encodeURIComponent(
+        incidentId
+      )}/postmortem?${toQuery({
+        project_id: projectId,
+        draft_narrative: draftNarrative,
+      })}`
+    ),
+
+  platformImprovementPlan: (projectId: string, days = 30) =>
+    apiFetch<ImprovementPlanResponse>(
+      `/api/v1/platform/improvement-plan?${toQuery({
+        project_id: projectId,
+        days,
+      })}`
+    ),
+
+  platformMetrics: (projectId: string, days = 30) =>
+    apiFetch<PlatformMetricsResponse>(
+      `/api/v1/platform/metrics?${toQuery({ project_id: projectId, days })}`
+    ),
+
+  platformIntegrations: () =>
+    apiFetch<IntegrationRegistryResponse>('/api/v1/platform/integrations'),
+
+  platformWebhookRequirements: () =>
+    apiFetch<WebhookRequirementsResponse>(
+      '/api/v1/platform/webhooks/requirements'
+    ),
+
+  platformSweep: (projectId?: string) =>
+    apiFetch<Record<string, unknown>>(
+      `/api/v1/platform/sweep${scopeQuery(projectId)}`,
+      { method: 'POST' }
+    ),
 };
 
 // ---------------------------------------------------------------------------
@@ -5523,4 +6037,677 @@ export interface IntelligenceMetrics {
   recommendations_by_status: Record<string, number>;
   recommendations_decided: number;
   recommendation_success_rate?: number | null;
+}
+
+// ---------------------------------------------------------------------------
+// Phase 11 — unified reliability platform
+//
+// The response shapes mirror the backend §68–§71 schemas: a derived number
+// always arrives with its provenance, and every list of facts carries the
+// limitations that produced it.
+// ---------------------------------------------------------------------------
+
+export interface PlatformProjectCard {
+  project_id: string;
+  name: string;
+  status: string;
+  open_cases: number;
+  open_data_quality_issues: number;
+}
+
+export interface PlatformErrorResponse {
+  code: string;
+  message: string;
+  details?: Record<string, unknown> | null;
+  request_id?: string | null;
+  timestamp: string;
+  trace_exposed: boolean;
+}
+
+// -- §2–§5 system state ------------------------------------------------------
+
+export interface ComponentStateItem {
+  id: string;
+  name: string;
+  component_type: string;
+  environment_id?: string | null;
+  state: string;
+  state_reason?: string | null;
+  state_evidence: Record<string, unknown>;
+}
+
+export interface DependencyItem {
+  id: string;
+  source_component_id: string;
+  source_name?: string | null;
+  target_component_id: string;
+  target_name?: string | null;
+  dependency_type: string;
+}
+
+export interface StateCounts {
+  INCIDENT: number;
+  RECOVERING: number;
+  DEGRADED: number;
+  AT_RISK: number;
+  HEALTHY: number;
+  UNKNOWN: number;
+}
+
+export interface SystemHealthSummary {
+  components_total: number;
+  components_with_evidence: number;
+  components_unknown: number;
+  state_counts: Record<string, number>;
+  coverage_percent: number;
+}
+
+export interface SystemStateResponse {
+  project_id: string;
+  environment_id?: string | null;
+  as_of: string;
+  components: ComponentStateItem[];
+  dependencies: DependencyItem[];
+  health: SystemHealthSummary;
+  state_counts: Record<string, number>;
+  active_anomalies: Array<Record<string, unknown>>;
+  active_incidents: Array<Record<string, unknown>>;
+  predicted_risks: Array<Record<string, unknown>>;
+  recent_changes: Array<Record<string, unknown>>;
+  active_remediations: Array<Record<string, unknown>>;
+  reliability_patterns: Array<Record<string, unknown>>;
+  data_quality: Record<string, unknown>;
+  limitations: string[];
+}
+
+export interface StateTransitionItem {
+  id: string;
+  component_id: string;
+  previous_state?: string | null;
+  new_state: string;
+  trigger: string;
+  reason?: string | null;
+  evidence?: Record<string, unknown> | null;
+  source: string;
+  occurred_at: string;
+}
+
+export interface StateHistoryResponse {
+  component_id: string;
+  transitions: StateTransitionItem[];
+  as_of_state?: string | null;
+  note: string;
+}
+
+// -- §7, §8 context ----------------------------------------------------------
+
+export interface ContextSnapshotResponse {
+  id: string;
+  project_id: string;
+  scope: string;
+  fingerprint: string;
+  as_of: string;
+  snapshot: Record<string, unknown>;
+  created_by?: string | null;
+  created_at: string;
+}
+
+export interface ContextResponse {
+  references: Record<string, unknown>;
+  description?: string | null;
+  attributes: Record<string, unknown>;
+  unavailable: Record<string, string>;
+  fingerprint: string;
+}
+
+// -- §14–§16 cases -----------------------------------------------------------
+
+export interface CaseSummary {
+  id: string;
+  reference: string;
+  title: string;
+  summary?: string | null;
+  status: string;
+  trigger: string;
+  severity?: string | null;
+  project_id: string;
+  environment_id?: string | null;
+  primary_component_id?: string | null;
+  component_ids: string[];
+  incident_id?: string | null;
+  opened_at: string;
+  closed_at?: string | null;
+  opened_by?: string | null;
+  duration_seconds?: number | null;
+  timeline_entries: number;
+  last_event_at?: string | null;
+  allowed_transitions: string[];
+}
+
+export interface TimelineEntryItem {
+  sequence: number;
+  occurred_at: string;
+  kind: string;
+  event_type: string;
+  title: string;
+  detail?: string | null;
+  component_id?: string | null;
+  source: string;
+  evidence?: Record<string, unknown> | null;
+  actor?: string | null;
+  system_action: boolean;
+  result?: string | null;
+}
+
+export interface CaseListResponse {
+  cases: CaseSummary[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+export interface CaseDetailResponse {
+  case: CaseSummary;
+  timeline: TimelineEntryItem[];
+  evidence: Record<string, unknown>;
+  workflows: Array<Record<string, unknown>>;
+  state: Record<string, unknown>;
+  notes: string[];
+}
+
+export interface CaseStatusChangeRequest {
+  status: string;
+  reason?: string;
+  actor?: string;
+}
+
+// -- §27, §28 case assistant -------------------------------------------------
+
+export interface AssistantQuestionRequest {
+  question: string;
+  include_evidence?: boolean;
+}
+
+export interface CitationItem {
+  kind: string;
+  source: string;
+  row_id: string;
+  label: string;
+  detail?: string | null;
+}
+
+export interface AssistantAnswerResponse {
+  question: string;
+  intent: string;
+  answer: string;
+  confidence: number;
+  confidence_reason: string;
+  citations: CitationItem[];
+  unknowns: string[];
+  narrator?: string | null;
+  grounding: Record<string, unknown>;
+  evidence?: Record<string, unknown> | null;
+}
+
+// -- §19–§25 dashboard -------------------------------------------------------
+
+export interface OverviewResponse {
+  project_id: string;
+  as_of: string;
+  executive_summary: Record<string, unknown>;
+  health: Record<string, unknown>;
+  state_counts: Record<string, number>;
+  active_incidents: Array<Record<string, unknown>>;
+  predicted_risks: Array<Record<string, unknown>>;
+  active_remediations: Array<Record<string, unknown>>;
+  recent_changes: Array<Record<string, unknown>>;
+  top_risky_components: Array<Record<string, unknown>>;
+  recent_recoveries: Array<Record<string, unknown>>;
+  learning_insights: Record<string, unknown>;
+  argus_health: Record<string, unknown>;
+  data_quality: Record<string, unknown>;
+  open_cases: Array<Record<string, unknown>>;
+  slo: Record<string, unknown>;
+  limitations: string[];
+}
+
+export interface ActivityItem {
+  id: string;
+  event_type: string;
+  title: string;
+  source: string;
+  occurred_at: string;
+  subject_type?: string | null;
+  subject_id?: string | null;
+  component_id?: string | null;
+  case_id?: string | null;
+  correlation_id?: string | null;
+  link?: string | null;
+  payload?: Record<string, unknown> | null;
+  processed: boolean;
+}
+
+export interface ActivityResponse {
+  items: ActivityItem[];
+  limit: number;
+  offset: number;
+}
+
+export interface StoryResponse {
+  correlation_id: string;
+  events: ActivityItem[];
+  stage_count: number;
+  note: string;
+}
+
+// -- §30, §31 service catalog ------------------------------------------------
+
+export interface CatalogEntryResponse {
+  component_id: string;
+  name: string;
+  component_type: string;
+  environment_id?: string | null;
+  environment_name?: string | null;
+  owner: Record<string, unknown>;
+  dependencies: Array<Record<string, unknown>>;
+  dependents: Array<Record<string, unknown>>;
+  endpoints: Array<Record<string, unknown>>;
+  state: string;
+  state_reason?: string | null;
+  available?: boolean | null;
+  metrics: Record<string, unknown>;
+  risk: Record<string, unknown>;
+  incident_history: Array<Record<string, unknown>>;
+  deployment_history: Array<Record<string, unknown>>;
+  remediation_history: Array<Record<string, unknown>>;
+  reliability_profile?: Record<string, unknown> | null;
+  scorecard?: Record<string, unknown> | null;
+  unavailable: Record<string, string>;
+  limitations: string[];
+}
+
+export interface CatalogListResponse {
+  services: CatalogEntryResponse[];
+  total: number;
+}
+
+export interface OwnershipRequest {
+  team: string;
+  owner_name?: string;
+  contact_email?: string;
+  repository_owner?: string;
+  on_call?: string;
+  documentation_url?: string;
+  actor?: string;
+}
+
+// -- §32–§35 SLOs ------------------------------------------------------------
+
+export interface SloItem {
+  slo_id: string;
+  name: string;
+  indicator: string;
+  target: number;
+  comparison: string;
+  unit?: string | null;
+  component_id?: string | null;
+  enabled: boolean;
+  status: string;
+  reading?: number | null;
+  burn_rate?: number | null;
+  burn_state?: string | null;
+  remaining_percent?: number | null;
+  computed_at?: string | null;
+  never_evaluated: boolean;
+}
+
+export interface SloOverviewResponse {
+  as_of: string;
+  objectives_total: number;
+  by_status: Record<string, number>;
+  objectives: SloItem[];
+  limitations: string[];
+}
+
+export interface SloEvaluationResponse {
+  slo_id: string;
+  name: string;
+  indicator: string;
+  window_start: string;
+  window_end: string;
+  status: string;
+  reading?: number | null;
+  target: number;
+  comparison: string;
+  sample_count: number;
+  allowed_failure?: number | null;
+  observed_failure?: number | null;
+  remaining?: number | null;
+  remaining_percent?: number | null;
+  burn_rate?: number | null;
+  burn_state: string;
+  compliance_percent?: number | null;
+  data_quality: string;
+  evidence: Record<string, unknown>;
+  limitations: string[];
+}
+
+export interface SloCreateRequest {
+  name: string;
+  indicator: string;
+  target: number;
+  comparison?: string;
+  metric_name?: string;
+  component_id?: string;
+  environment_id?: string;
+  window_seconds?: number;
+  unit?: string;
+  description?: string;
+  actor?: string;
+}
+
+export interface ErrorBudgetResponse {
+  slo_id: string;
+  name: string;
+  latest?: Record<string, unknown> | null;
+  history: Array<Record<string, unknown>>;
+  definition: string;
+}
+
+// -- §38–§41, §84 change intelligence ----------------------------------------
+
+export interface ChangeListResponse {
+  changes: Array<Record<string, unknown>>;
+  note: string;
+}
+
+export interface EnvironmentComparisonResponse {
+  project_id: string;
+  left: Record<string, unknown>;
+  right: Record<string, unknown>;
+  differences: Array<Record<string, unknown>>;
+  notes: string[];
+}
+
+export interface ChangeFailureRateResponse {
+  window_days: number;
+  deployments_total: number;
+  deployments_succeeded: number;
+  deployments_failed: number;
+  deployments_rolled_back: number;
+  deployments_with_incident: number;
+  failure_rate?: number | null;
+  methodology: string;
+  limitations: string[];
+}
+
+// -- §57–§60, §105–§107 platform health --------------------------------------
+
+export interface SubsystemHealthItem {
+  name: string;
+  status: string;
+  required: boolean;
+  optional: boolean;
+  latency_ms?: number | null;
+  detail?: string | null;
+  last_success_at?: string | null;
+  last_failure_at?: string | null;
+  queue_depth?: number | null;
+  error_rate?: number | null;
+  metrics: Record<string, unknown>;
+}
+
+export interface PlatformHealthResponse {
+  as_of: string;
+  status: string;
+  ready: boolean;
+  subsystems: SubsystemHealthItem[];
+  degraded_capabilities: string[];
+  notes: string[];
+  summary: Record<string, number>;
+}
+
+export interface ReadinessResponse {
+  ready: boolean;
+  required_subsystems: SubsystemHealthItem[];
+  optional_subsystems: SubsystemHealthItem[];
+  reason: string;
+}
+
+export interface DependencyHealthResponse {
+  as_of: string;
+  dependencies: SubsystemHealthItem[];
+  required_count: number;
+  optional_count: number;
+  graceful_degradation: Record<string, string>;
+}
+
+// -- §87–§90 data quality ----------------------------------------------------
+
+export interface DataQualityIssueItem {
+  id: string;
+  kind: string;
+  severity: string;
+  status: string;
+  subject_type: string;
+  subject_id: string;
+  component_id?: string | null;
+  title: string;
+  detail?: string | null;
+  evidence?: Record<string, unknown> | null;
+  suggestion?: string | null;
+  detected_at: string;
+  last_seen_at: string;
+  occurrence_count: number;
+}
+
+export interface DataQualityResponse {
+  summary: Record<string, unknown>;
+  issues: DataQualityIssueItem[];
+  descriptions: Record<string, string>;
+}
+
+export interface DataQualityStatusRequest {
+  status: string;
+  actor?: string;
+}
+
+/**
+ * The result of running the §87/§88 consistency checks. It reports *findings*
+ * (what the checks saw) separately from *opened/updated/resolved* (what the
+ * persistence step did with them), because a read-only run has findings and no
+ * persistence counts.
+ */
+export interface DataQualityCheckResponse {
+  checked: number;
+  findings: number;
+  by_kind: Record<string, number>;
+  opened: number;
+  updated: number;
+  resolved: number;
+  errors: string[];
+}
+
+// -- §91–§94 configuration ---------------------------------------------------
+
+export interface ConfigurationVersionItem {
+  id: string;
+  scope: string;
+  scope_id?: string | null;
+  version: number;
+  settings: Record<string, unknown>;
+  redacted_fields: string[];
+  previous_version?: number | null;
+  change_summary?: string | null;
+  changed_by?: string | null;
+  reason?: string | null;
+  rolled_back_from?: number | null;
+  created_at: string;
+}
+
+export interface ConfigurationResponse {
+  project_id: string;
+  sections: Record<string, unknown>;
+  overrides: Record<string, unknown>;
+  redacted_fields: string[];
+  notes: string[];
+  versions: ConfigurationVersionItem[];
+}
+
+export interface ConfigurationUpdateRequest {
+  scope: string;
+  settings: Record<string, unknown>;
+  scope_id?: string;
+  change_summary?: string;
+  reason?: string;
+  actor?: string;
+}
+
+export interface ConfigurationRollbackRequest {
+  scope: string;
+  target_version: number;
+  scope_id?: string;
+  actor?: string;
+  reason?: string;
+}
+
+export interface FeatureFlagsResponse {
+  flags: Record<string, boolean>;
+  reasons: Record<string, string>;
+  defaults: string;
+}
+
+// -- §53–§56 notifications ---------------------------------------------------
+
+export interface NotificationItem {
+  id: string;
+  kind: string;
+  severity: string;
+  status: string;
+  title: string;
+  body?: string | null;
+  source: string;
+  subject_type?: string | null;
+  subject_id?: string | null;
+  case_id?: string | null;
+  link?: string | null;
+  evidence?: Record<string, unknown> | null;
+  occurrence_count: number;
+  channels_attempted?: string[] | null;
+  delivery?: Record<string, unknown> | null;
+  delivered_at?: string | null;
+  read_at?: string | null;
+  acknowledged_by?: string | null;
+  created_at: string;
+}
+
+export interface NotificationListResponse {
+  notifications: NotificationItem[];
+  summary: Record<string, unknown>;
+}
+
+export interface NotificationAckRequest {
+  actor?: string;
+  acknowledge?: boolean;
+}
+
+// -- §17, §18 search ---------------------------------------------------------
+
+export interface SearchHitItem {
+  kind: string;
+  id: string;
+  title: string;
+  subtitle?: string | null;
+  status?: string | null;
+  occurred_at?: string | null;
+  component_id?: string | null;
+  route?: string | null;
+  matched_field?: string | null;
+  metadata: Record<string, unknown>;
+}
+
+export interface SearchResponse {
+  query: string;
+  total: number;
+  by_kind: Record<string, number>;
+  results: Record<string, SearchHitItem[]>;
+  filters: Record<string, unknown>;
+  notes: string[];
+}
+
+export interface SearchHelpResponse {
+  kinds: string[];
+  examples: string[];
+  filters: Record<string, string>;
+  notes: string[];
+}
+
+// -- §37, §77–§85 reports ----------------------------------------------------
+
+export interface ReportResponse {
+  kind: string;
+  window_days: number;
+  project_id: string;
+  environment_id?: string | null;
+  generated_at: string;
+  sections: Record<string, unknown>;
+  limitations: string[];
+}
+
+export interface PostmortemResponse {
+  incident_id: string;
+  title: string;
+  generated_at: string;
+  sections: Record<string, unknown>;
+  narrative?: string | null;
+  narrative_provider?: string | null;
+  narrative_unavailable_reason?: string | null;
+  unknowns: string[];
+  follow_up_actions: Array<Record<string, unknown>>;
+  note: string;
+}
+
+export interface ImprovementPlanResponse {
+  window_days: number;
+  items: Array<Record<string, unknown>>;
+  criteria: string;
+  note: string;
+  truncated: boolean;
+}
+
+// -- §51–§53 integrations ----------------------------------------------------
+
+export interface IntegrationRegistryResponse {
+  providers: Record<string, unknown>;
+  note: string;
+}
+
+export interface WebhookRequirementsResponse {
+  headers: Record<string, string>;
+  requirements: string[];
+  rejections: string[];
+}
+
+export interface WebhookReceiptResponse {
+  accepted: boolean;
+  event_type?: string | null;
+  delivery_id?: string | null;
+  fingerprint?: string | null;
+  idempotent_replay: boolean;
+  reason?: string | null;
+  code?: string | null;
+  payload_summary: Record<string, unknown>;
+}
+
+// §73–§76, §85 engineering metrics return a free-form dict on the backend; the
+// fields the UI reads are typed here rather than the whole shape being invented.
+export interface PlatformMetricsResponse {
+  mttd?: Record<string, unknown>;
+  mttr?: Record<string, unknown>;
+  workflows?: Record<string, unknown>;
+  trends?: Record<string, unknown>;
+  change_failure?: Record<string, unknown>;
+  scorecards?: Array<Record<string, unknown>>;
+  limitations?: string[];
+  [key: string]: unknown;
 }

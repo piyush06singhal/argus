@@ -530,3 +530,12 @@ class ComponentOwner(BaseModel):
     owner_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     contact_email: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     repository_owner: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    #: Phase 11 §31 — the on-call group and the documentation link. Real columns
+    #: rather than keys in a JSON blob: the catalog filters and displays both, and
+    #: "which services have no on-call rota" is a question a blob cannot answer.
+    #: NULL means *unknown*, which the catalog renders as ``UNKNOWN`` — ARGUS never
+    #: infers an owner from repository or commit data (§31).
+    on_call: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    documentation_url: Mapped[Optional[str]] = mapped_column(
+        String(1024), nullable=True
+    )

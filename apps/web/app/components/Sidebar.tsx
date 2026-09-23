@@ -10,6 +10,17 @@ interface NavItem {
 
 const NAV_ITEMS: NavItem[] = [
   { href: '/', label: 'Dashboard' },
+  { href: '/platform', label: 'Platform Overview' },
+  { href: '/platform/cases', label: 'Reliability Cases' },
+  { href: '/platform/services', label: 'Service Catalog' },
+  { href: '/platform/slo', label: 'SLO & Reliability' },
+  { href: '/platform/changes', label: 'Changes' },
+  { href: '/platform/search', label: 'Global Search' },
+  { href: '/platform/reports', label: 'Reports' },
+  { href: '/platform/data-quality', label: 'Data Quality' },
+  { href: '/platform/governance', label: 'Governance' },
+  { href: '/platform/activity', label: 'Activity' },
+  { href: '/platform/health', label: 'Platform Health' },
   { href: '/projects', label: 'Projects' },
   { href: '/system-map', label: 'System Map' },
   { href: '/incidents', label: 'Incidents' },

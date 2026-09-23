@@ -30,6 +30,7 @@ from datetime import datetime, timedelta
 from typing import Any, Optional, Sequence
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
@@ -887,18 +888,18 @@ class AnomalyDetectionService(AnomalyDetector):
             if registry is None:
                 # Track the pending candidate before an anomaly exists, so the
                 # cycle counter survives between runs.
-                registry = AnomalyFingerprint(
+                registry = await self._claim_registry(
                     project_id=project_id,
                     environment_id=environment_id,
                     component_id=evaluation.component_id,
                     fingerprint=fingerprint,
                     anomaly_type=evaluation.anomaly_type,
-                    anomaly_id=None,
-                    occurrence_count=0,
-                    first_seen_at=self._now,
-                    last_seen_at=self._now,
                 )
-                self._session.add(registry)
+                if registry is None:
+                    # The rival's row exists but is not readable yet (it is
+                    # uncommitted), so this evaluation cannot count its cycle.
+                    # Returning zero is honest: nothing was opened or updated.
+                    return (0, 0, 0, 0)
             registry.metadata_ = {
                 **(registry.metadata_ or {}),
                 "consecutive_fires": consecutive,
@@ -936,7 +937,7 @@ class AnomalyDetectionService(AnomalyDetector):
             if is_new_cycle and cooldown_elapsed:
                 self._add_observation(existing, evaluation, project_id, environment_id)
                 observed = 1
-            self._touch_registry(registry, existing, evaluation)
+            await self._touch_registry(registry, existing, evaluation)
             return (0, 1, 1 if existing.suppressed else 0, observed)
 
         # Open a new anomaly.
@@ -985,7 +986,9 @@ class AnomalyDetectionService(AnomalyDetector):
         self._session.add(anomaly)
         await self._session.flush()
         self._add_observation(anomaly, evaluation, project_id, environment_id)
-        self._touch_registry(registry, anomaly, evaluation, project_id, fingerprint)
+        await self._touch_registry(
+            registry, anomaly, evaluation, project_id, fingerprint
+        )
         return (1, 0, 1 if anomaly.suppressed else 0, 1)
 
     async def _fingerprint_row(
@@ -996,6 +999,48 @@ class AnomalyDetectionService(AnomalyDetector):
             AnomalyFingerprint.fingerprint == fingerprint,
         )
         return (await self._session.execute(stmt)).scalar_one_or_none()
+
+    async def _claim_registry(
+        self,
+        *,
+        project_id: uuid.UUID,
+        environment_id: Optional[uuid.UUID],
+        component_id: Optional[uuid.UUID],
+        fingerprint: str,
+        anomaly_type: Any,
+    ) -> Optional[AnomalyFingerprint]:
+        """Create the pending fingerprint registry row, or adopt the rival's.
+
+        Detection runs in two places at once: an explicit ``/anomalies/detect``
+        call and the background sweep that evaluates every active project. Both
+        can reach the same sample with no registry row yet, and both then insert
+        the same ``(project_id, fingerprint)`` — the loser used to fail the whole
+        request with an ``IntegrityError``, which a live run showed as a 500 on
+        detection.
+
+        A savepoint makes the insert atomic: on conflict the rival's row is
+        re-read, so the two detectors *share* one registry instead of one of them
+        crashing. The row is invisible until it commits, in which case ``None``
+        is returned and the caller records nothing rather than guessing.
+        """
+        candidate = AnomalyFingerprint(
+            project_id=project_id,
+            environment_id=environment_id,
+            component_id=component_id,
+            fingerprint=fingerprint,
+            anomaly_type=anomaly_type,
+            anomaly_id=None,
+            occurrence_count=0,
+            first_seen_at=self._now,
+            last_seen_at=self._now,
+        )
+        try:
+            async with self._session.begin_nested():
+                self._session.add(candidate)
+                await self._session.flush()
+        except IntegrityError:
+            return await self._fingerprint_row(project_id, fingerprint)
+        return candidate
 
     async def _active_anomaly_for(
         self, project_id: uuid.UUID, fingerprint: str
@@ -1078,7 +1123,7 @@ class AnomalyDetectionService(AnomalyDetector):
             )
         )
 
-    def _touch_registry(
+    async def _touch_registry(
         self,
         registry: Optional[AnomalyFingerprint],
         anomaly: Anomaly,
@@ -1086,26 +1131,39 @@ class AnomalyDetectionService(AnomalyDetector):
         project_id: Optional[uuid.UUID] = None,
         fingerprint: Optional[str] = None,
     ) -> None:
-        """Create/refresh the fingerprint registry row pointing at ``anomaly``."""
+        """Create/refresh the fingerprint registry row pointing at ``anomaly``.
+
+        The create path is conflict-tolerant for the same reason
+        :meth:`_claim_registry` is: the explicit detect endpoint and the
+        background sweep can open the same anomaly at the same instant. The
+        loser adopts the rival's row instead of failing the request.
+        """
         now = self._now
         if registry is None:
             if project_id is None or fingerprint is None:
                 return
-            self._session.add(
-                AnomalyFingerprint(
-                    project_id=project_id,
-                    environment_id=anomaly.environment_id,
-                    component_id=anomaly.component_id,
-                    fingerprint=fingerprint,
-                    anomaly_type=anomaly.anomaly_type,
-                    anomaly_id=anomaly.id,
-                    occurrence_count=1,
-                    first_seen_at=now,
-                    last_seen_at=now,
-                    metadata_={"consecutive_fires": 1},
-                )
-            )
-            return
+            try:
+                async with self._session.begin_nested():
+                    self._session.add(
+                        AnomalyFingerprint(
+                            project_id=project_id,
+                            environment_id=anomaly.environment_id,
+                            component_id=anomaly.component_id,
+                            fingerprint=fingerprint,
+                            anomaly_type=anomaly.anomaly_type,
+                            anomaly_id=anomaly.id,
+                            occurrence_count=1,
+                            first_seen_at=now,
+                            last_seen_at=now,
+                            metadata_={"consecutive_fires": 1},
+                        )
+                    )
+                    await self._session.flush()
+                return
+            except IntegrityError:
+                registry = await self._fingerprint_row(project_id, fingerprint)
+                if registry is None:
+                    return
         registry.anomaly_id = anomaly.id
         registry.occurrence_count += 1
         registry.last_seen_at = now

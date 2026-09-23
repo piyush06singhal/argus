@@ -149,6 +149,13 @@ async def run_detection_sweep(
                     result.suppressed += 1
                     continue
                 try:
+                    #: One writer per project: the worker and this sweep run the
+                    #: same detect+correlate pass, and interleaved writes deadlocked
+                    #: PostgreSQL. Project ids are walked in ``created_at`` order
+                    #: (above), so two sweeps take the same locks in the same order.
+                    from app.services.project_lock import lock_project
+
+                    await lock_project(session, project_id=project_id)
                     service = AnomalyDetectionService(session, now=now)
                     run_result = await service.run(
                         project_id=project_id, environment_id=environment_id

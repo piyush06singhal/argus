@@ -444,6 +444,12 @@ async def process_anomaly_detect_job(
         if not project_exists:
             raise PermanentJobError(f"SoftwareProject {project_id} not found")
 
+        #: The worker, the detection sweep and the explicit detect endpoint all
+        #: write the same fingerprint/anomaly rows. One writer per project is what
+        #: keeps their overlapping transactions from deadlocking (§10).
+        from app.services.project_lock import lock_project
+
+        await lock_project(session, project_id=project_id)
         service = AnomalyDetectionService(session)
         result = await service.run(project_id=project_id, environment_id=environment_id)
         await session.commit()
@@ -503,6 +509,11 @@ async def process_incident_correlate_job(
         if not exists:
             raise PermanentJobError(f"SoftwareProject {project_id} not found")
 
+        #: Correlation writes ``anomalies.incident_id``, the row detection also
+        #: updates — the same mutex, for the same reason as above.
+        from app.services.project_lock import lock_project
+
+        await lock_project(session, project_id=project_id)
         manager = IncidentManager(session)
         result = await manager.process_scope(
             project_id=project_id, environment_id=environment_id

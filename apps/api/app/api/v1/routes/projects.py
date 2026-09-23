@@ -119,7 +119,21 @@ async def delete_project(
     project_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
 ):
-    """Delete a software project."""
+    """Delete a software project.
+
+    The delete cascades across every table that belongs to the project, so it is
+    the widest write in the system, and it used to collide with the background
+    sweeps: PostgreSQL reported a **deadlock** between a cascade ``DELETE FROM
+    environments`` and a sweep's ``INSERT INTO error_budget_snapshots``, because
+    each transaction held rows the other needed next.
+
+    Taking the same per-project lock the sweeps take makes them mutually
+    exclusive, in the only order that cannot deadlock: whoever holds the project
+    row finishes its work first.
+    """
+    from app.services.project_lock import lock_project
+
+    await lock_project(db, project_id=project_id)
     result = await db.execute(
         select(SoftwareProject).where(SoftwareProject.id == project_id)
     )

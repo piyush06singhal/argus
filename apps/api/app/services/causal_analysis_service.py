@@ -1069,6 +1069,14 @@ class CausalAnalysisService:
         analysis.status = AnalysisStatus.COMPLETED
         analysis.completed_at = utcnow()
         await self._session.flush()
+
+        #: Phase 11 §9. A completed analysis is what turns an incident into a
+        #: diagnosis, so the control plane's timeline needs it. Best effort: the
+        #: analysis is already stored, and a platform-event problem must not
+        #: undo a completed analysis.
+        from app.services.platform_hooks import record_analysis_completed
+
+        await record_analysis_completed(self._session, analysis=analysis)
         return CausalAnalysisOutcome(analysis=analysis, created=True)
 
     # ------------------------------------------------------------------ helpers

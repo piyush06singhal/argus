@@ -1,6 +1,6 @@
 # ARGUS Roadmap
 
-ARGUS is built in phases. This document records the planned evolution. **Phases 0–10 are implemented. Do not implement later phases now** — the roadmap is a contract for architecture boundaries, not a to-do list.
+ARGUS is built in phases. This document records the planned evolution. **Phases 0–11 are implemented. Do not implement later phases now** — the roadmap is a contract for architecture boundaries, not a to-do list.
 
 ## Phase 0 — Foundation ✅
 
@@ -210,10 +210,80 @@ See [docs/reliability-intelligence.md](reliability-intelligence.md) for the desi
 
 **Explicitly not included:** training a model, changing a policy, executing anything, crossing a project boundary, deleting knowledge, and learning from unconfirmed AI output. Phase 10 concludes and advises — Phase 11 would widen the product surface, not the boundary.
 
-## Phase 11 — Reliability Intelligence Platform
+## Phase 11 — Unified Reliability Platform ✅
 
-- Full product surface: reliability command center across projects, orgs, and teams
-- Enhanced UI (system map health states, causal paths), reporting, insights
+ARGUS is one platform now. Phase 11 adds no new intelligence and no new authority —
+it derives, orchestrates and makes visible what Phases 0–10 concluded:
+
+- ✅ **Derived system state** (§2–§5): one precedence across incidents, remediations,
+  forecasts, anomalies and telemetry, with a reason and the evidence behind every
+  component's state — `UNKNOWN` when there is no evidence, never `HEALTHY` — and
+  recorded transitions behind the history endpoints
+- ✅ **Reliability Cases** (§14–§18): the unified operational object with `CASE-<n>`
+  references, one legal-transition table shared by API and UI, a deduplicated
+  timeline that names its source, and evidence assembled at request time from the
+  phases that own the rows — never copied
+- ✅ **Cross-phase event correlation** (§10): what any phase concluded becomes a
+  platform event, and the scheduled correlation turns events into timeline entries —
+  the mechanism by which a situation that arrived unwitnessed still becomes a case
+- ✅ **Workflow engine** (§11–§13): ten stages from `DETECTED` to `LEARNED`, advanced
+  only when stored rows satisfy the stage's precondition, with first-class stops and
+  reasons, evidence-freshness checks, and `AUTHORIZED` reachable only through
+  Phase 9's gates
+- ✅ **Service catalog** (§30, §31): identity, ownership (team, contact, on-call,
+  documentation), dependencies, endpoints, blast radius, objectives and operational
+  state per component, with non-computable sections named rather than empty
+- ✅ **SLOs and error budgets** (§32–§35): objectives that must name their metric,
+  indicator-aware target bounds (ratios are `0..1`, latency is milliseconds),
+  evaluation with data quality and burn state, `UNKNOWN` before the first evaluation,
+  and burn thresholds in configuration as the single source of truth
+- ✅ **Change intelligence** (§38–§41): failure-rate deltas, correlated incidents and
+  graph-affected components per deployment, with temporal relevance kept separate
+  from causal relevance
+- ✅ **Global search** (§17, §18): one query language, grouped results with the
+  applied filters returned, an honest no-match, an unknown filter reported rather
+  than ignored, and project isolation in SQL
+- ✅ **Governance and audit** (§91–§94, §100): versioned configuration writes with a
+  required reason and scope ownership (deployment-owned scopes refuse writes),
+  append-only ledger, rollback as a new version, secrets that never round-trip, and
+  the union of Phase 9's hash-chained audit, the case timeline and the event stream
+- ✅ **Notifications** (§53–§56): nine kinds, deduplicated and cooldown-limited per
+  subject, over a channel abstraction that states when a channel is not configured
+- ✅ **Platform health and graceful degradation** (§57–§60, §105–§107): subsystems
+  labelled required or optional, a readiness split, a dependency contract stating
+  what degrades when an optional subsystem is missing, and self-monitoring for queue
+  depth, ingestion failures, slow queries and pool saturation
+- ✅ **Data-quality center** (§87–§90): cross-phase consistency checks that report
+  and never repair, dispositions owned by an operator, and an assertion that a
+  check which *errors* is a bug, not a finding
+- ✅ **Reports and postmortems** (§73–§85): composed from stored rows with their
+  limitations stated, and a postmortem that falls back to the incident's own timeline
+  when no case exists
+- ✅ **The case assistant** (§27–§29): off by default; when on, retrieval-first over
+  one case's stored rows with citations, labelled facts/hypotheses/predictions,
+  listed unknowns, and refusals for actions, out-of-scope questions and root causes
+  that are not stored candidates; its capability sheet is served either way
+- ✅ **Concurrency made real**: one writer per project (`SELECT … FOR UPDATE`),
+  deterministic sweep ordering, savepoint-isolated sweep steps, and atomic claims for
+  derived-but-unique rows — live validation found and fixed two genuine PostgreSQL
+  deadlocks and a duplicate-key race, each with a regression test
+- ✅ Web: eleven platform workspaces (overview, cases, service catalog, objectives,
+  changes, search, data quality, governance, reports, activity, health) with
+  presentation rules that render bands, not points, and keep `UNKNOWN` first-class
+- ✅ Backend suite green (164 Phase 11 tests) + 231 vitest tests; live Phase 11 gate
+  (`infrastructure/e2e-smoke-phase11.sh`, 90 checks over 18 steps, three consecutive
+  runs) walking ingest → detect → state → case → workflow → objectives → search →
+  quality → governance → health → isolation → rendering → cleanup, and failing if
+  the pipeline produces nothing
+
+See [docs/unified-reliability-platform.md](unified-reliability-platform.md) for the
+control-plane design and [docs/phase-11-report.md](phase-11-report.md) for the
+delivery report, including the eight defects live validation caught.
+
+**Explicitly not included:** any new execution capability (Phase 9 remains the only
+path to a live effect, and it still reaches only ARGUS's own runtime),
+cross-project reasoning, authentication, and pooling of knowledge across projects.
+Phase 11 widens the *surface*, not the boundary.
 
 ---
 

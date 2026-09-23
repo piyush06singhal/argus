@@ -17,6 +17,10 @@ from app.core.database import async_session_factory, close_db, init_db
 from app.services.anomaly_sweep import sweep_forever
 from app.services.code_sweep import sweep_code_intelligence_forever
 from app.services.fix_sweep import sweep_fix_forever
+from app.services.intelligence_sweep import (
+    sweep_forever as sweep_learning_forever,
+)
+from app.services.platform_sweep import sweep_forever as sweep_platform_forever
 from app.services.reliability_sweep import sweep_reliability_forever
 from app.services.remediation_sweep import sweep_remediations_forever
 from app.services.reproduction_sweep import sweep_reproductions_forever
@@ -107,9 +111,44 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             sweep_remediations_forever(async_session_factory)
         )
 
+    # Scheduled learning sweep (Phase 10 §29, §63, §80). Runs the learning
+    # pipeline for projects that have waiting events, decays knowledge whose
+    # confirming evidence has stopped arriving, and expires stale
+    # recommendations. It never activates knowledge — that is the lifecycle's
+    # decision under §71–§73. Skipped under ``test`` so tests never race a timer.
+    learning_sweep_task: Optional[asyncio.Task] = None
+    if not settings.is_testing and settings.INTELLIGENCE_SWEEP_ENABLED:
+        learning_sweep_task = asyncio.create_task(
+            sweep_learning_forever(async_session_factory)
+        )
+
+    # Unified platform sweep (Phase 11 §10, §12, §35, §58, §88). Correlates
+    # pending platform events into case timelines, routes live incidents into
+    # cases, advances or stops due workflows, recomputes SLOs and error budgets,
+    # and checks cross-phase consistency. It never authorizes anything and never
+    # bypasses the Phase 9 control plane: a pause on ``platform_sweep`` stops the
+    # pass. Skipped under ``test`` so tests never race a timer.
+    platform_sweep_task: Optional[asyncio.Task] = None
+    if not settings.is_testing and settings.PLATFORM_SWEEP_ENABLED:
+        platform_sweep_task = asyncio.create_task(
+            sweep_platform_forever(async_session_factory)
+        )
+
     yield
 
     # Shutdown
+    if platform_sweep_task is not None:
+        platform_sweep_task.cancel()
+        try:
+            await platform_sweep_task
+        except asyncio.CancelledError:
+            pass
+    if learning_sweep_task is not None:
+        learning_sweep_task.cancel()
+        try:
+            await learning_sweep_task
+        except asyncio.CancelledError:
+            pass
     if remediation_sweep_task is not None:
         remediation_sweep_task.cancel()
         try:

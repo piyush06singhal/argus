@@ -885,6 +885,14 @@ class IncidentManager:
             )
         )
 
+        #: Phase 11 §9. Every status change is a platform event, so the control
+        #: plane's timeline shows the lifecycle as it happened. Best-effort by the
+        #: same argument as the learning hook below: the control plane consumes
+        #: history and is never a dependency of it.
+        from app.services.platform_hooks import record_incident_event
+
+        await record_incident_event(self._session, incident=incident)
+
         #: Phase 10 §6. An incident reaching a terminal status is the event the
         #: learning pipeline consumes. Best-effort by construction: history is
         #: recorded here, and a learning problem must never block the

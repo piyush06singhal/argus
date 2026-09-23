@@ -583,6 +583,11 @@ async def run_detection(
 
     from app.services.anomaly_detection import AnomalyDetectionService
     from app.services.incident_manager import IncidentManager
+    from app.services.project_lock import lock_project
+
+    #: The ingestion worker and the detection sweep run this same pass. Without
+    #: one writer at a time their interleaved writes deadlocked PostgreSQL (§10).
+    await lock_project(db, project_id=project_id)
 
     now = _now()
     detection = await AnomalyDetectionService(db, now=now, max_rules=None).run(

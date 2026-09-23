@@ -49,6 +49,30 @@ projects
       ├── reproduction_validations
       ├── reproduction_artifacts
       └── environment_snapshots
+ ├── anomaly_*                       (Phase 3 detection domain: rules, baselines,
+ │                                    fingerprints, observations, suppressions)
+ ├── remediation_*                   (Phase 9 control plane: actions, policies,
+ │                                    approvals, executions, verifications,
+ │                                    rollbacks, audit, breakers, controls)
+ ├── reliability_forecasts & related (Phase 8: snapshots, signals, evaluations,
+ │                                    backtests, drift, warnings, models)
+ ├── reliability_experiences & intel (Phase 10: learning events, knowledge,
+ │                                    versions, reviews, runs, profiles,
+ │                                    recommendations, relationships, hooks)
+ ├── debug_sessions & code_*         (Phase 6: snapshots, symbols, references,
+ │                                    mappings, runs, tool calls)
+ ├── fix_*                           (Phase 7: hypotheses, candidates, runs,
+ │                                    verification, artifacts)
+ └── reliability_cases               (Phase 11 control plane)
+      ├── reliability_case_timeline  (deduplicated story entries)
+      ├── reliability_workflows      (evidence-gated runs)
+      ├── platform_events            (what the phases concluded and did)
+      ├── reliability_context_snapshots
+      ├── component_state_transitions
+      ├── service_level_objectives ──► error_budget_snapshots
+      ├── platform_notifications
+      ├── data_quality_issues
+      └── configuration_versions     (append-only ledger)
 ```
 
 ### 2.1 Graph overlay linkage (Phase 2)
@@ -388,6 +412,40 @@ Four invariants shape this domain:
 * **A learned relationship is not a dependency.** It is stored in its own table
   with its own support and an explicit `directed` flag; it never writes to
   `component_dependencies` or `graph_edges`.
+
+### Phase 11 — Unified reliability platform
+
+Eleven tables for what the control plane itself decides — deliberately *not* a
+second copy of anything Phases 0–10 own:
+
+| Entity | Table | Key fields |
+| :--- | :--- | :--- |
+| `ReliabilityCase` | `reliability_cases` | `project_id`, `environment_id`, `reference` (`CASE-<n>`, unique per project), `title`, `status`, `trigger`, `severity`, `incident_id`, `primary_component_id`, `component_ids`, `source_type`/`source_id`, `opening_snapshot_id`, `opened_at`/`opened_by`, `status_changed_at`/`status_changed_by` |
+| `ReliabilityCaseTimeline` | `reliability_case_timeline` | `case_id`, `kind` (`STATE_CHANGE`, `EVIDENCE`, `ANALYSIS`, `PREDICTION`, `DECISION`, `EXECUTION`, `VERIFICATION`, `LEARNING`, `NOTE`, `DATA_QUALITY`), `event_type`, `title`, `detail`, `source`, `evidence` (JSON), `component_id`, `actor`, `system_action`, `dedup_key` (unique per case), `occurred_at`, `sequence` |
+| `ReliabilityWorkflow` | `reliability_workflows` | `case_id`, `stage` (`DETECTED`…`LEARNED`), `status` (`PENDING`, `RUNNING`, `WAITING_APPROVAL`, `ADVANCED`, `STOPPED`, `FAILED`), `stop_reason`, `state` (JSON — preconditions, evidence freshness), `advanced_at`/`advanced_by` |
+| `PlatformEvent` | `platform_events` | `project_id`, `environment_id`, `event_type`, `source`, `subject_type`/`subject_id`, `component_id`, `case_id`, `correlation_id`, `payload`, `occurred_at`, `consumed_at` |
+| `ReliabilityContextSnapshot` | `reliability_context_snapshots` | `project_id`, `case_id`, `kind`, `as_of`, `context` (JSON), `limitations` |
+| `ComponentStateTransition` | `component_state_transitions` | `project_id`, `environment_id`, `component_id`, `from_state`/`to_state`, `trigger`, `reason`, `evidence` (JSON), `occurred_at` |
+| `ServiceLevelObjective` | `service_level_objectives` | `project_id`, `environment_id`, `component_id`, `name`, `indicator` (`AVAILABILITY`, `LATENCY`, `ERROR_RATE`, `SATURATION`, `CUSTOM`), `metric_name`, `comparison` (`AT_LEAST`/`AT_MOST`), `target`, `window_seconds`, `unit`, `status` |
+| `ErrorBudgetSnapshot` | `error_budget_snapshots` | `slo_id`, `window_start`/`window_end`, `status`, `allowed_failure`, `observed_failure`, `remaining`, `burn_rate`, `burn_state` (`NORMAL`…`CRITICAL_BURN`), `compliance_percent`, `sample_count`, `data_quality`, `evidence`, `limitations` |
+| `PlatformNotification` | `platform_notifications` | `project_id`, `kind`, `severity`, `subject_type`/`subject_id`, `dedup_key` (unique), `title`, `detail`, `channel`, `status` (`PENDING`, `DELIVERED`, `READ`, `DISMISSED`), `raised_at`, `read_at` |
+| `DataQualityIssue` | `data_quality_issues` | `project_id`, `kind` (orphaned record, incident without component, prediction without snapshot, remediation without authorization, knowledge without evidence, …), `severity`, `subject_type`/`subject_id`, `check`, `finding` (JSON), `status` (`OPEN`, `ACKNOWLEDGED`, `RESOLVED`, `IGNORED`), `first_seen_at`/`last_seen_at`, `occurrence_count`, `resolved_at`, `resolved_by` |
+| `ConfigurationVersion` | `configuration_versions` | `project_id`, `scope` (`PROJECT_SETTINGS`, `SLO`, `NOTIFICATIONS`, `LEARNING`, `RETENTION`, …), `scope_id`, `version`, `settings` (JSON), `change_summary`, `changed_by`, `rolled_back_from`, `created_at` |
+
+Four invariants shape this domain:
+
+* **Derived, never authoritative.** System state, dashboard sections, case evidence
+  and postmortems are computed at read time from Phase 0–10 rows; Phase 11 stores
+  only its own decisions. There is no `platform_incidents` table — the incident
+  subsystem stays the single source of truth about incidents.
+* **A case indexes; it never copies.** Evidence is assembled at request time from
+  the tables that own it, so a case cannot show yesterday's anomalies while a
+  component keeps degrading.
+* **History is append-only.** Configuration rollback writes a *new* version that
+  records what it restored; error budgets and state transitions accumulate; a
+  timeline replay appends nothing (dedup keys), and a timeline entry is never edited.
+* **Phase 9 stays authoritative.** No Phase 11 table carries an authorization, a
+  policy or a bypass; `AUTHORIZED` is reached only through Phase 9's recorded gates.
 
 ## 4. Enum domains
 

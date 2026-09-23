@@ -502,6 +502,13 @@ class ReliabilityForecastService:
             else:
                 result.forecasts_revised += 1
 
+            #: Phase 11 §9. A generated forecast is a platform event, and an
+            #: elevated one is a RISK_CHANGED — which is what puts a prediction
+            #: on a case's timeline without the control plane polling for it.
+            from app.services.platform_hooks import record_forecast_generated
+
+            await record_forecast_generated(self.session, forecast=forecast)
+
         if level is ForecastRiskLevel.UNKNOWN:
             result.refusals += 1
         result.signals += len(draft.signals)

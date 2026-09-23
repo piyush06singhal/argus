@@ -599,6 +599,123 @@ class Settings(BaseSettings):
     #: §43/§81. How long an open recommendation stands before it expires.
     INTELLIGENCE_RECOMMENDATION_TTL_SECONDS: int = 86400
 
+    # ------------------------------------------------------------------
+    # Phase 11 — unified reliability platform & control plane (§2–§5, §44,
+    # §49, §53–§56, §59–§64, §65, §91)
+    # ------------------------------------------------------------------
+    #: §5. The recovery window: how long a component stays RECOVERING after a
+    #: resolving incident or a completed remediation. Thirty minutes is the
+    #: default rather than a truth — it is configurable because it is a policy.
+    PLATFORM_STATE_RECOVERY_WINDOW_SECONDS: int = 1800
+    #: §3. How far back telemetry counts as "recent evidence" for HEALTHY.
+    PLATFORM_STATE_TELEMETRY_WINDOW_SECONDS: int = 3600
+    #: §3. How far back an unresolved anomaly still affects component state.
+    PLATFORM_STATE_ANOMALY_WINDOW_SECONDS: int = 86400
+    #: §2. How far back "recent changes" reaches in the system state.
+    PLATFORM_STATE_CHANGE_WINDOW_DAYS: int = 7
+    #: §65. Hard caps so the dashboard cannot run unbounded queries.
+    PLATFORM_STATE_COMPONENT_LIMIT: int = 500
+    PLATFORM_STATE_DEPENDENCY_LIMIT: int = 1000
+    PLATFORM_STATE_ACTIVE_LIMIT: int = 100
+
+    #: §59–§62. Feature flags for the platform's own optional capabilities.
+    #: Every one of these defaults to the value that cannot cause an external
+    #: side effect: the assistant is opt-in, and cross-project intelligence is
+    #: off so PROJECT_LOCAL is the real default (§43).
+    PLATFORM_ENABLED: bool = True
+    PLATFORM_SWEEP_ENABLED: bool = True
+    PLATFORM_SWEEP_INTERVAL_SECONDS: int = 120
+    PLATFORM_AUTO_CASE_ENABLED: bool = True
+    PLATFORM_CASE_ASSISTANT_ENABLED: bool = False
+    #: §79. Upper bound on the anomalies a postmortem timeline will list, so a
+    #: storm cannot produce an unreadable report.
+    PLATFORM_POSTMORTEM_TIMELINE_LIMIT: int = 100
+    #: §16. How far *before* a case opened its evidence is collected.
+    #:
+    #: This exists because a case is opened to investigate something that has
+    #: already happened: the anomaly, the deployment that caused it and the
+    #: incident's onset all precede the case by seconds to hours. Starting the
+    #: window at ``opened_at`` would exclude exactly the evidence that explains
+    #: why the case exists. The lookback is what makes the case's evidence a
+    #: superset of its trigger rather than a strict subset.
+    PLATFORM_CASE_EVIDENCE_LOOKBACK_SECONDS: int = 86_400
+    PLATFORM_CROSS_PROJECT_INTELLIGENCE_ENABLED: bool = False
+    PLATFORM_AI_ASSISTANT_ENABLED: bool = False
+    #: §63. Rate limits, per minute, for the surfaces that are expensive or
+    #: externally triggerable. Zero disables the limit (used in tests).
+    PLATFORM_SEARCH_RATE_LIMIT_PER_MINUTE: int = 120
+    #: §65. Hard cap on hits per category, so a broad query cannot return an
+    #: unbounded result set.
+    PLATFORM_SEARCH_MAX_PER_KIND: int = 25
+    PLATFORM_WEBHOOK_RATE_LIMIT_PER_MINUTE: int = 60
+    PLATFORM_AI_RATE_LIMIT_PER_MINUTE: int = 30
+    #: §56. Notification dedup: identical fingerprints inside this window
+    #: collapse into one notification with a count.
+    PLATFORM_NOTIFICATION_COOLDOWN_SECONDS: int = 900
+    PLATFORM_NOTIFICATION_BATCH_LIMIT: int = 200
+    #: §54/§55. Which channels a notification is offered to. In-app always
+    #: works (it is the row itself); email and webhook are abstractions whose
+    #: default implementations record the attempt without a provider.
+    PLATFORM_NOTIFICATION_CHANNELS: List[str] = ["IN_APP"]
+
+    #: §35. Error-budget burn thresholds, as burn-rate multiples. Explicit and
+    #: configurable because "fast burn" is a policy, not a fact.
+    PLATFORM_BURN_ELEVATED: float = 2.0
+    PLATFORM_BURN_FAST: float = 6.0
+    PLATFORM_BURN_CRITICAL: float = 14.0
+    #: §33. Fraction of the budget consumed at which an objective is AT_RISK.
+    PLATFORM_SLO_AT_RISK_BURN: float = 1.0
+    PLATFORM_SLO_MAX_WINDOW_SECONDS: int = 2_592_000
+    PLATFORM_SLO_SNAPSHOT_LIMIT: int = 200
+
+    #: §64. Redis-backed caches (system state, dashboard, search). TTLs are
+    #: seconds; 0 disables the cache for that surface.
+    PLATFORM_STATE_CACHE_TTL_SECONDS: int = 30
+    PLATFORM_DASHBOARD_CACHE_TTL_SECONDS: int = 30
+    PLATFORM_SEARCH_CACHE_TTL_SECONDS: int = 20
+
+    #: §49/§50. Retention for the platform's own derived rows. Kept generous:
+    #: losing a state transition or an event erases history the platform cannot
+    #: reconstruct.
+    RETENTION_PLATFORM_EVENTS_DAYS: int = 365
+    RETENTION_PLATFORM_SNAPSHOTS_DAYS: int = 180
+    RETENTION_PLATFORM_NOTIFICATIONS_DAYS: int = 365
+
+    #: §53. Webhook replay protection window and the accepted timestamp skew.
+    PLATFORM_WEBHOOK_TOLERANCE_SECONDS: int = 300
+    PLATFORM_WEBHOOK_SECRET: str = ""
+
+    #: §105. Database health thresholds for the platform health surface.
+    PLATFORM_DB_SLOW_QUERY_MS: int = 1000
+    PLATFORM_DB_POOL_WARN_PERCENT: float = 80.0
+    #: §58. Queue depth and rejected-event thresholds that make ARGUS report
+    #: *itself* as degraded rather than only reporting on production.
+    PLATFORM_QUEUE_DEPTH_WARN: int = 1000
+    PLATFORM_INGESTION_FAILURE_WARN: int = 50
+
+    #: §13. Workflow safety: how long a run may hold evidence before it must
+    #: stop, how long it has in total, and how often a parked run re-checks its
+    #: reason for waiting.
+    PLATFORM_WORKFLOW_DEADLINE_SECONDS: int = 86_400
+    PLATFORM_WORKFLOW_EVIDENCE_MAX_AGE_SECONDS: int = 3_600
+    PLATFORM_WORKFLOW_APPROVAL_POLL_SECONDS: int = 60
+    PLATFORM_WORKFLOW_BATCH: int = 50
+
+    #: §41. Environment comparison: how many deployments/incidents to compare.
+    PLATFORM_COMPARISON_DEPLOYMENT_LIMIT: int = 20
+    PLATFORM_COMPARISON_COMPONENT_LIMIT: int = 200
+    #: §39/§40. Deployment risk view lookbacks.
+    PLATFORM_DEPLOYMENT_INCIDENT_WINDOW_HOURS: int = 24
+    PLATFORM_DEPLOYMENT_SIMILARITY_LIMIT: int = 10
+    #: §84. Change-failure-rate window.
+    PLATFORM_CHANGE_FAILURE_WINDOW_DAYS: int = 30
+
+    #: §75–§76. Default trend windows, in days.
+    PLATFORM_TREND_WINDOWS: List[int] = [7, 30, 90]
+    #: §89. A component with no telemetry for this long is a data-quality issue.
+    PLATFORM_STALE_COMPONENT_DAYS: int = 7
+    PLATFORM_DATA_QUALITY_BATCH: int = 500
+
     #: §69. Retention for the learning event log. Events are evidence — the
     #: table is append-only while an outcome is being consumed — so it is swept
     #: like every other evidence table rather than growing without bound.
