@@ -25,7 +25,10 @@ different failure.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Any, Mapping, Optional, Sequence
+
+from app.core.time import ensure_utc_or_now
 
 from app.models.reproduction import ComparisonDimension, ReproductionResult
 from app.services.reproduction_context import SourceBehavior, normalize_log_message
@@ -775,15 +778,44 @@ class _ReproducedView:
         )
 
         # Onset order: the first moment each component showed an error.
-        first_error: dict[str, int] = {}
+        #
+        # Ordered by the *observed* timestamp, not by `relative_offset_ms`. The
+        # offset is whole milliseconds and a faulted chain finishes inside one of
+        # them (`datastore` at +6 ms, `inventory` at +6 ms, `checkout` at +6 ms),
+        # so ordering on it turns a real sequence into an arbitrary one decided
+        # by the order the telemetry files happened to be parsed in. That made
+        # the same experiment report `SUCCESSFUL` and `PARTIAL` on different
+        # runs, on the heaviest dimension in the score. `observed_at` carries
+        # microseconds and holds the real order; the offset is kept only as a
+        # tie-breaker for signals that genuinely share an instant, and the name
+        # keeps the result stable when even that ties.
+        first_error: dict[str, tuple[datetime, int]] = {}
         for item in self.error_signals:
             if not item.component_name:
                 continue
-            if item.component_name not in first_error:
-                first_error[item.component_name] = item.relative_offset_ms
+            key = (ensure_utc_or_now(item.observed_at), item.relative_offset_ms)
+            current = first_error.get(item.component_name)
+            if current is None or key < current:
+                first_error[item.component_name] = key
         self.onset_order = [
-            name for name, _ in sorted(first_error.items(), key=lambda pair: pair[1])
+            name
+            for name, _ in sorted(
+                first_error.items(), key=lambda pair: (pair[1][0], pair[1][1], pair[0])
+            )
         ]
+        #: How far apart the first failures were. Equal onsets mean no order was
+        #: observed, which is worth being able to say out loud.
+        self.onset_spread_ms = (
+            int(
+                (
+                    max(key[0] for key in first_error.values())
+                    - min(key[0] for key in first_error.values())
+                ).total_seconds()
+                * 1000
+            )
+            if len(first_error) > 1
+            else 0
+        )
 
         # Recovery: components whose last health observation is a healthy state
         # after having failed earlier in the run.

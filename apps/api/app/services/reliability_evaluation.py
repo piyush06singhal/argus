@@ -518,6 +518,24 @@ class PredictionEvaluationService:
             forecast.status = ForecastStatus.EXPIRED
 
         await self.session.flush()
+
+        #: Phase 10 §6. A scored horizon is a learning event: whether the
+        #: forecast came true is exactly what calibration knowledge is built
+        #: from. Best-effort, so a learning-table problem cannot fail an
+        #: evaluation that already succeeded.
+        from app.services.learning_hooks import record_forecast_outcome
+
+        outcome_row = await self.session.scalar(
+            select(ForecastOutcome)
+            .where(ForecastOutcome.forecast_id == forecast.id)
+            .order_by(ForecastOutcome.evaluated_at.desc())
+            .limit(1)
+        )
+        if outcome_row is not None:
+            await record_forecast_outcome(
+                self.session, outcome=outcome_row, forecast=forecast
+            )
+
         if commit:
             await self.session.commit()
         return result

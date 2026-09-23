@@ -621,6 +621,19 @@ async def verify_patch(
         )
 
     await db.flush()
+
+    #: Phase 10 (§6, §63): a finished verification is an outcome the learning
+    #: layer consumes — verified, or verified with a regression. Best effort by
+    #: construction (``safely_publish_learning_event``), so a learning-table
+    #: problem cannot fail a verification that already happened.
+    from app.services.learning_hooks import record_patch_verification
+
+    await record_patch_verification(
+        db,
+        patch=patch,
+        verification=run,
+        incident_id=getattr(hypothesis, "incident_id", None),
+    )
     return run
 
 

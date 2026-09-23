@@ -27,6 +27,7 @@ from datetime import datetime, timedelta
 from typing import Optional, Sequence
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
@@ -207,9 +208,15 @@ class IncidentManager:
                 primary_component_id=cluster.primary_component_id,
                 correlation_rationale=cluster.rationale,
             )
-            self._session.add(incident)
-            await self._session.flush()
-        else:
+            existing = await self._insert_incident(incident, project_id, fingerprint)
+            if existing is not None:
+                #: Another pass opened the incident for this fingerprint while
+                #: this one was between the lookup and the insert. Adopt its row
+                #: and take the update path: the alternative is a duplicate
+                #: incident with no anomalies attached to it (§25).
+                incident = existing
+                created = False
+        if not created:
             # Reopen a resolved incident rather than duplicating it (§25).
             if IncidentStatus(incident.status) is IncidentStatus.RESOLVED:
                 await self.transition(
@@ -247,6 +254,39 @@ class IncidentManager:
             incident, anomalies, affected, deployments, config_changes
         )
         return created, linked
+
+    async def _insert_incident(
+        self,
+        incident: Incident,
+        project_id: uuid.UUID,
+        fingerprint: str,
+    ) -> Optional[Incident]:
+        """Insert a new incident, or return the one a concurrent pass created.
+
+        The unique index on ``(project_id, fingerprint)`` for live incidents is
+        what makes this safe: the conflicting insert blocks until the other
+        transaction finishes and then fails, so by the time the error surfaces,
+        the winning row is readable. The insert is wrapped in a savepoint so the
+        failure rolls back only this statement — the surrounding correlation
+        pass keeps its other work and continues as an update.
+        """
+        #: The savepoint is opened *before* the row is added: ``begin_nested``
+        #: flushes pending state, and a pending incident at that point would
+        #: raise outside the guard below.
+        savepoint = await self._session.begin_nested()
+        self._session.add(incident)
+        try:
+            await self._session.flush()
+        except IntegrityError:
+            await savepoint.rollback()
+            existing = await self._find_incident(project_id, fingerprint)
+            if existing is None:
+                #: Not the fingerprint race (a foreign key, another constraint):
+                #: re-raise rather than swallow a genuine persistence bug.
+                raise
+            return existing
+        await savepoint.commit()
+        return None
 
     async def _find_incident(
         self, project_id: uuid.UUID, fingerprint: str
@@ -844,6 +884,17 @@ class IncidentManager:
                 },
             )
         )
+
+        #: Phase 10 §6. An incident reaching a terminal status is the event the
+        #: learning pipeline consumes. Best-effort by construction: history is
+        #: recorded here, and a learning problem must never block the
+        #: transition that a responder asked for.
+        if target_status in (IncidentStatus.RESOLVED, IncidentStatus.CLOSED):
+            from app.services.learning_hooks import record_incident_completed
+
+            await record_incident_completed(
+                self._session, incident=incident, actor=actor
+            )
         return incident
 
     async def _auto_resolve_stale(

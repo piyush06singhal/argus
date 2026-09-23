@@ -168,6 +168,12 @@ class Settings(BaseSettings):
     REPRO_MAX_TELEMETRY_SIGNALS: int = 5000
     #: Cap on captured telemetry bytes per sandbox (log size limit §40).
     REPRO_MAX_TELEMETRY_BYTES: int = 8_000_000
+    #: How long capture waits for a sandbox to stop producing telemetry before
+    #: giving up. A faulted request keeps sleeping its injected latency inside
+    #: the sandbox, so a short ceiling loses that evidence on a loaded machine —
+    #: silently, because the telemetry file just ends earlier. Waiting is cheap
+    #: and bounded; the wait ends as soon as the sandbox is drained.
+    REPRO_QUIESCENCE_TIMEOUT_SECONDS: float = 20.0
     #: Default replay mode; concurrency is opt-in (§19).
     REPRO_DEFAULT_REPLAY_MODE: str = "SEQUENTIAL"
     #: Maximum reproducible repetitions for determinism detection (§34, §35).
@@ -532,6 +538,73 @@ class Settings(BaseSettings):
     #: Retention: remediation history is the audit trail; it is pruned only
     #: when explicitly configured to a positive number of days.
     RETENTION_REMEDIATION_ACTIONS: int = 730
+
+    # ------------------------------------------------------------------
+    # Phase 10 — reliability intelligence & autonomous learning (§28, §29,
+    # §33, §34, §25, §41, §63, §73, §76)
+    # ------------------------------------------------------------------
+    #: Master switch for the learning pipeline. When off, events are still
+    #: recorded (they are evidence) but no run consumes them.
+    INTELLIGENCE_LEARNING_ENABLED: bool = True
+    INTELLIGENCE_SWEEP_ENABLED: bool = True
+    INTELLIGENCE_SWEEP_INTERVAL_SECONDS: int = 300
+    #: Bounded work per run: a learning run must not be able to scan an
+    #: unbounded history in one pass.
+    INTELLIGENCE_LEARNING_BATCH: int = 500
+    INTELLIGENCE_MAX_PATTERNS_PER_RUN: int = 200
+
+    #: §33. Minimum *observations* behind a pattern before it may leave the
+    #: CANDIDATE state. Configurable, and documented as defaults rather than
+    #: universal truths.
+    INTELLIGENCE_MIN_SAMPLES_CANDIDATE: int = 3
+    INTELLIGENCE_MIN_SAMPLES_VALIDATION: int = 5
+    INTELLIGENCE_MIN_SAMPLES_HIGH_CONFIDENCE: int = 10
+    #: §35. A pattern is tested across two adjacent windows of this length; if
+    #: it does not appear in both, it is unstable and is not promoted.
+    INTELLIGENCE_STABILITY_WINDOW_DAYS: int = 30
+    #: §34. Below this support ratio the confidence bucket is LOW at best.
+    INTELLIGENCE_MIN_SUPPORT_STRENGTH: float = 0.5
+
+    #: §11–§13. Similarity floor for retrieval, and how many matches to keep.
+    INTELLIGENCE_SIMILARITY_THRESHOLD: float = 0.45
+    INTELLIGENCE_SIMILARITY_MAX_RESULTS: int = 25
+
+    #: §15/§16. Effectiveness is only reported when it is backed by at least
+    #: this many comparable cases; below it the answer is "insufficient".
+    INTELLIGENCE_MIN_EFFECTIVENESS_SAMPLES: int = 3
+
+    #: §25. Knowledge not confirmed by new data in this many days is marked
+    #: STALE (kept, never deleted).
+    INTELLIGENCE_KNOWLEDGE_STALE_AFTER_DAYS: int = 90
+
+    #: §73. Autonomous activation is off by default: only *informational*
+    #: knowledge (no production/policy impact) may ever be auto-activated, and
+    #: even then only when an operator opts in.
+    INTELLIGENCE_AUTO_ACTIVATE_ENABLED: bool = False
+
+    #: §76/§77. Which provenance classes the pipeline will learn from.
+    #: AI_GENERATED and MOCK are excluded by default: an AI RCA hypothesis is
+    #: not a confirmed root cause.
+    INTELLIGENCE_INCLUDE_AI_GENERATED: bool = False
+    INTELLIGENCE_INCLUDE_MOCK: bool = False
+
+    #: §22. Thresholds for the chronic-reliability signal. The signal
+    #: recommends investigation; it never disables or modifies anything.
+    INTELLIGENCE_CHRONIC_WINDOW_DAYS: int = 30
+    INTELLIGENCE_CHRONIC_INCIDENT_THRESHOLD: int = 5
+    INTELLIGENCE_CHRONIC_REMEDIATION_THRESHOLD: int = 4
+    #: Windows recomputed by each run, in days (§21).
+    INTELLIGENCE_PROFILE_WINDOWS: List[int] = [7, 30, 90]
+
+    #: §43/§81. How long an open recommendation stands before it expires.
+    INTELLIGENCE_RECOMMENDATION_TTL_SECONDS: int = 86400
+
+    #: §69. Retention for the learning event log. Events are evidence — the
+    #: table is append-only while an outcome is being consumed — so it is swept
+    #: like every other evidence table rather than growing without bound.
+    #: Knowledge is deliberately *not* swept: it is retired by lifecycle
+    #: (DEPRECATED / SUPERSEDED) and stays readable.
+    RETENTION_LEARNING_EVENTS: int = 180
 
     @field_validator("CORS_ORIGINS", mode="before")
     @classmethod

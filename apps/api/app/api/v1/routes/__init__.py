@@ -11,6 +11,7 @@ from app.api.v1.routes.environments import router as environments_router
 from app.api.v1.routes.fix import router as fix_router
 from app.api.v1.routes.graph import router as graph_router
 from app.api.v1.routes.incidents import router as incidents_router
+from app.api.v1.routes.intelligence import router as intelligence_router
 from app.api.v1.routes.ingestion import router as ingestion_router
 from app.api.v1.routes.metrics_export import router as metrics_router
 from app.api.v1.routes.observability import router as observability_router
@@ -39,3 +40,4 @@ api_v1_router.include_router(code_router)
 api_v1_router.include_router(fix_router)
 api_v1_router.include_router(reliability_router)
 api_v1_router.include_router(remediation_router)
+api_v1_router.include_router(intelligence_router)

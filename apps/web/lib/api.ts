@@ -3060,6 +3060,188 @@ export const api = {
     apiFetch<RemediationMetrics>(
       `/api/v1/remediation/metrics${scopeQuery(projectId)}`
     ),
+
+  // -- Phase 10 — reliability intelligence (§51–§61) ------------------------
+
+  intelligenceHealth: (projectId?: string) =>
+    apiFetch<IntelligenceHealth>(
+      `/api/v1/intelligence/health${scopeQuery(projectId)}`
+    ),
+
+  intelligenceDashboard: (projectId: string) =>
+    apiFetch<IntelligenceDashboard>(
+      `/api/v1/intelligence/dashboard?project_id=${encodeURIComponent(projectId)}`
+    ),
+
+  intelligenceMetrics: (projectId?: string) =>
+    apiFetch<IntelligenceMetrics>(
+      `/api/v1/intelligence/metrics${scopeQuery(projectId)}`
+    ),
+
+  listKnowledge: (params: Record<string, string | number | undefined>) =>
+    apiFetch<KnowledgeList>(
+      `/api/v1/intelligence/knowledge?${toQuery(params)}`
+    ),
+
+  getKnowledge: (knowledgeId: string, projectId: string) =>
+    apiFetch<KnowledgeDetail>(
+      `/api/v1/intelligence/knowledge/${encodeURIComponent(
+        knowledgeId
+      )}?project_id=${encodeURIComponent(projectId)}`
+    ),
+
+  getKnowledgeVersions: (knowledgeId: string, projectId: string) =>
+    apiFetch<KnowledgeVersionList>(
+      `/api/v1/intelligence/knowledge/${encodeURIComponent(
+        knowledgeId
+      )}/versions?project_id=${encodeURIComponent(projectId)}`
+    ),
+
+  reviewKnowledge: (
+    knowledgeId: string,
+    projectId: string,
+    payload: KnowledgeReviewPayload
+  ) =>
+    apiFetch<KnowledgeDetail>(
+      `/api/v1/intelligence/knowledge/${encodeURIComponent(
+        knowledgeId
+      )}/review?project_id=${encodeURIComponent(projectId)}`,
+      { method: 'POST', body: JSON.stringify(payload) }
+    ),
+
+  listPatterns: (params: Record<string, string | number | boolean | undefined>) =>
+    apiFetch<KnowledgeList>(`/api/v1/intelligence/patterns?${toQuery(params)}`),
+
+  listExperiences: (params: Record<string, string | number | undefined>) =>
+    apiFetch<ExperienceList>(
+      `/api/v1/intelligence/experiences?${toQuery(params)}`
+    ),
+
+  getExperience: (experienceId: string, projectId: string) =>
+    apiFetch<ExperienceDetail>(
+      `/api/v1/intelligence/experiences/${encodeURIComponent(
+        experienceId
+      )}?project_id=${encodeURIComponent(projectId)}`
+    ),
+
+  listRecommendations: (
+    params: Record<string, string | number | undefined>
+  ) =>
+    apiFetch<RecommendationList>(
+      `/api/v1/intelligence/recommendations?${toQuery(params)}`
+    ),
+
+  getRecommendation: (recommendationId: string, projectId: string) =>
+    apiFetch<RecommendationDetail>(
+      `/api/v1/intelligence/recommendations/${encodeURIComponent(
+        recommendationId
+      )}?project_id=${encodeURIComponent(projectId)}`
+    ),
+
+  incidentRecommendations: (
+    incidentId: string,
+    projectId: string,
+    generate = false
+  ) =>
+    apiFetch<RecommendationList>(
+      `/api/v1/intelligence/incidents/${encodeURIComponent(
+        incidentId
+      )}/recommendations?project_id=${encodeURIComponent(
+        projectId
+      )}&generate=${generate ? 'true' : 'false'}`
+    ),
+
+  decideRecommendation: (
+    recommendationId: string,
+    projectId: string,
+    payload: RecommendationDecisionPayload
+  ) =>
+    apiFetch<RecommendationDetail>(
+      `/api/v1/intelligence/recommendations/${encodeURIComponent(
+        recommendationId
+      )}/decide?project_id=${encodeURIComponent(projectId)}`,
+      { method: 'POST', body: JSON.stringify(payload) }
+    ),
+
+  recordRecommendationOutcome: (
+    recommendationId: string,
+    projectId: string,
+    payload: RecommendationOutcomePayload
+  ) =>
+    apiFetch<RecommendationDetail>(
+      `/api/v1/intelligence/recommendations/${encodeURIComponent(
+        recommendationId
+      )}/outcome?project_id=${encodeURIComponent(projectId)}`,
+      { method: 'POST', body: JSON.stringify(payload) }
+    ),
+
+  componentLearningProfile: (componentId: string, projectId: string) =>
+    apiFetch<ComponentLearningProfile>(
+      `/api/v1/intelligence/components/${encodeURIComponent(
+        componentId
+      )}/profile?project_id=${encodeURIComponent(projectId)}`
+    ),
+
+  intelligenceRelationships: (
+    params: Record<string, string | number | undefined>
+  ) =>
+    apiFetch<LearnedRelationshipList>(
+      `/api/v1/intelligence/relationships?${toQuery(params)}`
+    ),
+
+  remediationEffectiveness: (
+    params: Record<string, string | number | undefined>
+  ) =>
+    apiFetch<RemediationEffectiveness>(
+      `/api/v1/intelligence/remediation-effectiveness?${toQuery(params)}`
+    ),
+
+  compareRemediationActions: (params: Record<string, string | undefined>) =>
+    apiFetch<ActionComparison>(
+      `/api/v1/intelligence/remediation-effectiveness/compare?${toQuery(params)}`
+    ),
+
+  searchKnowledge: (params: Record<string, string | number | undefined>) =>
+    apiFetch<KnowledgeSearchAnswer>(
+      `/api/v1/intelligence/search?${toQuery(params)}`
+    ),
+
+  listLearningRuns: (params: Record<string, string | number | undefined>) =>
+    apiFetch<LearningRunList>(
+      `/api/v1/intelligence/learning-runs?${toQuery(params)}`
+    ),
+
+  getLearningRun: (runId: string, projectId?: string) =>
+    apiFetch<LearningRunDetail>(
+      `/api/v1/intelligence/learning-runs/${encodeURIComponent(runId)}${scopeQuery(
+        projectId
+      )}`
+    ),
+
+  triggerLearningRun: (payload: LearningRunRequestPayload) =>
+    apiFetch<LearningRunSummary>('/api/v1/intelligence/learning-runs', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  getEventHooks: (projectId?: string) =>
+    apiFetch<EventHook>(
+      `/api/v1/intelligence/event-hooks${scopeQuery(projectId)}`
+    ),
+
+  updateEventHooks: (payload: EventHookUpdatePayload) =>
+    apiFetch<EventHook>('/api/v1/intelligence/event-hooks', {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    }),
+
+  runIntelligenceSweep: (projectId?: string, force = false) =>
+    apiFetch<IntelligenceSweep>(
+      `/api/v1/intelligence/sweep${scopeQuery(projectId)}${
+        projectId ? '&' : '?'
+      }force=${force ? 'true' : 'false'}`,
+      { method: 'POST' }
+    ),
 };
 
 // ---------------------------------------------------------------------------
@@ -4795,4 +4977,550 @@ export interface RemediationMetrics {
   autonomous_authorizations: number;
   human_authorizations: number;
   emergency_stop_active: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// Phase 10 — reliability intelligence (§51–§61)
+//
+// Every learned artifact carries its own qualification: a knowledge item has a
+// sample count, a coverage window, a confidence and its limitations; a
+// recommendation has the evidence it used, the uncertainty, and what Phase 9
+// would require. The types carry those fields because dropping one downstream is
+// how "restart works 81% of the time" gets shown with no sample size (§15, §40).
+// ---------------------------------------------------------------------------
+
+export type KnowledgeStatusValue =
+  | 'CANDIDATE'
+  | 'VALIDATING'
+  | 'VALIDATED'
+  | 'ACTIVE'
+  | 'DEPRECATED'
+  | 'REJECTED'
+  | 'SUPERSEDED';
+
+/** §4. Only VALIDATED and ACTIVE may influence a recommendation. */
+export const LIVE_KNOWLEDGE_STATUSES = ['VALIDATED', 'ACTIVE'] as const;
+
+/** §4. Retired statuses are kept for history and shown as retired. */
+export const RETIRED_KNOWLEDGE_STATUSES = [
+  'DEPRECATED',
+  'REJECTED',
+  'SUPERSEDED',
+] as const;
+
+export type KnowledgeTypeValue =
+  | 'INCIDENT_PATTERN'
+  | 'FAILURE_PATTERN'
+  | 'ANOMALY_PATTERN'
+  | 'REMEDIATION_PATTERN'
+  | 'REGRESSION_PATTERN'
+  | 'DEPENDENCY_PATTERN'
+  | 'DEPLOYMENT_PATTERN'
+  | 'RESOURCE_PATTERN'
+  | 'PREDICTIVE_PATTERN'
+  | 'RECOVERY_PATTERN'
+  | 'COMPONENT_RELIABILITY_PATTERN';
+
+export type KnowledgeConfidenceValue = 'UNKNOWN' | 'LOW' | 'MEDIUM' | 'HIGH';
+
+export type KnowledgeScopeValue =
+  | 'COMPONENT_SPECIFIC'
+  | 'SERVICE_CLASS'
+  | 'PROJECT_LEVEL'
+  | 'CROSS_PROJECT';
+
+export interface KnowledgeItem {
+  id: string;
+  knowledge_type: KnowledgeTypeValue;
+  status: KnowledgeStatusValue;
+  scope: KnowledgeScopeValue;
+  component_id?: string | null;
+  environment_id?: string | null;
+  title: string;
+  description: string;
+  feature_signature: string;
+  sample_count: number;
+  success_count?: number | null;
+  support_strength?: number | null;
+  coverage_start?: string | null;
+  coverage_end?: string | null;
+  confidence: KnowledgeConfidenceValue;
+  algorithm: string;
+  algorithm_version: string;
+  feature_schema_version: string;
+  validation?: Record<string, unknown> | null;
+  limitations: string[];
+  version: number;
+  supersedes_knowledge_id?: string | null;
+  reviewed_at?: string | null;
+  reviewed_by?: string | null;
+  review_reason?: string | null;
+  last_confirmed_at?: string | null;
+  sources: Array<Record<string, unknown>>;
+  experience_ids: string[];
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+export interface KnowledgeVersionItem {
+  id: string;
+  version: number;
+  status: KnowledgeStatusValue;
+  confidence: KnowledgeConfidenceValue;
+  sample_count: number;
+  snapshot: Record<string, unknown>;
+  note?: string | null;
+  learning_run_id?: string | null;
+  activated_at?: string | null;
+  deactivated_at?: string | null;
+  created_at?: string | null;
+}
+
+export interface KnowledgeReviewItem {
+  id: string;
+  decision: string;
+  reviewer: string;
+  reason?: string | null;
+  knowledge_version: number;
+  created_at?: string | null;
+}
+
+export interface KnowledgeList {
+  items: KnowledgeItem[];
+  total: number;
+  page: number;
+  page_size: number;
+  total_pages: number;
+}
+
+export interface KnowledgeVersionList {
+  items: KnowledgeVersionItem[];
+  total: number;
+  page: number;
+  page_size: number;
+  total_pages: number;
+}
+
+export interface KnowledgeDetail {
+  knowledge: KnowledgeItem;
+  versions: KnowledgeVersionItem[];
+  reviews: KnowledgeReviewItem[];
+  related: KnowledgeItem[];
+  experiences: ExperienceItem[];
+}
+
+export interface KnowledgeReviewPayload {
+  decision: 'APPROVE' | 'REJECT' | 'REQUEST_MORE_EVIDENCE' | 'DEPRECATE';
+  reviewer: string;
+  reason?: string | null;
+}
+
+export interface ExperienceItem {
+  id: string;
+  project_id: string;
+  incident_id?: string | null;
+  environment_id?: string | null;
+  primary_component_id?: string | null;
+  remediation_action_id?: string | null;
+  start_time: string;
+  end_time: string;
+  recovery_seconds?: number | null;
+  outcome: string;
+  data_quality: string;
+  provenance: string;
+  component_ids: string[];
+  failure_signature: Record<string, unknown>;
+  failure_label: string;
+  failure_fingerprint: string;
+  resolution_signature?: Record<string, unknown> | null;
+  resolution_label?: string | null;
+  learning_run_id?: string | null;
+}
+
+export interface ExperienceList {
+  items: ExperienceItem[];
+  total: number;
+  page: number;
+  page_size: number;
+  total_pages: number;
+}
+
+export interface ExperienceTimelineEntry {
+  stage: string;
+  at?: string | null;
+  detail?: string | null;
+}
+
+export interface ExperienceDetail {
+  experience: ExperienceItem;
+  failure_signature: Record<string, unknown>;
+  resolution_signature?: Record<string, unknown> | null;
+  incident?: { id: string; title: string; status: string; severity: string } | null;
+  component?: { id: string; name: string; category?: string | null } | null;
+  remediation?: {
+    id: string;
+    action_type: string;
+    status: string;
+    outcome?: string | null;
+  } | null;
+  timeline: ExperienceTimelineEntry[];
+}
+
+export type RecommendationTypeValue =
+  | 'INVESTIGATE_COMPONENT'
+  | 'INVESTIGATE_DEPENDENCY'
+  | 'REVIEW_RECENT_CHANGE'
+  | 'REVIEW_REMEDIATION'
+  | 'RUN_REPRODUCTION'
+  | 'CONSIDER_ROLLBACK'
+  | 'CONSIDER_RESTART'
+  | 'CONSIDER_TRAFFIC_SHIFT'
+  | 'REVIEW_CAPACITY'
+  | 'REVIEW_CONFIGURATION';
+
+export interface RecommendationItem {
+  id: string;
+  recommendation_type: RecommendationTypeValue;
+  status: string;
+  title: string;
+  rationale: string;
+  confidence: KnowledgeConfidenceValue;
+  component_id?: string | null;
+  environment_id?: string | null;
+  incident_id?: string | null;
+  forecast_id?: string | null;
+  knowledge_ids: string[];
+  experience_ids: string[];
+  current_evidence: Record<string, unknown>;
+  limitations: string[];
+  ranking?: Record<string, unknown> | null;
+  historical?: Record<string, unknown> | null;
+  policy_note?: string | null;
+  decision?: Record<string, unknown> | null;
+  outcome?: Record<string, unknown> | null;
+  decided_by?: string | null;
+  decided_at?: string | null;
+  expires_at?: string | null;
+  created_at?: string | null;
+}
+
+export interface RecommendationOutcomeItem {
+  id: string;
+  verdict: string;
+  detail?: Record<string, unknown> | null;
+  recorded_at: string;
+  recorded_by?: string | null;
+}
+
+export interface RecommendationList {
+  items: RecommendationItem[];
+  total: number;
+  page: number;
+  page_size: number;
+  total_pages: number;
+}
+
+export interface RecommendationDetail {
+  recommendation: RecommendationItem;
+  outcomes: RecommendationOutcomeItem[];
+  knowledge: KnowledgeItem[];
+  experiences: ExperienceItem[];
+}
+
+export interface RecommendationDecisionPayload {
+  decision: 'ACCEPTED' | 'DISMISSED';
+  actor: string;
+  reason?: string | null;
+}
+
+export interface RecommendationOutcomePayload {
+  verdict: 'EFFECTIVE' | 'INEFFECTIVE' | 'REGRESSION_CAUSING' | 'INCONCLUSIVE';
+  recorded_by: string;
+  detail?: Record<string, unknown> | null;
+  remediation_action_id?: string | null;
+}
+
+/**
+ * §23/§24. A relationship learned from history — never a declared dependency.
+ *
+ * `directed` is the field that matters most: an undirected observation must not
+ * be drawn as an arrow, and `is_dependency` is present (and always false) so a
+ * viewer cannot render structural meaning the payload does not carry.
+ */
+export type RelationshipKindValue =
+  | 'FAILURE_PROPAGATION'
+  | 'SHARED_FAILURE'
+  | 'DEPENDENCY_DEGRADATION'
+  | 'REMEDIATION_INFLUENCE';
+
+export interface LearnedRelationshipItem {
+  id: string;
+  project_id: string;
+  environment_id?: string | null;
+  source_component_id: string;
+  source_component_name: string;
+  target_component_id: string;
+  target_component_name: string;
+  kind: RelationshipKindValue;
+  directed: boolean;
+  status: string;
+  sample_count: number;
+  supporting_count?: number | null;
+  support_strength?: number | null;
+  confidence: KnowledgeConfidenceValue;
+  evidence: Array<Record<string, unknown>>;
+  limitations: string[];
+  provenance: string;
+  algorithm: string;
+  algorithm_version: string;
+  feature_schema_version: string;
+  coverage_start?: string | null;
+  coverage_end?: string | null;
+  first_seen_at?: string | null;
+  last_seen_at?: string | null;
+  learning_run_id?: string | null;
+  is_dependency: false;
+  disclaimer: string;
+}
+
+export interface LearnedRelationshipList {
+  items: LearnedRelationshipItem[];
+  total: number;
+  page: number;
+  page_size: number;
+  total_pages: number;
+  relationship_note: string;
+  limitations: string[];
+}
+
+export interface ComponentLearningProfile {
+  component: { id: string; name: string; category?: string | null };
+  /** §23/§24. Learned history, kept visually separate from the structural graph. */
+  relationships?: LearnedRelationshipItem[];
+  profiles: Array<{
+    id: string;
+    component_id: string;
+    window_days: number;
+    computed_at: string;
+    incident_count: number;
+    anomaly_count: number;
+    remediation_count: number;
+    rollback_count: number;
+    regression_count: number;
+    mean_recovery_seconds?: number | null;
+    forecast_outcome_count: number;
+    forecast_true_positive_count: number;
+    chronic_signal: boolean;
+    chronic_reasons: string[];
+    breakdown?: Record<string, unknown> | null;
+  }>;
+  knowledge: KnowledgeItem[];
+}
+
+export interface EffectivenessBucket {
+  action_type: string;
+  dimension: string;
+  dimension_value?: string | null;
+  comparable: number;
+  successful: number;
+  partially_successful: number;
+  failed: number;
+  rolled_back: number;
+  unresolved: number;
+  mean_recovery_seconds?: number | null;
+  regression_count: number;
+  success_ratio?: number | null;
+  insufficient: boolean;
+  minimum_samples: number;
+  experience_ids: string[];
+  limitations: string[];
+}
+
+export interface RemediationEffectiveness {
+  buckets: EffectivenessBucket[];
+  headline: string;
+  observational_label: string;
+  limitations: string[];
+}
+
+export interface ActionComparison {
+  label: string;
+  failure_pattern?: string | null;
+  actions: Record<string, Record<string, unknown> & { headline?: string }>;
+  verdict: string;
+  summary: string;
+  limitations: string[];
+}
+
+export interface SearchCitation {
+  type: string;
+  id: string;
+  label?: string | null;
+}
+
+export interface KnowledgeSearchAnswer {
+  question: string;
+  intent: string;
+  answer: string;
+  evidence_available: boolean;
+  citations: SearchCitation[];
+  knowledge: Array<Record<string, unknown>>;
+  experiences: Array<Record<string, unknown>>;
+  effectiveness: Array<Record<string, unknown>>;
+  limitations: string[];
+  warnings: string[];
+}
+
+export interface LearningRunItem {
+  id: string;
+  project_id?: string | null;
+  status: string;
+  trigger: string;
+  data_cutoff: string;
+  last_processed_at?: string | null;
+  started_at: string;
+  completed_at?: string | null;
+  events_processed: number;
+  experiences_created: number;
+  experiences_updated: number;
+  patterns_discovered: number;
+  patterns_validated: number;
+  patterns_rejected: number;
+  knowledge_activated: number;
+  records_flagged: number;
+  /** §23. Learned-relationship counts for this run. */
+  relationships_created?: number;
+  relationships_updated?: number;
+  algorithm_versions: Record<string, unknown>;
+  error_summary?: string | null;
+}
+
+export interface LearningRunList {
+  items: LearningRunItem[];
+  total: number;
+  page: number;
+  page_size: number;
+  total_pages: number;
+}
+
+export interface LearningRunDetail {
+  run: LearningRunItem;
+  events: Array<{
+    id: string;
+    event_type: string;
+    subject_id: string;
+    occurred_at: string;
+    processed_at?: string | null;
+    unprocessable_reason?: string | null;
+    provenance: string;
+  }>;
+}
+
+export interface LearningRunSummary {
+  run_id?: string | null;
+  status: string;
+  projects: string[];
+  events_processed: number;
+  experiences_created: number;
+  experiences_updated: number;
+  experiences_flagged: number;
+  patterns_discovered: number;
+  patterns_validated: number;
+  patterns_rejected: number;
+  knowledge_created: number;
+  knowledge_updated: number;
+  knowledge_activated: number;
+  knowledge_deprecated: number;
+  recommendations_created: number;
+  recommendations_expired: number;
+  /** §23. Reported so a run that learned nothing about relationships is visible. */
+  relationships_created?: number;
+  relationships_updated?: number;
+  relationships_stale?: number;
+  skipped_reasons: string[];
+  unprocessable: Record<string, string>;
+  errors: string[];
+}
+
+export interface LearningRunRequestPayload {
+  project_id: string;
+  trigger?: string;
+  cutoff?: string | null;
+  lookback_days?: number | null;
+  generate_recommendations?: boolean;
+}
+
+export interface EventHook {
+  project_id?: string | null;
+  enabled_event_types: string[];
+  trusted_provenance: string[];
+  updated_by?: string | null;
+}
+
+export interface EventHookUpdatePayload {
+  project_id?: string | null;
+  enabled_event_types?: string[] | null;
+  trusted_provenance?: string[] | null;
+  updated_by?: string | null;
+}
+
+export interface IntelligenceSweep {
+  projects_considered: number;
+  projects_run: number;
+  events_consumed: number;
+  knowledge_deprecated: number;
+  recommendations_expired: number;
+  runs: Array<Record<string, unknown>>;
+  paused: boolean;
+  disabled: boolean;
+  errors: string[];
+}
+
+export interface IntelligenceHealth {
+  learning_enabled: boolean;
+  sweep_enabled: boolean;
+  auto_activation_enabled: boolean;
+  include_ai_generated: boolean;
+  pending_events: number;
+  last_run_status?: string | null;
+  last_run_at?: string | null;
+  knowledge_stale_after_days: number;
+  minimum_samples: Record<string, number>;
+}
+
+export interface IntelligenceDashboard {
+  knowledge_by_status: Record<string, number>;
+  knowledge_by_type: Record<string, number>;
+  active_knowledge: number;
+  validated_knowledge: number;
+  candidate_patterns: number;
+  stale_knowledge: number;
+  rejected_patterns: number;
+  recently_learned: KnowledgeItem[];
+  experiences: number;
+  open_recommendations: number;
+  pending_events: number;
+  chronic_components: number;
+  last_run?: LearningRunItem | null;
+}
+
+export interface IntelligenceMetrics {
+  learning_runs: number;
+  learning_failures: number;
+  events_total: number;
+  events_pending: number;
+  experiences: number;
+  experiences_poor_quality: number;
+  knowledge_validated_or_active: number;
+  knowledge_candidates: number;
+  knowledge_rejected: number;
+  knowledge_stale: number;
+  /** §80. The relationship stage is observable too. */
+  relationships_active?: number;
+  relationships_stale?: number;
+  relationships_undirected?: number;
+  pattern_validation_rate?: number | null;
+  recommendations_by_status: Record<string, number>;
+  recommendations_decided: number;
+  recommendation_success_rate?: number | null;
 }

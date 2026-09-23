@@ -1041,6 +1041,14 @@ class RemediationService:
             now=now,
         )
         await self._session.flush()
+
+        #: Phase 10 §6. Every completed verification is a learning outcome —
+        #: including the ones that failed, because "this did not work" is the
+        #: half of the history that effectiveness needs. Best-effort: a learning
+        #: failure must never fail a verification response.
+        from app.services.learning_hooks import record_remediation_completed
+
+        await record_remediation_completed(self._session, action=action, actor=actor)
         return result
 
     async def _latest_successful_execution(
@@ -1100,6 +1108,13 @@ class RemediationService:
             apply_transition(action, RemediationStatus.ROLLED_BACK)
             if action.outcome in (None, RemediationOutcome.PARTIALLY_EFFECTIVE):
                 action.outcome = RemediationOutcome.INCONCLUSIVE
+            #: Phase 10 §6. A completed reversal is an outcome worth learning
+            #: from; the hook is best-effort and can never fail this request.
+            from app.services.learning_hooks import record_rollback_completed
+
+            await record_rollback_completed(
+                self._session, action=action, rollback=result.rollback
+            )
             await self._record_breaker_outcome(
                 action, success=False, reason=RemediationFailureReason.HANDLER_ERROR
             )

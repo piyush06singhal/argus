@@ -140,6 +140,7 @@ class TelemetryCaptureService:
     def __init__(self) -> None:
         self._max_signals = settings.REPRO_MAX_TELEMETRY_SIGNALS
         self._max_bytes = settings.REPRO_MAX_TELEMETRY_BYTES
+        self._quiescence_budget = settings.REPRO_QUIESCENCE_TIMEOUT_SECONDS
 
     @staticmethod
     def namespace_for(experiment_id: Any) -> str:
@@ -152,7 +153,7 @@ class TelemetryCaptureService:
         handle: SandboxHandle,
         *,
         min_wait: float = 0.4,
-        max_wait: float = 4.0,
+        max_wait: Optional[float] = None,
         poll: float = 0.2,
     ) -> float:
         """Wait until the sandbox stops producing telemetry.
@@ -172,27 +173,46 @@ class TelemetryCaptureService:
         2. telemetry files must then stop changing across two polls, which
            covers the gap between a service answering the probe and the last
            buffered line reaching disk.
+
+        ``max_wait`` defaults to the configured budget rather than a hard-coded
+        one. A faulted request keeps sleeping its injected latency inside the
+        sandbox, so on a loaded machine a few seconds is not a ceiling — it is a
+        race between the sandbox and the capture. Losing that race is silent and
+        expensive: the evidence that distinguishes an injected fault from a
+        natural failure simply is not in the file.
+
+        The stability check runs **either way**. A probe that never answers is
+        not evidence that the sandbox is finished with the work, so exiting on
+        the clock alone would capture a half-written file — the exact loss this
+        wait exists to prevent. And with no telemetry on disk yet, "unchanged
+        across two polls" means nothing has been written, not that the sandbox
+        has settled, so the wait continues until something appears or the budget
+        runs out.
         """
+        budget: float = max_wait if max_wait is not None else self._quiescence_budget
         await asyncio.sleep(min_wait)
-        deadline = time.monotonic() + max_wait
+        deadline = time.monotonic() + budget
         drained = False
         while time.monotonic() < deadline:
             if await self._sandbox_drained(handle):
                 drained = True
                 break
             await asyncio.sleep(poll)
-        if drained:
-            previous = self._telemetry_fingerprint(handle)
-            while time.monotonic() < deadline:
-                await asyncio.sleep(poll)
-                current = self._telemetry_fingerprint(handle)
-                if current == previous:
-                    break
-                previous = current
-        elapsed = max(
-            0.0, min(max_wait, poll + (max_wait - (deadline - time.monotonic())))
-        )
-        return elapsed
+
+        #: The probe phase must not be able to starve the stability phase: a
+        #: service that never answers spends the whole budget above, and a
+        #: clock-only exit would then capture a half-written file. The stability
+        #: phase therefore gets a small floor of its own, which keeps the total
+        #: bounded (budget + the floor) instead of unbounded.
+        settle_deadline = max(deadline, time.monotonic() + poll * 4)
+        previous = self._telemetry_fingerprint(handle)
+        while time.monotonic() < settle_deadline:
+            await asyncio.sleep(poll)
+            current = self._telemetry_fingerprint(handle)
+            if current == previous and (drained or current):
+                break
+            previous = current
+        return max(0.0, min(budget, budget - (deadline - time.monotonic())))
 
     @staticmethod
     async def _sandbox_drained(handle: SandboxHandle) -> bool:

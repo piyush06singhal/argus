@@ -18,6 +18,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.deps import (
@@ -128,9 +129,33 @@ async def create_incident(
             raise HTTPException(status_code=404, detail="Component not found")
     incident = Incident(**data)
     db.add(incident)
-    await db.flush()
+    try:
+        await db.flush()
+    except IntegrityError as e:
+        #: §25 — a project may hold only one *unresolved* incident per
+        #: fingerprint, enforced by a partial unique index because correlation
+        #: runs concurrently. A caller that files one by hand gets a clear
+        #: refusal instead of a 500.
+        await db.rollback()
+        if incident_data.fingerprint and _is_fingerprint_conflict(e):
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "An unresolved incident with this fingerprint already exists "
+                    "for this project"
+                ),
+            ) from e
+        raise
     await db.refresh(incident)
     return incident
+
+
+def _is_fingerprint_conflict(error: IntegrityError) -> bool:
+    """True when the failure is the live-fingerprint uniqueness rule."""
+    constraint = getattr(getattr(error.orig, "diag", None), "constraint_name", None)
+    if constraint is not None:
+        return constraint == "uq_incidents_project_fingerprint_unresolved"
+    return "fingerprint" in str(error.orig).lower()
 
 
 @router.get("", response_model=IncidentList)

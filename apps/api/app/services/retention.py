@@ -21,6 +21,7 @@ from sqlalchemy.orm import InstrumentedAttribute
 from app.core.config import get_settings
 from app.models.anomaly import Anomaly, AnomalyObservation
 from app.models.incident import Incident, IncidentTimelineEvent
+from app.models.intelligence import LearningEvent
 from app.models.ingestion import (
     ConfigurationChangeEvent,
     HealthCheckEvent,
@@ -162,6 +163,16 @@ _RETENTION_TABLES: dict[str, tuple[Any, InstrumentedAttribute[Any], int]] = {
         ReliabilityDriftRecord,
         ReliabilityDriftRecord.created_at,
         settings.RETENTION_RELIABILITY_EVALUATIONS,
+    ),
+    #: Phase 10. The learning event log is evidence with a consumer, not belief:
+    #: an outcome that has been consumed is history, and history is bounded.
+    #: Experiences and knowledge are deliberately absent — they are retired by
+    #: the knowledge lifecycle (DEPRECATED / SUPERSEDED) and stay readable, and
+    #: they are bounded anyway by the incident and project cascades.
+    "learning_events": (
+        LearningEvent,
+        LearningEvent.created_at,
+        settings.RETENTION_LEARNING_EVENTS,
     ),
 }
 

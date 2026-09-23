@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.anomaly import (
@@ -21,6 +22,7 @@ from app.models.incident import (
     EvidenceType,
     Incident,
     IncidentEvidence,
+    IncidentSeverity,
     IncidentStatus,
     IncidentTimelineEvent,
     TimelineEventType,
@@ -525,6 +527,166 @@ class TestLifecycle:
         assert count == 1
         await db_session.refresh(incident)
         assert incident.status is IncidentStatus.OPEN
+
+
+class TestLiveFingerprintUniqueness:
+    """§25 — one *live* incident per fingerprint, enforced by the database.
+
+    Correlation runs concurrently from the detect endpoint, the ingest hook and
+    the sweep, and two passes in flight cannot see each other's uncommitted
+    insert. Live validation caught the consequence: two incidents with the same
+    fingerprint, with the anomalies left on whichever pass committed last and
+    the other holding none. These tests pin the invariant and the fallback.
+    """
+
+    async def _incident(
+        self, db_session: AsyncSession, project_id, env_id, *, fingerprint: str
+    ) -> Incident:
+        incident = Incident(
+            project_id=project_id,
+            environment_id=env_id,
+            title="racer",
+            severity=IncidentSeverity.HIGH,
+            status=IncidentStatus.OPEN,
+            detected_at=NOW,
+            fingerprint=fingerprint,
+        )
+        db_session.add(incident)
+        await db_session.flush()
+        return incident
+
+    async def test_a_second_unresolved_incident_for_a_fingerprint_is_refused(
+        self, db_session: AsyncSession
+    ) -> None:
+        project_id, env_id, _, _, _ = await _seed(db_session)
+        await self._incident(db_session, project_id, env_id, fingerprint="f" * 64)
+
+        db_session.add(
+            Incident(
+                project_id=project_id,
+                environment_id=env_id,
+                title="duplicate",
+                severity=IncidentSeverity.HIGH,
+                status=IncidentStatus.OPEN,
+                detected_at=NOW,
+                fingerprint="f" * 64,
+            )
+        )
+        with pytest.raises(IntegrityError):
+            await db_session.flush()
+        await db_session.rollback()
+
+    @pytest.mark.parametrize("status", [IncidentStatus.RESOLVED, IncidentStatus.CLOSED])
+    async def test_a_retired_incident_does_not_block_a_recurrence(
+        self, db_session: AsyncSession, status: IncidentStatus
+    ) -> None:
+        """History is allowed to hold several episodes of one fingerprint."""
+        project_id, env_id, _, _, _ = await _seed(db_session)
+        for _ in range(2):
+            first = await self._incident(
+                db_session, project_id, env_id, fingerprint="a" * 64
+            )
+            first.status = status
+            await db_session.flush()
+
+        count = await db_session.scalar(
+            select(func.count())
+            .select_from(Incident)
+            .where(Incident.fingerprint == "a" * 64)
+        )
+        assert count == 2
+
+    async def test_the_index_does_not_cross_projects(
+        self, db_session: AsyncSession
+    ) -> None:
+        """Two projects may each hold their own unresolved incident."""
+        first_project, first_env, _, _, _ = await _seed(db_session, name="Alpha")
+        second_project, second_env, _, _, _ = await _seed(db_session, name="Beta")
+        await self._incident(db_session, first_project, first_env, fingerprint="b" * 64)
+        await self._incident(
+            db_session, second_project, second_env, fingerprint="b" * 64
+        )
+        count = await db_session.scalar(
+            select(func.count())
+            .select_from(Incident)
+            .where(Incident.fingerprint == "b" * 64)
+        )
+        assert count == 2
+
+    async def test_a_null_fingerprint_is_not_constrained(
+        self, db_session: AsyncSession
+    ) -> None:
+        """Manually reported incidents have no fingerprint and may coexist."""
+        project_id, env_id, _, _, _ = await _seed(db_session)
+        for _ in range(2):
+            db_session.add(
+                Incident(
+                    project_id=project_id,
+                    environment_id=env_id,
+                    title="reported",
+                    severity=IncidentSeverity.LOW,
+                    status=IncidentStatus.OPEN,
+                    detected_at=NOW,
+                    fingerprint=None,
+                )
+            )
+        await db_session.flush()
+        count = await db_session.scalar(
+            select(func.count())
+            .select_from(Incident)
+            .where(Incident.fingerprint.is_(None))
+        )
+        assert count == 2
+
+    async def test_racer_adopts_the_incident_instead_of_duplicating(
+        self, db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The window that produced the duplicate now converges on one row."""
+        project_id, env_id, checkout, _, _ = await _seed(db_session)
+        await _add_anomaly(db_session, project_id, env_id, checkout, at=NOW)
+        await _run(db_session, project_id, env_id)
+
+        incident = await db_session.scalar(select(Incident))
+        assert incident is not None
+
+        # The second pass's anomalies correlate to the same fingerprint.
+        for seconds in (60, 90):
+            await _add_anomaly(
+                db_session,
+                project_id,
+                env_id,
+                checkout,
+                at=NOW + timedelta(seconds=seconds),
+            )
+        await db_session.flush()
+
+        real_find = IncidentManager._find_incident
+        calls = {"n": 0}
+
+        async def blind_once(self, project_id, fingerprint):  # noqa: ANN001
+            calls["n"] += 1
+            #: Blind exactly once: that is what the racy lookup saw before the
+            #: other pass committed.
+            if calls["n"] == 1:
+                return None
+            return await real_find(self, project_id, fingerprint)
+
+        monkeypatch.setattr(IncidentManager, "_find_incident", blind_once)
+        result = await IncidentManager(
+            db_session, now=NOW + timedelta(minutes=5)
+        ).process_scope(project_id=project_id, environment_id=env_id)
+
+        assert result.incidents_created == 0
+        assert result.incidents_updated == 1
+        rows = list((await db_session.scalars(select(Incident))).all())
+        assert len(rows) == 1
+        assert rows[0].id == incident.id
+        linked = await db_session.scalar(
+            select(func.count())
+            .select_from(Anomaly)
+            .where(Anomaly.incident_id == incident.id)
+        )
+        assert linked == 3
 
 
 class TestIsolation:

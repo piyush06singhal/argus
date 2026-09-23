@@ -7,7 +7,7 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING, List, Optional
 
-from sqlalchemy import String, Text, Enum, DateTime, Float, ForeignKey, Index
+from sqlalchemy import String, Text, Enum, DateTime, Float, ForeignKey, Index, text
 from app.models.base import Guid as UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -84,6 +84,37 @@ class Incident(BaseModel):
     """An incident detected or reported in a system."""
 
     __tablename__ = "incidents"
+    __table_args__ = (
+        #: §25 — at most one *unresolved* incident per correlation fingerprint.
+        #: Correlation runs from several places at once (the detect endpoint,
+        #: the async ingest hook, the sweep), and two concurrent passes cannot
+        #: see each other's uncommitted insert: with only the application-level
+        #: lookup, both opened an incident for the same fingerprint and the
+        #: anomalies ended up on whichever pass committed last, leaving a live
+        #: incident holding no evidence (caught by the Phase 10 smoke gate).
+        #: The index makes that state impossible and the persistence path adopts
+        #: the row the other pass wrote instead.
+        #:
+        #: ``RESOLVED`` and ``CLOSED`` are deliberately outside the predicate.
+        #: They are retired history: correlation reopens such a row rather than
+        #: duplicating it, and a stray duplicate there corrupts nothing — which
+        #: matters because a *reported* incident may legitimately carry whatever
+        #: fingerprint its filer chose, and history may legitimately contain
+        #: several episodes of one fingerprint. The state that must never exist
+        #: twice is the unresolved one.
+        Index(
+            "uq_incidents_project_fingerprint_unresolved",
+            "project_id",
+            "fingerprint",
+            unique=True,
+            postgresql_where=text(
+                "fingerprint IS NOT NULL AND status NOT IN ('RESOLVED', 'CLOSED')"
+            ),
+            sqlite_where=text(
+                "fingerprint IS NOT NULL AND status NOT IN ('RESOLVED', 'CLOSED')"
+            ),
+        ),
+    )
 
     project_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("projects.id"), nullable=False, index=True

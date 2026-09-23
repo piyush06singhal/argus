@@ -11,9 +11,10 @@ regression-test.
 
 from __future__ import annotations
 
+import asyncio
 import time
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -74,6 +75,7 @@ from app.services.telemetry_capture import (
     CaptureResult,
     ObservationSignal,
     ObservationStatus,
+    TelemetryCaptureService,
 )
 
 NOW = datetime(2026, 9, 20, 15, 0, tzinfo=timezone.utc)
@@ -419,6 +421,7 @@ def _signal(
     error: bool = False,
     duration: float | None = None,
     offset: int = 0,
+    observed_at: datetime | None = None,
     signal_type: ObservationSignal = ObservationSignal.SPAN,
     attributes: dict | None = None,
 ) -> CapturedSignal:
@@ -426,7 +429,7 @@ def _signal(
         signal_type=signal_type,
         status=ObservationStatus.UNEXPECTED if error else ObservationStatus.NEUTRAL,
         matched_expected=False,
-        observed_at=NOW,
+        observed_at=observed_at or NOW,
         namespace="repro:test",
         component_name=component,
         source=component,
@@ -436,6 +439,84 @@ def _signal(
         message="query timeout after 2500 ms" if error else None,
         attributes=dict(attributes or {}),
     )
+
+
+class TestTelemetrySettle:
+    """Waiting for a sandbox to settle (§21).
+
+    The failure mode this guards is silent: a sandbox that keeps working after
+    the caller gave up still writes the span that proves the injected fault was
+    applied, so capturing early loses exactly the evidence the experiment
+    exists to produce.
+    """
+
+    @staticmethod
+    def _handle(root: Path):
+        return SandboxHandle(
+            sandbox_key="argus-repro-settle",
+            backend=LocalProcessBackend.kind,
+            root_path=root,
+            network_policy=SandboxNetworkPolicy.ISOLATED,
+            #: A service that will never answer the probe: `_sandbox_drained`
+            #: is patched to keep reporting "not drained" below.
+            services={"datastore": {"port": 1, "pid": 1}},
+        )
+
+    async def test_settle_waits_for_telemetry_that_arrives_late(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        service = TelemetryCaptureService()
+        (tmp_path / "telemetry").mkdir()
+        handle = self._handle(tmp_path)
+        written = asyncio.Event()
+
+        async def never_drained(_handle) -> bool:
+            return False
+
+        monkeypatch.setattr(
+            TelemetryCaptureService, "_sandbox_drained", staticmethod(never_drained)
+        )
+
+        async def late_telemetry() -> None:
+            await asyncio.sleep(0.3)
+            (tmp_path / "telemetry" / "datastore.jsonl").write_text(
+                '{"service": "datastore", "error": true}\n', encoding="utf-8"
+            )
+            written.set()
+
+        task = asyncio.create_task(late_telemetry())
+        #: The probe never answers, so it spends this budget — and the stability
+        #: phase must still run afterwards.
+        await service.wait_for_quiescence(
+            handle, min_wait=0.05, max_wait=1.0, poll=0.05
+        )
+
+        #: The wait did not return before the evidence existed. Checking the
+        #: event (rather than the elapsed time) is what makes this a test of the
+        #: rule and not of the machine's speed.
+        assert written.is_set()
+        await task
+
+    async def test_settle_returns_promptly_when_nothing_is_produced(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A drained sandbox with no telemetry is settled, not waited on."""
+        service = TelemetryCaptureService()
+        (tmp_path / "telemetry").mkdir()
+        handle = self._handle(tmp_path)
+
+        async def drained(_handle) -> bool:
+            return True
+
+        monkeypatch.setattr(
+            TelemetryCaptureService, "_sandbox_drained", staticmethod(drained)
+        )
+
+        started = time.monotonic()
+        await service.wait_for_quiescence(
+            handle, min_wait=0.05, max_wait=5.0, poll=0.05
+        )
+        assert time.monotonic() - started < 2.0
 
 
 class TestComparator:
@@ -489,6 +570,39 @@ class TestComparator:
         assert comparison.result is ReproductionResult.SUCCESSFUL
         assert comparison.overall_similarity in {"HIGH", "MEDIUM"}
         assert comparison.matched_components == ["checkout", "datastore", "inventory"]
+        assert comparison.sequence_match is True
+
+    def test_onset_order_uses_the_observed_instant_not_the_rounded_offset(
+        self,
+    ) -> None:
+        """Two failures inside one millisecond still have a real order.
+
+        The offset is whole milliseconds, and a faulted chain finishes inside
+        one of them — so ordering on it made the *same* experiment report
+        `SUCCESSFUL` on one run and `PARTIAL` on the next, decided by which
+        telemetry file happened to be parsed first. That was the heaviest
+        dimension in the score. This is the regression: the offsets tie, the
+        instants do not, and the signals are deliberately listed in the wrong
+        order.
+        """
+        comparator = ReproductionComparator()
+        comparison = comparator.compare(
+            source=_source(
+                sequence=["datastore", "checkout"], components=["datastore", "checkout"]
+            ),
+            capture=_capture(
+                [
+                    _signal(
+                        "checkout",
+                        error=True,
+                        offset=6,
+                        observed_at=NOW + timedelta(milliseconds=1),
+                    ),
+                    _signal("datastore", error=True, offset=6, observed_at=NOW),
+                ]
+            ),
+        )
+        assert comparison.sequence_reproduced == ["datastore", "checkout"]
         assert comparison.sequence_match is True
 
     def test_a_clean_sandbox_is_a_failed_reproduction_not_a_success(

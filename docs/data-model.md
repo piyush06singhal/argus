@@ -348,6 +348,47 @@ Four invariants shape this domain:
   and `prev_hash` binds its predecessor, so the chain can be recomputed and a
   break located.
 
+### Phase 10 — Reliability intelligence & autonomous learning
+
+Twelve tables, one per object the learning layer reasons about: the episode
+(`ReliabilityExperience`), the outcome that produced it (`LearningEvent`), the
+belief (`ReliabilityKnowledge`) with its revision ledger (`KnowledgeVersion`) and
+its human decisions (`KnowledgeReview`), the work (`LearningRun`,
+`LearningExperiment`), the per-component read model (`ComponentReliabilityProfile`),
+the advice (`ReliabilityRecommendation`) and its separate outcome
+(`RecommendationOutcome`), the learned graph overlay
+(`LearnedRelationship`) and the producer registry (`LearningEventHook`).
+
+| Entity | Table | Key fields |
+| :--- | :--- | :--- |
+| `ReliabilityExperience` | `reliability_experiences` | `project_id`, `environment_id`, `incident_id`, `component_ids`, `failure_signature` (`failure_fingerprint`), `resolution_signature`, `outcome` (a string from the outcome enum of the phase that produced it), `recovery_bucket`, `duration_seconds`, `evidence_ids`, `as_of`, `provenance` |
+| `LearningEvent` | `learning_events` | `project_id`, `event_type`, `subject_id`, `subject_type`, `incident_id`, `provenance`, `payload`, `dedup_key` (unique), `occurred_at`, `processed_at`, `process_reason`, `run_id` |
+| `ReliabilityKnowledge` | `reliability_knowledge` | `knowledge_type`, `status`, `scope`, `environment_id`, `component_id`, `title`, `description`, `fingerprint`, `feature_signature`, `sources`, `experience_ids`, `sample_count`, `success_count`, `coverage_start`/`coverage_end`, `confidence`, `support_strength`, `algorithm`, `algorithm_version`, `feature_schema_version`, `validation` (JSON, per-check), `limitations`, `version`, `supersedes_knowledge_id`, `reviewed_at`/`reviewed_by`/`review_reason`, `last_confirmed_at` |
+| `KnowledgeVersion` | `intelligence_knowledge_versions` | `knowledge_id`, `version`, `status`, `snapshot` (JSON), `change_note`, `run_id`, `recorded_by` |
+| `KnowledgeReview` | `intelligence_knowledge_reviews` | `knowledge_id`, `decision` (`APPROVE`/`REJECT`/`REQUEST_MORE_EVIDENCE`/`DEPRECATE`), `actor`, `reason`, `from_status`, `to_status` |
+| `LearningRun` | `intelligence_learning_runs` | `project_ids`, `status`, `started_at`/`completed_at`, `trigger`, `cutoff`, `summary` (JSON — counts, skips, unprocessable, errors), `error` |
+| `LearningExperiment` | `intelligence_learning_experiments` | `knowledge_id`, `baseline_fingerprint`, `variant_fingerprint`, `status`, `comparison` (JSON), `limitations`, `sample_counts`, `conclusion` |
+| `ComponentReliabilityProfile` | `intelligence_component_profiles` | `component_id`, `window_days`, `incidents`, `anomalies`, `remediations`, `successful_remediations`, `chronic` flags, `recommendation`, `computed_at` — unique per `(component, window)` |
+| `ReliabilityRecommendation` | `intelligence_recommendations` | `recommendation_type`, `status`, `incident_id`, `component_id`, `knowledge_id`, `title`, `rationale`, `evidence`, `confidence`, `priority`, `expires_at`, `decided_at`/`decided_by`, `decision_reason` |
+| `RecommendationOutcome` | `intelligence_recommendation_outcomes` | `recommendation_id`, `outcome` (`EFFECTIVE`/`INEFFECTIVE`/`REGRESSION_CAUSING`/`UNKNOWN`), `observed_at`, `evidence`, `recorded_by` |
+| `LearnedRelationship` | `intelligence_relationships` | `project_id`, `environment_id`, `source_component_id`, `target_component_id`, `kind`, `directed`, `status`, `support_count`, `sample_count`, `confidence`, `support_strength`, `coverage_start`/`coverage_end`, `evidence`, `limitations` — unique per `(project, source, target, kind)` |
+| `LearningEventHook` | `intelligence_event_hooks` | `producer`, `event_type`, `enabled`, `last_published_at`, `published_count`, `last_error` |
+
+Four invariants shape this domain:
+
+* **Derived, never authoritative.** Every row is computed from Phases 0–9 rows and
+  cascades with the project (and with the incident for experiences), so the
+  learning layer can never outlive the evidence it describes.
+* **Provenance or nothing.** A learning record that cannot name where it came
+  from is not written, and `AI_GENERATED`/`MOCK` are excluded from learning by
+  default.
+* **Knowledge is additive.** A revision writes a version, and a materially
+  different conclusion supersedes the old row instead of editing it, so an old
+  belief stays readable as it was.
+* **A learned relationship is not a dependency.** It is stored in its own table
+  with its own support and an explicit `directed` flag; it never writes to
+  `component_dependencies` or `graph_edges`.
+
 ## 4. Enum domains
 
 | Entity field | Enum values |
@@ -370,6 +411,18 @@ Four invariants shape this domain:
 | `RunStatus` | PENDING, RUNNING, COMPLETED, FAILED, TIMED_OUT, CANCELLED |
 | `FailureClass` | ENVIRONMENT_ERROR, INPUT_ERROR, TIMEOUT, RESOURCE_LIMIT, DEPENDENCY_UNAVAILABLE, SANDBOX_ERROR, APPLICATION_FAILURE, NO_FAILURE_OBSERVED, INSUFFICIENT_TELEMETRY, UNKNOWN |
 | `ReplayInputSource` / `ReplayStatus` | HTTP_REQUEST, EVENT, MESSAGE, TRACE_INPUT, SYNTHETIC / PENDING, SENT, SUCCEEDED, FAILED, REJECTED, SKIPPED |
+| `KnowledgeType` | INCIDENT_PATTERN, FAILURE_PATTERN, ANOMALY_PATTERN, REMEDIATION_PATTERN, REGRESSION_PATTERN, DEPENDENCY_PATTERN, DEPLOYMENT_PATTERN, RESOURCE_PATTERN, PREDICTIVE_PATTERN, RECOVERY_PATTERN, COMPONENT_RELIABILITY_PATTERN |
+| `KnowledgeStatus` | CANDIDATE, VALIDATING, VALIDATED, ACTIVE, DEPRECATED, REJECTED, SUPERSEDED |
+| `KnowledgeScope` | COMPONENT_SPECIFIC, SERVICE_CLASS, PROJECT_LEVEL, CROSS_PROJECT |
+| `KnowledgeConfidence` | UNKNOWN, LOW, MEDIUM, HIGH |
+| `DataProvenance` | OBSERVABILITY, SYSTEM_GENERATED, HUMAN_ENTERED, AI_GENERATED, IMPORTED, MOCK |
+| `LearningEventType` | INCIDENT_RESOLVED, REMEDIATION_COMPLETED, PATCH_VERIFIED, PATCH_REGRESSION_DETECTED, FORECAST_CONFIRMED, FORECAST_FALSE_POSITIVE, FORECAST_MISSED, ROOT_CAUSE_CONFIRMED, ROOT_CAUSE_REJECTED, REPRODUCTION_CONFIRMED, REPRODUCTION_FAILED, ROLLBACK_COMPLETED |
+| `KnowledgeReviewDecision` | APPROVE, REJECT, REQUEST_MORE_EVIDENCE, DEPRECATE |
+| `RelationshipKind` | FAILURE_PROPAGATION, SHARED_FAILURE (always undirected), DEPENDENCY_DEGRADATION, REMEDIATION_INFLUENCE |
+| `RelationshipStatus` | ACTIVE, STALE, SUPERSEDED |
+| `RecommendationType` | INVESTIGATE_COMPONENT, INVESTIGATE_DEPENDENCY, REVIEW_RECENT_CHANGE, REVIEW_REMEDIATION, RUN_REPRODUCTION, CONSIDER_ROLLBACK, CONSIDER_RESTART, CONSIDER_TRAFFIC_SHIFT, REVIEW_CAPACITY, REVIEW_CONFIGURATION |
+| `RecommendationStatus` | OPEN, ACCEPTED, DISMISSED, EXPIRED, EFFECTIVE, INEFFECTIVE, REGRESSION_CAUSING |
+| `LearningRunStatus` / `LearningExperimentStatus` | QUEUED, RUNNING, COMPLETED, FAILED, CANCELLED / RUNNING, PASSED, FAILED, REJECTED |
 | `ReplayMode` | SEQUENTIAL, PARALLEL, TIMED, BURST, RATE_LIMITED |
 | `FaultType` | LATENCY, TIMEOUT, HTTP_4XX, HTTP_5XX, CONNECTION_FAILURE, RESPONSE_CORRUPTION, RESOURCE_PRESSURE, DEPENDENCY_UNAVAILABLE |
 | `FaultTrigger` / `FaultStatus` | IMMEDIATE, AFTER_REPLAY_INDEX, AT_OFFSET, ON_REQUEST_COUNT, MANUAL / PLANNED, ACTIVE, COMPLETED, FAILED, SKIPPED |

@@ -1069,6 +1069,19 @@ class ReproductionOrchestrator:
                 experiment.metadata_ = metadata
             await session.commit()
 
+            #: Phase 10 (§6, §63): every terminal transition publishes its
+            #: outcome — ``SUCCESSFUL`` as REPRODUCTION_CONFIRMED, anything else
+            #: (including a timeout that never ran) as REPRODUCTION_FAILED. The
+            #: hook is best effort, so a learning-table problem cannot fail an
+            #: experiment that already finished.
+            from app.services.reproduction_state import TERMINAL_EXPERIMENT_STATUSES
+
+            if status in TERMINAL_EXPERIMENT_STATUSES:
+                from app.services.learning_hooks import record_reproduction_result
+
+                await record_reproduction_result(session, experiment=experiment)
+                await session.commit()
+
     @staticmethod
     def _planned_timeout(experiment: ReproductionExperiment) -> int:
         """The plan's timeout, falling back to the configured default.

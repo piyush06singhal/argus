@@ -61,6 +61,7 @@ first-class, tested outcome — not a failure mode.
 | **7** | Automated Fix Generation & Verification — fix hypotheses, patch generation, safety validation, isolated workspace, build/tests, two-sided regression test, verification, human review | ✅ shipped | [docs/phase-7.md](docs/phase-7.md) |
 | **8** | Predictive Reliability — feature engineering, deterministic baseline predictors, risk policy, evaluation & calibration, walk-forward backtesting, leakage prevention, drift, early warnings, human-only | ✅ shipped | [docs/predictive-reliability.md](docs/predictive-reliability.md) |
 | **9** | Safe Autonomous Remediation — action registry, safety & policy gates, approval or autonomous authorization, controlled execution, verification, rollback, audit, six execution regimes | ✅ shipped | [docs/safe-autonomous-remediation.md](docs/safe-autonomous-remediation.md) |
+| **10** | Reliability Intelligence & Autonomous Learning — normalized experiences, nine pattern miners, validation, knowledge lifecycle with versions and human review, component profiles, learned relationships, grounded search, recommendations | ✅ shipped | [docs/reliability-intelligence.md](docs/reliability-intelligence.md) · [docs/learning-governance.md](docs/learning-governance.md) |
 
 Phase 7 is the first phase that can produce a change — and it still does not
 merge, deploy or remediate. It plans a fix from evidence that already exists,
@@ -91,6 +92,19 @@ and only under the risk ceiling. Success means the system's behaviour changed fo
 the better over a verification window, not that a handler returned. Everything
 that happens is hash-chained, reversible where the action allows, and stoppable
 with one emergency-stop call. It ships disabled.
+
+Phase 10 turns that accumulated history into reusable knowledge — and is
+careful about what "knowledge" means. Outcomes that completed (an incident
+resolved, a patch verified, a forecast confirmed, a remediation effective) are
+normalized into **experiences**, nine deterministic miners look for patterns
+across them, and every pattern is validated against its own corpus before it is
+allowed to advise anything. A pattern is written with its support, its window,
+its provenance mix and its failed checks attached; it is versioned, reviewed by a
+human, aged out when new data stops confirming it, and never deleted. Learning
+excludes unconfirmed AI output by default, never crosses a project boundary, and
+cannot change a policy, execute an action or raise a limit — the strongest thing
+a learned pattern can do is inform a recommendation, which a person then accepts
+or dismisses.
 
 ## How it works
 
@@ -135,11 +149,18 @@ with one emergency-stop call. It ships disabled.
         ─► controlled execution ─► verification ─► rollback if required
         ─► post-analysis ─► hash-chained audit ─► human or emergency stop
                                  ▼
+              Reliability Intelligence & Learning (Phase 10)
+        outcomes ─► learning events ─► normalized experiences ─► nine miners
+        ─► validation ─► knowledge (versioned, reviewed) ─► profiles · learned
+        relationships ─► grounded search ─► recommendations ─► human decides
+                                 ▼
                      Next.js investigation UI
         system map · anomaly center · incidents · root cause analysis
         · reproduction workspace · AI debugger · fix & verification workspace
         · predictive reliability dashboard, heatmap and component profiles
         · remediation console, action detail and policy editor
+        · reliability intelligence center, pattern explorer, learned
+        relationships, recommendation queue and grounded search
 ```
 
 ## Features
@@ -413,6 +434,47 @@ with one emergency-stop call. It ships disabled.
   human decision controls, and a policy editor that shows the clamped values.
 </details>
 
+<details>
+<summary><b>Reliability Intelligence &amp; Autonomous Learning (Phase 10)</b></summary>
+
+- **Experiences, not a second copy of history:** every outcome in Phases 1–9 is
+  normalized into one episode carrying its failure shape, its resolution shape
+  and the ids it was built from. Every query is bounded by an `as-of` cutoff, so
+  a later resolution can never retroactively explain an earlier failure.
+- **Nine deterministic miners, no model:** failure, remediation, regression,
+  deployment, dependency, recovery, component-reliability and predictive
+  patterns, plus recommendation effectiveness. The same corpus always produces
+  the same patterns, which is what makes the version ledger meaningful.
+- **Knowledge that states its own support:** observation count, window, support
+  strength, confidence bucket, provenance mix, algorithm version, and the
+  per-check result of validation — `sample_size`, `data_quality`,
+  `temporal_consistency`, `stability`, `cross_component_consistency`,
+  `support_strength` and `false_discovery`. A pattern that fails a check is
+  recorded as a candidate with the reason, never silently dropped.
+- **A lifecycle that only ever raises belief through validation:** `CANDIDATE →
+  VALIDATING → VALIDATED → ACTIVE`, with a human able to lower belief at any
+  point and never able to push past it. A rejected pattern stays rejected.
+- **Autonomous activation is off by default** and, even when enabled, can only
+  ever activate informational, high-confidence knowledge — remediation, recovery
+  and predictive patterns always need a person.
+- **Versioned and aged, never deleted:** re-derivation writes a version; a
+  materially different conclusion supersedes the old row; knowledge nothing
+  confirms for 90 days is deprecated with the date of its last confirmation.
+- **Grounded search:** an answer with citations, or an explicit "no comparable
+  historical case". There is no confident-sounding fallback.
+- **Learned relationships (§23, §24) that never claim to be dependencies:** a
+  relationship learned from co-failure carries its support and stays undirected
+  when the evidence is undirected.
+- **Recommendations are advice with two separate facts:** accepting one is a
+  human's decision, the outcome is an observation — `EFFECTIVE`, `INEFFECTIVE`
+  and `REGRESSION_CAUSING` are recorded separately from `ACCEPTED`.
+- **A learning workspace:** reliability intelligence center, pattern explorer
+  with the evidence behind each pattern and review controls, learned
+  relationships, recommendation queue with decision and outcome panels,
+  experience browser, run history with the full report, component learning
+  profiles, and grounded search.
+</details>
+
 ## Quick start
 
 **Requirements:** Docker with Compose. Nothing else — no local Python or Node
@@ -470,11 +532,11 @@ they pass on repeat runs, not only on a pristine database.
 
 | Gate | Command | Result |
 | :--- | :--- | :--- |
-| Backend test suite | `cd apps/api && pytest -q` | **1487 passed, 1 skipped** |
-| Lint / format / types | `cd apps/api && ruff check app tests && ruff format --check app tests && mypy app` | clean |
-| Frontend tests | `cd apps/web && npm test` | **161 passed** |
+| Backend test suite | `cd apps/api && pytest -q` | **1746 passed, 1 skipped** |
+| Lint / format / types | `cd apps/api && ruff check app tests && ruff format --check app tests && mypy app` | clean (199 modules) |
+| Frontend tests | `cd apps/web && npm test` | **203 passed** |
 | Frontend type check | `cd apps/web && npx tsc --noEmit` | clean |
-| Frontend production build | `cd apps/web && npm run build` | succeeds, 39 routes |
+| Frontend production build | `cd apps/web && npm run build` | succeeds, 51 routes |
 | Phase 0/1 live gate | `bash infrastructure/e2e-smoke-phase1.sh` | **46/46** |
 | Phase 2 live gate | `bash infrastructure/e2e-smoke-phase2.sh` | **28/28** |
 | Phase 3 live gate | `bash infrastructure/e2e-smoke-phase3.sh` | **103/103** |
@@ -487,6 +549,8 @@ they pass on repeat runs, not only on a pristine database.
 | Phase 8 gate + DDL probe | `DDL_PROBE=1 bash infrastructure/e2e-smoke-phase8.sh` | **43/43** |
 | Phase 9 live gate | `bash infrastructure/e2e-smoke-phase9.sh` | **69/69** |
 | Phase 9 gate + DDL probe | `DDL_PROBE=1 bash infrastructure/e2e-smoke-phase9.sh` | **70/70** |
+| Phase 10 live gate | `bash infrastructure/e2e-smoke-phase10.sh` | **87/87** |
+| Phase 10 gate + DDL probe | `DDL_PROBE=1 bash infrastructure/e2e-smoke-phase10.sh` | **89/89** (both Phase 10 revisions reverse and re-apply) |
 | Migration under a live pool | `DDL_PROBE=1 bash infrastructure/e2e-smoke-phase4.sh` | **73/73** |
 | Fresh-database bootstrap | empty DB → `alembic upgrade head` → `seed_data.py` | 13 migrations apply from zero into 98 tables (12 for Phase 9); demo incident, its analysis, its reproduction, its forecasts and its remediations are derived correctly |
 | Migrations reversible | `alembic upgrade head` / `downgrade -1` on PostgreSQL 16 | verified both directions |
@@ -496,6 +560,22 @@ projects can be analysed side by side without contaminating each other: a second
 system's evidence-free incident stays `UNKNOWN` while another project holds a
 `HIGH`-confidence analysis, and every candidate resolves to a component of the
 project being analysed.
+
+The Phase 10 gate ingests four multi-component episodes over the real API,
+correlates them into incidents, remediates and verifies one, leaves one open,
+then runs the learning pipeline twice: the first run consumes the completed
+outcomes and must produce real counts, the second must produce nothing new. It
+then exercises the pattern explorer, the version ledger, a review decision
+refused without a reason, an activation refused for a candidate, a rejection
+recorded with its reviewer, grounded search with and without a comparable case,
+a recommendation accepted by a named operator and given an *ineffective*
+outcome, learned relationships that repeat they are not dependencies, a second
+project that sees none of the first's learning, the twelve tables and seven enum
+types in PostgreSQL, and the learning workspace rendering. It is self-cleaning.
+
+It is also adversarial about its own subject: the gate fails if the pipeline
+produces no knowledge, no relationship or no advice, rather than reporting a pass
+for "nothing was produced".
 
 The Phase 8 gate ingests a deterministic degradation timeline over the real API
 and then exercises forecast generation, provenance and snapshot reproducibility,
@@ -638,6 +718,7 @@ All endpoints are versioned under `/api/v1`; interactive documentation is at
 | Causal analysis | `/incidents/{id}/{analyze,causal-analysis,causal-graph,causal-chain,root-causes,hypotheses,evidence-analysis}` |
 | Reproduction | `/incidents/{id}/reproductions`, `/reproductions`, `/reproductions/metrics`, `/reproductions/{id}/{plan,safety,status,inputs,telemetry,artifacts,comparison,validation,environment,faults,manifest,start,cancel,retry}` |
 | Remediation | `/remediation/{action-types,actions,actions/{id},proposals,assessments,policy,policy-decisions,approvals,executions,verifications,rollbacks,audit,breakers,controls,metrics,sweep,emergency-stop}` and `/incidents/{id}/remediation` |
+| Learning | `/intelligence/{health,dashboard,metrics,knowledge,knowledge/{id},knowledge/{id}/versions,knowledge/{id}/review,patterns,patterns/{id},experiences,experiences/{id},relationships,components/{id}/profile,remediation-effectiveness,remediation-effectiveness/compare,recommendations,recommendations/{id},recommendations/{id}/decide,recommendations/{id}/outcome,incidents/{id}/recommendations,learning-runs,learning-runs/{id},sweep,event-hooks,experiments,search}` |
 | Ops | `/health/{live,ready,dependencies}`, `/metrics` |
 
 List endpoints share one pagination contract:
@@ -704,6 +785,19 @@ useless:
 - **Deployment and vendor operations are not started.** ARGUS proposes and can
   act on its own runtime; shipping a change to your systems remains a human or
   CD decision.
+- **Learning is per project and per outcome.** Phase 10 learns from completed
+  outcomes inside one project; it does not pool knowledge across projects even
+  when two projects are the same software, and an episode with no recorded
+  outcome teaches it nothing.
+- **Excluding AI-generated evidence is a blunt instrument.** The default keeps
+  unconfirmed model output out of the corpus, which also discards the hypotheses
+  that were right. The alternative — learning from unverified output — is worse.
+- **Sample floors are policy, not statistics.** Three observations is the
+  default before a pattern may leave `CANDIDATE`; there is no false-discovery-rate
+  control at the level of a journal, only a recorded count of comparisons.
+- **A learned relationship is not a dependency.** It says two components failed
+  together; where the evidence has no direction, the relationship stays
+  undirected, and it never writes to the declared dependency or graph tables.
 
 ## Roadmap
 
@@ -713,7 +807,8 @@ useless:
 | 7 | ✅ Automated Fix Generation & Verification — candidates verified in isolation, never auto-applied |
 | 8 | ✅ Predictive Reliability — evidence-backed forecasts, evaluation, backtesting, drift, warnings |
 | 9 | ✅ Safe Autonomous Remediation — registry-gated proposals, approval or policy-scoped autonomy, verification, rollback, audit |
-| 10 | Reliability Intelligence & Autonomous Learning — learn from incident, prediction, remediation and fix outcomes |
+| 10 | ✅ Reliability Intelligence & Autonomous Learning — normalized experiences, nine miners, validation, versioned knowledge, human review, grounded advice |
+| 11 | Full product surface — reliability command center across projects, orgs and teams; enhanced UI, reporting, insights |
 
 See [docs/roadmap.md](docs/roadmap.md) for detail.
 
@@ -730,7 +825,9 @@ See [docs/roadmap.md](docs/roadmap.md) for detail.
 | [Phase 7 — Automated Fix Generation & Verification](docs/phase-7.md) | Fix hypotheses, patch generation, safety validation, isolated workspaces, command registry, verification ladder, risk, artifacts, human review, limitations |
 | [Phase 8 — Predictive Reliability](docs/predictive-reliability.md) | Forecast domain, feature engineering, predictors, risk policy, lifecycle, backtesting, leakage prevention, calibration, drift, warnings, API, UI, limitations |
 | [Phase 9 — Safe Autonomous Remediation](docs/safe-autonomous-remediation.md) | Action registry, state machine, gate-by-gate pipeline, blast radius and canary, failure containment, the control plane, API, UI, what it deliberately does not do, limitations |
-| [Phase 2 Report](docs/phase2-implementation-report.md) · [Phase 3 Report](docs/phase3-implementation-report.md) · [Phase 4 Report](docs/phase4-implementation-report.md) · [Phase 5 Report](docs/phase5-implementation-report.md) · [Phase 6 Report](docs/phase6-implementation-report.md) · [Phase 8 Report](docs/phase-8-report.md) · [Phase 9 Report](docs/phase-9-report.md) | Delivery summaries, gate evidence, bugs found by live validation |
+| [Phase 10 — Reliability Intelligence & Autonomous Learning](docs/reliability-intelligence.md) | Experience model, the nine miners, validation, the API, the learning UI, honest limitations |
+| [Learning governance](docs/learning-governance.md) | Provenance classes, lifecycle, validation checks, human review, autonomous activation, ageing, versioning, what governance deliberately leaves out |
+| [Phase 2 Report](docs/phase2-implementation-report.md) · [Phase 3 Report](docs/phase3-implementation-report.md) · [Phase 4 Report](docs/phase4-implementation-report.md) · [Phase 5 Report](docs/phase5-implementation-report.md) · [Phase 6 Report](docs/phase6-implementation-report.md) · [Phase 8 Report](docs/phase-8-report.md) · [Phase 9 Report](docs/phase-9-report.md) · [Phase 10 Report](docs/phase-10-report.md) | Delivery summaries, gate evidence, bugs found by live validation |
 | [Data model](docs/data-model.md) | Tables, relationships, enum domains, indexes |
 | [Observability model](docs/observability-model.md) | Signals, normalization, retention |
 | [Development](docs/development.md) | Local setup, migrations, testing conventions |

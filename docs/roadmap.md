@@ -1,6 +1,6 @@
 # ARGUS Roadmap
 
-ARGUS is built in phases. This document records the planned evolution. **Phases 0–8 are implemented. Do not implement later phases now** — the roadmap is a contract for architecture boundaries, not a to-do list.
+ARGUS is built in phases. This document records the planned evolution. **Phases 0–10 are implemented. Do not implement later phases now** — the roadmap is a contract for architecture boundaries, not a to-do list.
 
 ## Phase 0 — Foundation ✅
 
@@ -189,7 +189,28 @@ See [docs/safe-autonomous-remediation.md](safe-autonomous-remediation.md) for th
 
 **Explicitly not included:** editing your repositories, deployments, vendor infrastructure, unbounded retries, self-modifying policy. Phase 9 acts on ARGUS's own runtime through an explicit registry and stops everywhere else — Phase 10 would learn from what it did, and still not widen the boundary on its own.
 
-## Phase 10 — Reliability Intelligence Platform
+## Phase 10 — Reliability Intelligence & Autonomous Learning ✅
+
+- ✅ Completed outcomes (incident resolved, patch verified, forecast confirmed, remediation effective, reproduction confirmed) published as **learning events** by the producers themselves, with a dedup key and a claimed-once consumer
+- ✅ **Normalized experiences**: one episode per outcome carrying its failure shape, its resolution shape, the component set and the ids it was built from — every query bounded by an `as-of` cutoff, so a later resolution can never retroactively explain an earlier failure
+- ✅ **Nine deterministic miners** (failure, remediation, regression, deployment, dependency, recovery, component reliability, predictive, recommendation effectiveness) — pure, rule-based, no model, same corpus → same patterns
+- ✅ **Validation against the pattern's own corpus**: `sample_size`, `data_quality`, `temporal_consistency`, `stability`, `cross_component_consistency`, `support_strength`, `false_discovery`, each recorded per check; a failing pattern becomes a candidate with a reason, never a silent drop
+- ✅ **A lifecycle that only ever raises belief through validation** (`CANDIDATE → VALIDATING → VALIDATED → ACTIVE`), a human able to lower belief but never to push past validation, a rejected pattern staying rejected, and a version ledger so a changed conclusion is visible rather than overwritten
+- ✅ **Autonomous activation off by default**, and even when enabled limited to informational, high-confidence patterns — remediation, recovery and predictive patterns always need a person
+- ✅ **Provenance as the data-poisoning defence**: `AI_GENERATED` and `MOCK` excluded from learning by default; a learning record that cannot name its source is not written at all
+- ✅ **Learned relationships that never claim to be dependencies**, stored with their support and an explicit direction, in their own table, with an undirected observation staying undirected
+- ✅ **Grounded search**: an answer with citations, or an explicit "no comparable historical case" — no confident-sounding fallback
+- ✅ **Recommendations as advice**: only `VALIDATED`/`ACTIVE` knowledge may be cited, deciding is a human act, and `ACCEPTED` is recorded separately from `EFFECTIVE`/`INEFFECTIVE`/`REGRESSION_CAUSING`
+- ✅ **Ageing, not deletion**: knowledge nothing confirms for 90 days is deprecated with the date of its last confirmation, and can be re-validated if the pattern returns
+- ✅ Per-component, per-window learning profiles; retention for the event log; a scheduled sweep for staleness and expiry
+- ✅ Learning UI: reliability intelligence center, pattern explorer with review controls, learned relationships, recommendation queue with decision and outcome panels, experience browser, run history, grounded search, component profiles
+- ✅ Backend suite green (250 Phase 10 tests across twelve files) + 203 vitest tests; live Phase 10 gate (`infrastructure/e2e-smoke-phase10.sh`, 87 checks) exercises the whole pipeline over the real HTTP API and is self-cleaning
+
+See [docs/reliability-intelligence.md](reliability-intelligence.md) for the design, [docs/learning-governance.md](learning-governance.md) for how knowledge is governed, and [docs/phase-10-report.md](phase-10-report.md) for the delivery report, including the defect live validation caught.
+
+**Explicitly not included:** training a model, changing a policy, executing anything, crossing a project boundary, deleting knowledge, and learning from unconfirmed AI output. Phase 10 concludes and advises — Phase 11 would widen the product surface, not the boundary.
+
+## Phase 11 — Reliability Intelligence Platform
 
 - Full product surface: reliability command center across projects, orgs, and teams
 - Enhanced UI (system map health states, causal paths), reporting, insights
