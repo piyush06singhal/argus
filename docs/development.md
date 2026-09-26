@@ -148,6 +148,20 @@ Tests use a **file-backed SQLite** database (shared across the TestClient event 
 
 Run a single module: `pytest tests/test_observability.py`.
 
+**Run it against the pinned interpreter too, not only a local venv.** CI installs
+`requirements.txt` on Python 3.12, and a venv that has drifted — a newer Python, a
+newer SQLAlchemy — can pass a test the pinned set fails. That is how a real
+dead-letter regression reached `main`: `AsyncSession.get_transaction()` raises
+`NotImplementedError` on SQLAlchemy 2.0.36 and works on 2.0.54, so the failure was
+only ever visible in CI. The API image installs exactly those pins, which makes it
+the cheapest way to reproduce a CI-only failure:
+
+```bash
+docker compose build api
+docker compose run --rm --no-deps -v "$PWD:/repo" -w /repo/apps/api \
+  api python -m pytest tests/ -q
+```
+
 ## 8. Linting & typing
 
 ```bash
