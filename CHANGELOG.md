@@ -139,6 +139,26 @@ versioning follows [SemVer](https://semver.org/).
   true for federated sessions (`external_identities`, and the person's identity
   in the audit reason). Both corrected, and the docs guard now fails on a denial
   of SSO for the same reason it fails on the Protobuf one.
+- **A failed batch event was counted but never dead-lettered.** `_dead_letter`
+  probed the session with `AsyncSession.get_transaction()`, which raises a bare,
+  message-less `NotImplementedError` on SQLAlchemy 2.0.36 whenever the current
+  transaction is the savepoint proxy `begin_nested()` leaves behind — the exact
+  state a failed event in a batch produces. The handler around it swallowed the
+  exception, so the event was reported as failed in the response while
+  `ingestion_failures` stayed empty, contradicting the store's own promise that
+  failed events are never silently discarded. The probe now reads the same state
+  through `sync_session.get_transaction()`.
+- **The reproduction sandbox could not start on a non-root host.**
+  `REPRO_MAX_PROCESSES` was applied as `RLIMIT_NPROC`, which Linux checks against
+  the real **UID's** total task count rather than against the sandbox. With the
+  shipped cap of 32, any account already running more than 32 tasks — every
+  non-root deployment, and every CI runner — saw the service bind its port and
+  then fail to create the thread that answers its health probe, so provisioning
+  timed out and every Phase 5 experiment ended `ENVIRONMENT_ERROR`. The local
+  backend now applies only the per-process limits and records
+  `process_cap_enforced: false`; the Docker backend keeps enforcing the cap for
+  real with `--pids-limit`. The docs that credited rlimits with a process and
+  open-files ceiling were corrected.
 
 #### Deferred (accepted risk)
 

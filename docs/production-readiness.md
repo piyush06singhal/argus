@@ -18,7 +18,7 @@ five properties, each with evidence:
 
 | Property | Claim | Evidence |
 | --- | --- | --- |
-| **Correct** | the platform behaves as documented | 2,185 backend tests, 263 web tests, 19 live gates |
+| **Correct** | the platform behaves as documented | 2,187 backend tests, 263 web tests, 19 live gates |
 | **Isolated** | one project cannot see or affect another | live HTTP gate asserting cross-project refusal |
 | **Safe by default** | autonomous action is inert until a policy exists (a missing policy resolves to `OBSERVE_ONLY`) and is policy-gated | Phase 9 refusal suite + live gate |
 | **Honest** | no output claims more than its evidence | epistemic tests in every phase suite |
@@ -41,8 +41,8 @@ commands below).
 
 | Suite | Command | Result |
 | --- | --- | --- |
-| Unit + integration (developer default, SQLite) | `cd apps/api && ./.venv/bin/python -m pytest tests/ -q` | **2,171 passed, 15 skipped** |
-| Unit + integration (PostgreSQL, as CI runs it) | same, with `ARGUS_TEST_DB=postgresql+asyncpg://…` (the compose Postgres is on **5433**) | **2,185 passed, 1 skipped** |
+| Unit + integration (developer default, SQLite) | `cd apps/api && ./.venv/bin/python -m pytest tests/ -q` | **2,173 passed, 15 skipped** |
+| Unit + integration (PostgreSQL, as CI runs it) | same, with `ARGUS_TEST_DB=postgresql+asyncpg://…` (the compose Postgres is on **5433**) | **2,187 passed, 1 skipped** |
 | Concurrency proofs (PostgreSQL only) | `./.venv/bin/python -m pytest tests/test_project_lock_postgres.py -q` | 5 passed — the per-project mutex serialises writers, emits `FOR UPDATE` on the production dialect, and four concurrent detect+correlate passes lose nothing |
 | Lint | `./.venv/bin/ruff check app tests` | clean |
 | Types | `./.venv/bin/mypy app` | clean (239 files) |

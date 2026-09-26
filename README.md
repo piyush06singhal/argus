@@ -344,8 +344,8 @@ GATES="phase8 hardening" bash infrastructure/verify-all.sh --live-only
 
 | Layer | Command | Result |
 | :--- | :--- | :--- |
-| Backend suite (PostgreSQL, as CI runs it) | `cd apps/api && ARGUS_TEST_DB=postgresql+asyncpg://argus:argus_password@localhost:5433/argus_db pytest -q` | **2,185 passed, 1 skipped** |
-| Backend suite (developer default, SQLite) | `cd apps/api && pytest -q` | **2,171 passed, 15 skipped** |
+| Backend suite (PostgreSQL, as CI runs it) | `cd apps/api && ARGUS_TEST_DB=postgresql+asyncpg://argus:argus_password@localhost:5433/argus_db pytest -q` | **2,187 passed, 1 skipped** |
+| Backend suite (developer default, SQLite) | `cd apps/api && pytest -q` | **2,173 passed, 15 skipped** |
 | PostgreSQL-gated proofs | `pytest tests/test_{migrations,project_lock,sweep_leader}_postgres.py` | **16 passed** — migration chain, per-project write mutex, sweep lease |
 | Lint, format, types | `cd apps/api && ruff check app tests && ruff format --check app tests && mypy app` | clean (239 modules, 352 files formatted) |
 | Frontend tests | `cd apps/web && npm test` | **263 passed** (14 files) |

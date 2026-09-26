@@ -11,7 +11,7 @@ hardening pass, so it reports findings rather than intentions.
 | | |
 | --- | --- |
 | Backend | 133,699 lines across `apps/api/app` |
-| Backend tests | 108 test modules, 2,185 passing on the PostgreSQL configuration (2,171 on SQLite) |
+| Backend tests | 108 test modules, 2,187 passing on the PostgreSQL configuration (2,173 on SQLite) |
 | Frontend | 42,282 lines across `apps/web/app` and `apps/web/lib`, 68 pages |
 | Domain modules | 157 services, 20 model modules, 22 route modules |
 | Migrations | 23 revisions (126 `create_table` calls; 127 tables from zero, including `alembic_version`) |

@@ -100,8 +100,8 @@ cd apps/api
 pytest
 ```
 
-The suite is **2,185 tests across 108 modules** on the PostgreSQL configuration
-CI runs (2,171 on the developer-default SQLite one; 15 modules skip without a
+The suite is **2,187 tests across 108 modules** on the PostgreSQL configuration
+CI runs (2,173 on the developer-default SQLite one; 15 modules skip without a
 PostgreSQL DSN). The full verification matrix — every suite, gate and command —
 is in the [README's Verification section](../README.md#verification). A sample of
 the backend modules, by area:

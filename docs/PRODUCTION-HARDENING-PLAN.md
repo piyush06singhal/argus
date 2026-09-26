@@ -10,8 +10,8 @@ assessment in [final-architecture-audit.md](final-architecture-audit.md).
 `bash infrastructure/verify-all.sh` re-runs the whole matrix in one command.
 
 The numbers in this document are superseded by that work: the suite is now
-**2,185 backend + 263 frontend** tests (2,171 on the developer-default SQLite
-configuration; 2,185 on the PostgreSQL configuration CI runs), and there are
+**2,187 backend + 263 frontend** tests (2,173 on the developer-default SQLite
+configuration; 2,187 on the PostgreSQL configuration CI runs), and there are
 **19 live gates — 1,157 assertions, 0 failures** (the 11 phase gates plus
 onboarding, UI, security, fault injection, backup restore rehearsal,
 self-observability, HA/PITR, single sign-on and the browser tier).
@@ -554,12 +554,24 @@ discipline is the point of the exercise.
 Recorded 2026-09-26 from a single full `bash infrastructure/verify-all.sh` run:
 **26 layers verified, 0 failed.**
 
+The first full CI run on `main` then found two defects the local runs could not
+see, both because this machine's venv had drifted off the pins (`Python 3.14` /
+`SQLAlchemy 2.0.54` against the pinned `3.12` / `2.0.36`): the ingestion
+pipeline never wrote a dead-letter row for a failed batch event, and the Phase 5
+sandbox could not start a service on any host whose account already ran more than
+32 tasks — i.e. every non-root deployment — because `REPRO_MAX_PROCESSES` was
+applied as `RLIMIT_NPROC`, which Linux checks per **UID** rather than per sandbox.
+Both are fixed, with regression tests that fail on the pinned set, and the
+follow-up run is green. That is the honest lesson of this pass: a green local
+suite is only as good as the dependency set it ran on, which is why CI is the
+authority and `docs/development.md` now says how to reproduce a CI-only failure.
+
 | Area | Status | Evidence |
 | :--- | :--- | :--- |
 | Architecture | ✅ | single-source audit ([final-architecture-audit.md](final-architecture-audit.md)) + [architecture.md](architecture.md) §2 |
-| Backend | ✅ | **2,185 passed / 1 skipped** (PostgreSQL, as CI runs it); 2,171 / 15 skipped (SQLite); `ruff` clean; `mypy` clean (239 files) |
+| Backend | ✅ | **2,187 passed / 1 skipped** (PostgreSQL, as CI runs it); 2,173 / 15 skipped (SQLite); `ruff` clean; `mypy` clean (239 files) |
 | Frontend | ✅ | vitest **263 passed** (14 files); `tsc` clean; `next build` succeeds (50 static pages generated, 68 pages in the app) |
-| Database | ✅ | 23 revisions → 127 tables from zero on real PostgreSQL; the migration suites run inside the 2,185 |
+| Database | ✅ | 23 revisions → 127 tables from zero on real PostgreSQL; the migration suites run inside the 2,187 |
 | Redis/Workers | ✅ | fault-injection gate **10/10**: Redis killed mid-ingest, ingest still succeeds, queues drain, zero rows lost |
 | Observability | ✅ | observability gate **22/22**: 20 alert rules each with a runbook link, a 22-panel dashboard, and **every referenced series present in a live scrape** |
 | Knowledge Graph | ✅ | phase 2 gate **28/28** |
@@ -573,8 +585,8 @@ Recorded 2026-09-26 from a single full `bash infrastructure/verify-all.sh` run:
 | Learning | ✅ | phase 10 gate **87** |
 | Security | ✅ | hardening gate **15/15** (auth + tenant isolation over real HTTP), SSO gate **65/65**, plus the OIDC suite (49 tests) |
 | Performance | ✅ | [argus-benchmark-report.md](argus-benchmark-report.md) §4b — 0 `5xx` from 8 to 64 concurrent clients |
-| Testing | ✅ | **2,185 backend + 263 web tests, 19 live gates / 1,157 assertions — 0 failures** |
-| CI/CD | ✅ | `.github/workflows/`: fast checks on every push; integration tier boots the stack and runs the live gates, including the SSO gate |
+| Testing | ✅ | **2,187 backend + 263 web tests, 19 live gates / 1,157 assertions — 0 failures** |
+| CI/CD | ✅ | `.github/workflows/`: fast checks on every push; integration tier boots the stack and runs the live gates, including the SSO gate. **Green end to end** on `5b3559d` ([run 36248940251](https://github.com/piyush06singhal/argus/actions/runs/36248940251)): backend **2,167 passed / 21 skipped** on the runner, web **263**, repo hygiene, in 6m35s |
 | Supply chain | ✅ *(one tracked deferral)* | `pip-audit` clean; `node scripts/audit-gate.mjs` passes with **12/12 high-and-critical production advisories triaged** in [supply-chain-triage.md](supply-chain-triage.md); Next.js 14.2.35 ≥ the 14.2.25 floor. The Next 16 upgrade that would eliminate them is deferred by decision, with its migration surface and exit criteria recorded — see below |
 | Runtime environment | ✅ | `python:3.12-slim` image; every workflow pins Python 3.12 |
 | Documentation | ✅ | docs index complete; [test_docs_consistency.py](../apps/api/tests/test_docs_consistency.py) (10 tests) makes drift — a broken runbook link, a renamed alert, an unwired gate, a false capability denial — a failed build |
