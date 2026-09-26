@@ -12,7 +12,7 @@
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 
-import { api, type ReproductionStrategy } from '@/lib/api';
+import { api, type ReproductionStrategy } from '@/lib/api-client';
 
 export interface PlanCandidateOption {
   id: string;

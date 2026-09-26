@@ -1,6 +1,6 @@
 import Link from 'next/link';
 
-import type { Project } from '@/lib/api';
+import type { Project } from '@/lib/api-client';
 
 /**
  * Shared building blocks for the Phase 11 platform surface.

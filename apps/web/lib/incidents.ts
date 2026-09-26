@@ -17,7 +17,7 @@ import type {
   AnomalyStatus,
   IncidentSeverity,
   IncidentStatus,
-} from './api';
+} from './api-client';
 
 // ---------------------------------------------------------------------------
 // Badge styling

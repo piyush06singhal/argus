@@ -177,6 +177,7 @@ export default function GraphExplorer({
         <select
           value={typeFilter}
           onChange={(e) => setTypeFilter(e.target.value)}
+          aria-label="Filter nodes by type"
           className="rounded-md border border-slate-300 px-2 py-1.5 text-sm"
         >
           {NODE_TYPE_FILTERS.map((t) => (
@@ -188,6 +189,7 @@ export default function GraphExplorer({
         <select
           value={sourceFilter}
           onChange={(e) => setSourceFilter(e.target.value)}
+          aria-label="Filter nodes by evidence source"
           className="rounded-md border border-slate-300 px-2 py-1.5 text-sm"
         >
           {SOURCE_FILTERS.map((s) => (
@@ -266,8 +268,17 @@ export default function GraphExplorer({
                     key={node.id}
                     transform={`translate(${pos.x}, ${pos.y})`}
                     onClick={() => setSelected(node)}
-                    className="cursor-pointer"
+                    className="cursor-pointer focus:outline-none"
                     data-node-name={node.name}
+                    role="button"
+                    tabIndex={0}
+                    aria-label={`${node.node_type} ${node.name}`}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault();
+                        setSelected(node);
+                      }
+                    }}
                   >
                     <rect
                       width={NODE_W}

@@ -78,6 +78,7 @@ export default function EnvComparePanel({ projectId, environments }: Props) {
         <select
           value={aId}
           onChange={(e) => setAId(e.target.value)}
+          aria-label="Compare from environment"
           className="rounded-md border border-slate-300 px-2 py-1.5 text-sm"
         >
           {environments.map((e) => (
@@ -88,6 +89,7 @@ export default function EnvComparePanel({ projectId, environments }: Props) {
         <select
           value={bId}
           onChange={(e) => setBId(e.target.value)}
+          aria-label="Compare to environment"
           className="rounded-md border border-slate-300 px-2 py-1.5 text-sm"
         >
           {environments.map((e) => (

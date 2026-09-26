@@ -3,7 +3,13 @@
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 
-import { api, ApiError } from '@/lib/api';
+import { api, ApiError } from '@/lib/api-client';
+import { announce, clearAnnouncement } from '@/lib/announce';
+
+import Announcement from '@/app/components/Announcement';
+
+//: Announcement scope, so this panel's confirmation cannot collide with another's.
+const ANNOUNCE_SCOPE = 'reliability-backtest';
 
 /**
  * Run a backtest (§55).
@@ -20,14 +26,13 @@ export default function RunBacktestForm({ projectId }: { projectId: string }) {
   const [trainingHours, setTrainingHours] = useState(24);
   const [maxSteps, setMaxSteps] = useState(24);
   const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
     setBusy(true);
     setError(null);
-    setMessage(null);
+    clearAnnouncement(ANNOUNCE_SCOPE);
     const end = new Date();
     const start = new Date(end.getTime() - days * 86_400_000);
     try {
@@ -41,9 +46,9 @@ export default function RunBacktestForm({ projectId }: { projectId: string }) {
         max_steps: maxSteps,
         created_by: 'reliability-ui',
       });
-      setMessage(
-        `Ran ${result.total} backtest(s). ${result.note}`,
-      );
+      // Recorded outside React: `router.refresh()` re-renders this component's
+      // server parent, and a message held in component state did not survive it.
+      announce(ANNOUNCE_SCOPE, `Ran ${result.total} backtest(s). ${result.note}`);
       router.refresh();
     } catch (cause) {
       setError(cause instanceof ApiError ? cause.message : String(cause));
@@ -115,7 +120,9 @@ export default function RunBacktestForm({ projectId }: { projectId: string }) {
           </span>
         </div>
       </form>
-      {message ? <p className="mt-3 text-sm text-argus-success">{message}</p> : null}
+      <div className="mt-3">
+        <Announcement scope={ANNOUNCE_SCOPE} />
+      </div>
       {error ? <p className="mt-3 text-sm text-argus-error">{error}</p> : null}
     </section>
   );

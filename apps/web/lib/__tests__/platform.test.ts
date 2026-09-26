@@ -145,6 +145,21 @@ describe('data quality (§88, §89)', () => {
     );
   });
 
+  it('labels every kind the backend can raise (including the hardening checks)', () => {
+    // A kind with no label renders as a SCREAMING_SNAKE token in an operator's
+    // queue, which is the same as showing them nothing.
+    for (const kind of [
+      'MISSING_TIMESTAMP',
+      'MISSING_PROVENANCE',
+      'IMPOSSIBLE_TRANSITION',
+      'MISSING_AUDIT_EVENT',
+      'CORRUPTED_ARTIFACT',
+      'INCONSISTENT_STATE',
+    ]) {
+      expect(dataQualityKindLabel(kind)).not.toBe(kind);
+    }
+  });
+
   it('falls back to the raw kind rather than inventing one', () => {
     expect(dataQualityKindLabel('SOMETHING_NEW')).toBe('SOMETHING_NEW');
     expect(dataQualityKindLabel(undefined)).toBe('Issue');

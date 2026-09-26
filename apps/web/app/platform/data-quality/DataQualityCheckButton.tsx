@@ -3,7 +3,13 @@
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 
-import { api, ApiError } from '@/lib/api';
+import { api, ApiError } from '@/lib/api-client';
+import { announce, clearAnnouncement } from '@/lib/announce';
+
+import Announcement from '@/app/components/Announcement';
+
+//: Announcement scope, so this panel's confirmation cannot collide with another's.
+const ANNOUNCE_SCOPE = 'data-quality-check';
 
 /**
  * Run the data-quality checks now (§87, §88).
@@ -16,19 +22,21 @@ export default function DataQualityCheckButton({ projectId }: { projectId: strin
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<string | null>(null);
 
   const run = async (persist: boolean) => {
     setBusy(true);
     setError(null);
-    setResult(null);
+    clearAnnouncement(ANNOUNCE_SCOPE);
     try {
       const response = await api.platformDataQualityCheck(projectId, persist);
       const count = response.findings;
       const detail = persist
         ? `opened ${response.opened}, updated ${response.updated}, resolved ${response.resolved}`
         : 'nothing was written';
-      setResult(
+      // Recorded outside React: recording findings re-renders the page, and a
+      // message held in component state did not survive that refresh.
+      announce(
+        ANNOUNCE_SCOPE,
         `Checked ${response.checked}; found ${count} issue(s) — ${detail}.`
       );
       if (persist) {
@@ -59,7 +67,7 @@ export default function DataQualityCheckButton({ projectId }: { projectId: strin
       >
         Run and record findings
       </button>
-      {result ? <p className="text-xs text-slate-400">{result}</p> : null}
+      <Announcement scope={ANNOUNCE_SCOPE} tone="info" />
       {error ? <p className="text-xs text-argus-error">{error}</p> : null}
     </div>
   );

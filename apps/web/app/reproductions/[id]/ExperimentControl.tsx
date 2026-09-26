@@ -23,7 +23,7 @@ import {
   type ReproductionExperimentDetail,
   type ReproductionSafetyPreview,
   type ReproductionStatus,
-} from '@/lib/api';
+} from '@/lib/api-client';
 import {
   EXPERIMENT_HAPPY_PATH,
   experimentStatusStyle,
@@ -32,8 +32,14 @@ import {
   isTerminalStatus,
   formatBytes,
 } from '@/lib/reproduction';
+import { announce, clearAnnouncement } from '@/lib/announce';
+
+import Announcement from '@/app/components/Announcement';
 
 const POLL_INTERVAL_MS = 3000;
+
+//: Announcement scope, so this panel's confirmation cannot collide with another's.
+const ANNOUNCE_SCOPE = 'reproduction-experiment';
 
 export default function ExperimentControl({
   detail,
@@ -50,7 +56,6 @@ export default function ExperimentControl({
   const [confirmed, setConfirmed] = useState(false);
   const [busy, setBusy] = useState<'start' | 'cancel' | 'retry' | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
 
   const scope = projectId ?? experiment.project_id;
   const status: ExperimentStatus = experiment.status;
@@ -98,10 +103,12 @@ export default function ExperimentControl({
   const start = async () => {
     setBusy('start');
     setError(null);
-    setNotice(null);
+    clearAnnouncement(ANNOUNCE_SCOPE);
     try {
       await api.startReproduction(experiment.id, scope, 'ui');
-      setNotice('Queued. The sandbox is provisioned by the worker.');
+      // Recorded outside React: `router.refresh()` re-renders this component's
+      // server parent, and a message held in component state did not survive it.
+      announce(ANNOUNCE_SCOPE, 'Queued. The sandbox is provisioned by the worker.');
       router.refresh();
     } catch (cause: unknown) {
       setError(
@@ -121,7 +128,8 @@ export default function ExperimentControl({
         scope,
         'cancelled from the reproduction workspace'
       );
-      setNotice(
+      announce(
+        ANNOUNCE_SCOPE,
         'Cancellation requested. The running repetition unwinds through its ' +
           'cleanup path so the sandbox is destroyed.'
       );
@@ -383,7 +391,7 @@ export default function ExperimentControl({
         </div>
       )}
 
-      {notice ? <p className="mt-3 text-xs text-slate-400">{notice}</p> : null}
+      <Announcement scope={ANNOUNCE_SCOPE} tone="info" />
       {error ? <p className="mt-3 text-xs text-argus-error">{error}</p> : null}
     </section>
   );

@@ -41,3 +41,14 @@
     @apply rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100 placeholder-slate-500 focus:border-argus-accent focus:outline-none focus:ring-1 focus:ring-argus-accent;
   }
 }
+
+/* Keyboard focus for SVG graph nodes (GraphExplorer): the node outline itself
+   carries the ring, because an outline rectangle around a translated <g> would
+   not track the shape. Pointer users keep the un-highlighted look. */
+svg g[data-node-name]:focus {
+  outline: none;
+}
+svg g[data-node-name]:focus rect:first-of-type {
+  stroke: #6366f1;
+  stroke-width: 2.5px;
+}

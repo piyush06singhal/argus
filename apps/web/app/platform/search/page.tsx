@@ -82,8 +82,9 @@ export default async function SearchPage({ searchParams }: { searchParams: Searc
                 name="q"
                 defaultValue={query}
                 placeholder="Search reliability records…"
+                aria-label="Search reliability records"
               />
-              <select className="input" name="kind" defaultValue={kind}>
+              <select className="input" name="kind" defaultValue={kind} aria-label="Filter by record kind">
                 <option value="">All kinds</option>
                 {[
                   'incident',

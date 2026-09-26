@@ -9,7 +9,7 @@ import {
   type Trace,
   type TraceDetail,
   type TraceSpan,
-} from '@/lib/api';
+} from '@/lib/api-client';
 
 type ViewState =
   | 'idle'

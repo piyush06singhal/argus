@@ -3,7 +3,7 @@
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 
-import { api, ApiError } from '@/lib/api';
+import { api, ApiError } from '@/lib/api-client';
 
 //: The dispositions the API accepts. ``SUPPRESSED`` was offered here and is not a
 //: status the backend has, so choosing it was rejected.

@@ -9,7 +9,7 @@
  */
 
 import type { GraphData } from '@/lib/graph';
-import { resolveBackendUrl } from '@/lib/api';
+import { apiFetch } from '@/lib/api';
 import SystemMapClient from './SystemMapClient';
 
 export const dynamic = 'force-dynamic';
@@ -18,10 +18,16 @@ interface ProjectListItem {
   items: { id: string; name: string; slug: string }[];
 }
 
+/**
+ * Every backend route requires a bearer token (hardening W1), so the shell
+ * fetches through ``apiFetch`` like every other server component. The raw
+ * ``fetch`` this used to send carried no ``Authorization`` header — with auth
+ * enforced each call came back ``401`` and the map rendered its loading
+ * spinner forever: HTTP 200 with an empty page, which is the worst way to fail
+ * because the status code says healthy while the user sees nothing.
+ */
 async function getJson<T>(path: string): Promise<T> {
-  const res = await fetch(resolveBackendUrl(path), { cache: 'no-store' });
-  if (!res.ok) throw new Error(`Request failed (${res.status})`);
-  return (await res.json()) as T;
+  return apiFetch<T>(path);
 }
 
 /** The demo project if present, else the first project with a known graph. */

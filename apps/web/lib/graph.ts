@@ -8,7 +8,7 @@
  * for the server/browser URL resolution.
  */
 
-import { apiFetch, type PaginatedResponse } from './api';
+import { apiFetch, type PaginatedResponse } from './api-client';
 
 // ---------------------------------------------------------------------------
 // Enums (mirrors app/models/graph.py)

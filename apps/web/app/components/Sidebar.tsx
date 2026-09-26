@@ -44,6 +44,12 @@ const NAV_ITEMS: NavItem[] = [
   { href: '/ingestion-health', label: 'Ingestion Health' },
   { href: '/deployments', label: 'Deployments' },
   { href: '/settings', label: 'Settings' },
+  { href: '/settings/tokens', label: 'Access Tokens' },
+  //: Provisioned people are part of the credential surface, so they sit beside
+  //: tokens rather than under a separate "users" concept the platform does not
+  //: have — ARGUS never stores a person, only what a provider said about one.
+  { href: '/settings/identities', label: 'SSO Identities' },
+  { href: '/connect', label: 'Connect' },
 ];
 
 export default function Sidebar() {

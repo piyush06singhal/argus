@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import type { DebugHypothesis } from '../api';
+import type { DebugHypothesis } from '../api-client';
 import {
   excerptLines,
   formatBytes,

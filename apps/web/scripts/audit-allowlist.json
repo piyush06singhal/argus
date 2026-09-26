@@ -1,0 +1,29 @@
+{
+  "_comment": "High/critical production advisories that are triaged in docs/supply-chain-triage.md. Any NEW advisory id must be triaged there and either fixed or added here with evidence. Delete an id from this file once the fix lands in the installed version.",
+  "next": [
+    1112593,
+    1112653,
+    1114897,
+    1114940,
+    1116376,
+    1117931,
+    1118942,
+    1118944,
+    1118946,
+    1118948,
+    1118952,
+    1118954,
+    1118958,
+    1118962,
+    1124172,
+    1124185,
+    1124187,
+    1124189,
+    1124191,
+    1124193,
+    1124197,
+    1193677,
+    1193733
+  ],
+  "postcss": [1117015, 1124252, 1130709, 1139510]
+}

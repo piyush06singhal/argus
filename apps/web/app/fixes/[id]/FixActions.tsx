@@ -18,8 +18,14 @@
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 
-import { api, ApiError, type ReviewAction } from '@/lib/api';
+import { api, ApiError, type ReviewAction } from '@/lib/api-client';
+import { announce, clearAnnouncement } from '@/lib/announce';
 import { reviewActionStyle } from '@/lib/fixes';
+
+import Announcement from '@/app/components/Announcement';
+
+//: Announcement scope, so this panel's confirmation cannot collide with another's.
+const ANNOUNCE_SCOPE = 'fix-actions';
 
 const ACTION_LABELS: Record<string, string> = {
   APPROVE: 'Approve',
@@ -47,16 +53,17 @@ export default function FixActions({
   const router = useRouter();
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
   const [reason, setReason] = useState('');
   const [confirmed, setConfirmed] = useState(false);
 
   async function run(label: string, work: () => Promise<string>) {
     setBusy(label);
     setError(null);
-    setNotice(null);
+    clearAnnouncement(ANNOUNCE_SCOPE);
     try {
-      setNotice(await work());
+      // Recorded outside React: `router.refresh()` re-renders this component's
+      // server parent, and a message held in component state did not survive it.
+      announce(ANNOUNCE_SCOPE, await work());
       router.refresh();
     } catch (cause: unknown) {
       setError(
@@ -199,7 +206,7 @@ export default function FixActions({
       ) : null}
 
       {error ? <p className="text-sm text-argus-error">{error}</p> : null}
-      {notice ? <p className="text-sm text-argus-success">{notice}</p> : null}
+      <Announcement scope={ANNOUNCE_SCOPE} />
     </section>
   );
 }

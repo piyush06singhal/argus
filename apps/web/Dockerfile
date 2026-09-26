@@ -40,6 +40,17 @@ ENV NODE_ENV=production
 COPY package.json package-lock.json* ./
 RUN npm ci --omit=dev || npm install --omit=dev
 
+# Drop Next.js's own test tooling from the runtime image.
+#
+# `next` 14 lists `@playwright/test` as a real dependency (it uses Playwright for
+# its own test suite), so `--omit=dev` does **not** remove it: the production image
+# shipped playwright, playwright-core and @playwright/test — tens of megabytes of
+# browser-automation tooling in a web server, with no runtime use for any of it.
+# The supply-chain rule for this image is "production dependencies only", and this
+# is what makes that true. Verified by the check in .github/workflows/ci.yml,
+# which fails if any of the three reappears.
+RUN rm -rf node_modules/@playwright node_modules/playwright node_modules/playwright-core
+
 # Copy the build output and config files.
 COPY --from=build /app/.next ./.next
 COPY --from=build /app/public ./public

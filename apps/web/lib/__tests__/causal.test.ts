@@ -5,7 +5,7 @@ import type {
   CausalRelationship,
   RootCauseCandidate,
   ScoreBreakdown,
-} from '../api';
+} from '../api-client';
 import {
   candidateLabel,
   candidateOwnedEvidence,

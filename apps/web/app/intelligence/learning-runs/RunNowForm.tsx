@@ -3,7 +3,7 @@
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 
-import { api, ApiError, type LearningRunSummary } from '@/lib/api';
+import { api, ApiError, type LearningRunSummary } from '@/lib/api-client';
 
 /**
  * Trigger a learning run by hand (§63).

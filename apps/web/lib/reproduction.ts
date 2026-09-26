@@ -30,7 +30,7 @@ import type {
   ReproductionValidation,
   ReplayStatus,
   ValidationOutcome,
-} from './api';
+} from './api-client';
 
 // ---------------------------------------------------------------------------
 // Disclaimer

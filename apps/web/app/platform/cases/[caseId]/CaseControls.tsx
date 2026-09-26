@@ -3,7 +3,7 @@
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 
-import { api, ApiError } from '@/lib/api';
+import { api, ApiError } from '@/lib/api-client';
 import { caseStatusLabel, TERMINAL_CASE_STATUSES } from '@/lib/platform';
 
 /**
@@ -82,6 +82,7 @@ export default function CaseControls({
           <input
             className="input mt-3"
             placeholder="Reason (recorded on the transition)"
+            aria-label="Reason for the case transition"
             value={reason}
             onChange={(event) => setReason(event.target.value)}
           />

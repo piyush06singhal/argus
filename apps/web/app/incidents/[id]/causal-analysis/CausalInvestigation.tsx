@@ -25,7 +25,7 @@ import {
   type CausalRelationship,
   type RelationshipExplanation,
   type TimelineEvent,
-} from '@/lib/api';
+} from '@/lib/api-client';
 import {
   CAUSAL_GRAPH_NODE_HEIGHT,
   CAUSAL_GRAPH_NODE_WIDTH,

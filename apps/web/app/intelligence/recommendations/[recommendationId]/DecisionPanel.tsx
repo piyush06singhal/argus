@@ -3,7 +3,13 @@
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 
-import { api, ApiError } from '@/lib/api';
+import { api, ApiError } from '@/lib/api-client';
+import { announce, clearAnnouncement } from '@/lib/announce';
+
+import Announcement from '@/app/components/Announcement';
+
+//: Announcement scope, so this panel's confirmation cannot collide with another's.
+const ANNOUNCE_SCOPE = 'recommendation-decision';
 
 const OUTCOMES = [
   { value: 'EFFECTIVE', label: 'Effective — the situation improved' },
@@ -34,7 +40,6 @@ export default function DecisionPanel({
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [note, setNote] = useState<string | null>(null);
   const [actor, setActor] = useState('');
   const [outcome, setOutcome] = useState<(typeof OUTCOMES)[number]['value']>(
     'EFFECTIVE'
@@ -47,10 +52,12 @@ export default function DecisionPanel({
   async function run(action: () => Promise<unknown>, message: string) {
     setBusy(true);
     setError(null);
-    setNote(null);
+    clearAnnouncement(ANNOUNCE_SCOPE);
     try {
       await action();
-      setNote(message);
+      // Recorded outside React: `router.refresh()` re-renders this component's
+      // server parent, and a message held in component state did not survive it.
+      announce(ANNOUNCE_SCOPE, message);
       router.refresh();
     } catch (caught) {
       setError(
@@ -183,7 +190,7 @@ export default function DecisionPanel({
         ) : null}
       </div>
 
-      {note ? <p className="text-sm text-argus-success">{note}</p> : null}
+      <Announcement scope={ANNOUNCE_SCOPE} />
       {error ? <p className="text-sm text-argus-error">Refused: {error}</p> : null}
     </div>
   );

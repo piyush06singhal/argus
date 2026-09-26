@@ -30,7 +30,7 @@ import type {
   ModelVersion,
   PredictionOutcomeType,
   PredictionType,
-} from './api';
+} from './api-client';
 
 export type { ForecastHorizon, ForecastRiskLevel };
 

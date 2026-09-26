@@ -24,7 +24,7 @@ import type {
   PatchVerificationRun,
   ReviewAction,
   ReviewState,
-} from './api';
+} from './api-client';
 
 // ---------------------------------------------------------------------------
 // Disclaimer

@@ -54,6 +54,7 @@ export default function ImpactPanel({ components }: Props) {
         <select
           value={componentId}
           onChange={(e) => setComponentId(e.target.value)}
+          aria-label="Component to analyse"
           className="rounded-md border border-slate-300 px-2 py-1.5 text-sm"
         >
           {components.map((c) => (

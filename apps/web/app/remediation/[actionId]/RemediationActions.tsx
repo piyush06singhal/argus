@@ -21,7 +21,13 @@
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 
-import { api, ApiError } from '@/lib/api';
+import { api, ApiError } from '@/lib/api-client';
+import { announce, clearAnnouncement } from '@/lib/announce';
+
+import Announcement from '@/app/components/Announcement';
+
+//: Announcement scope, so this panel's confirmation cannot collide with another's.
+const ANNOUNCE_SCOPE = 'remediation-action';
 
 type Control =
   | 'assess'
@@ -66,7 +72,6 @@ export default function RemediationActions({
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState<Control | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
 
   const can = (target: string) => allowedTransitions.includes(target);
   const named = actor.trim().length > 0;
@@ -74,9 +79,11 @@ export default function RemediationActions({
   async function run(control: Control, work: () => Promise<string>) {
     setBusy(control);
     setError(null);
-    setNotice(null);
+    clearAnnouncement(ANNOUNCE_SCOPE);
     try {
-      setNotice(await work());
+      // Recorded outside React: `router.refresh()` re-renders this component's
+      // server parent, and a message held in component state did not survive it.
+      announce(ANNOUNCE_SCOPE, await work());
       router.refresh();
     } catch (cause: unknown) {
       setError(
@@ -320,7 +327,7 @@ export default function RemediationActions({
         </p>
       ) : null}
       {error ? <p className="text-xs text-argus-error">{error}</p> : null}
-      {notice ? <p className="text-xs text-argus-success">{notice}</p> : null}
+      <Announcement scope={ANNOUNCE_SCOPE} />
     </section>
   );
 }

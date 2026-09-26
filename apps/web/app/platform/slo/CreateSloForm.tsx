@@ -3,7 +3,7 @@
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 
-import { api, ApiError } from '@/lib/api';
+import { api, ApiError } from '@/lib/api-client';
 
 /**
  * The indicator set the backend accepts, in its own vocabulary — the labels carry
@@ -102,7 +102,7 @@ export default function CreateSloForm({ projectId }: { projectId: string }) {
       <h2 className="font-medium text-slate-200">Define an objective</h2>
       <div className="mt-3 grid gap-2 sm:grid-cols-2">
         <input className="input" placeholder="Name" value={name} onChange={(e) => setName(e.target.value)} />
-        <select className="input" value={indicator} onChange={(e) => setIndicator(e.target.value)}>
+        <select className="input" value={indicator} onChange={(e) => setIndicator(e.target.value)} aria-label="Service level indicator">
           {INDICATORS.map((item) => (
             <option key={item.value} value={item.value}>
               {item.label}
@@ -112,11 +112,12 @@ export default function CreateSloForm({ projectId }: { projectId: string }) {
         <input
           className="input"
           placeholder={indicator === 'CUSTOM' ? 'Metric (optional)' : 'Metric name (e.g. http.checkout.error_rate)'}
+          aria-label="Metric name"
           value={metricName}
           onChange={(e) => setMetricName(e.target.value)}
         />
         <input className="input" placeholder="Target" value={target} onChange={(e) => setTarget(e.target.value)} />
-        <select className="input" value={comparison} onChange={(e) => setComparison(e.target.value)}>
+        <select className="input" value={comparison} onChange={(e) => setComparison(e.target.value)} aria-label="Comparison operator">
           {COMPARISONS.map((item) => (
             <option key={item.value} value={item.value}>
               {item.label}

@@ -32,7 +32,7 @@ import type {
   RelationshipKindValue,
   RecommendationItem,
   RecommendationTypeValue,
-} from './api';
+} from './api-client';
 
 export type { KnowledgeStatusValue, KnowledgeTypeValue };
 

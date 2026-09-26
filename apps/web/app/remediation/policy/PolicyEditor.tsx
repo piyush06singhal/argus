@@ -23,8 +23,14 @@ import {
   type RemediationExecutionModeValue,
   type RemediationPolicy,
   type RemediationPolicyUpdate,
-} from '@/lib/api';
+} from '@/lib/api-client';
+import { announce, clearAnnouncement } from '@/lib/announce';
 import { MODE_EXPLANATIONS } from '@/lib/remediation';
+
+import Announcement from '@/app/components/Announcement';
+
+//: Announcement scope, so this panel's confirmation cannot collide with another's.
+const ANNOUNCE_SCOPE = 'remediation-policy';
 
 const MODES: RemediationExecutionModeValue[] = [
   'OBSERVE_ONLY',
@@ -55,7 +61,6 @@ export default function PolicyEditor({
   const [perWindow, setPerWindow] = useState(policy.max_actions_per_window);
   const [canary, setCanary] = useState(policy.canary_enabled);
   const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   const named = actor.trim().length > 0;
@@ -63,9 +68,11 @@ export default function PolicyEditor({
   async function run(work: () => Promise<string>) {
     setBusy(true);
     setError(null);
-    setNotice(null);
+    clearAnnouncement(ANNOUNCE_SCOPE);
     try {
-      setNotice(await work());
+      // Recorded outside React: `router.refresh()` re-renders this component's
+      // server parent, and a message held in component state did not survive it.
+      announce(ANNOUNCE_SCOPE, await work());
       router.refresh();
     } catch (cause: unknown) {
       setError(
@@ -240,7 +247,7 @@ export default function PolicyEditor({
         </div>
 
         {error ? <p className="text-xs text-argus-error">{error}</p> : null}
-        {notice ? <p className="text-xs text-argus-success">{notice}</p> : null}
+        <Announcement scope={ANNOUNCE_SCOPE} />
       </section>
     </div>
   );

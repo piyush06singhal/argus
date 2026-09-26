@@ -6,7 +6,7 @@ import type {
   PatchDetail,
   PatchVerificationRun,
   ReviewState,
-} from '../api';
+} from '../api-client';
 import {
   allowedReviewActions,
   auditTrail,

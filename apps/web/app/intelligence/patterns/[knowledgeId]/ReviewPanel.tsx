@@ -3,7 +3,13 @@
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 
-import { api, ApiError } from '@/lib/api';
+import { api, ApiError } from '@/lib/api-client';
+import { announce, clearAnnouncement } from '@/lib/announce';
+
+import Announcement from '@/app/components/Announcement';
+
+//: Announcement scope, so this panel's confirmation cannot collide with another's.
+const ANNOUNCE_SCOPE = 'pattern-review';
 
 const DECISIONS = [
   {
@@ -58,7 +64,6 @@ export default function ReviewPanel({
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<string | null>(null);
 
   const selected = DECISIONS.find((item) => item.value === decision);
 
@@ -66,14 +71,19 @@ export default function ReviewPanel({
     event.preventDefault();
     setBusy(true);
     setError(null);
-    setResult(null);
+    clearAnnouncement(ANNOUNCE_SCOPE);
     try {
       const updated = await api.reviewKnowledge(knowledgeId, projectId, {
         decision,
         reviewer,
         reason,
       });
-      setResult(updated.knowledge.status);
+      // Recorded outside React: `router.refresh()` re-renders this component's
+      // server parent, and a message held in component state did not survive it.
+      announce(
+        ANNOUNCE_SCOPE,
+        `Recorded. The pattern is now ${updated.knowledge.status}.`
+      );
       setReason('');
       router.refresh();
     } catch (caught) {
@@ -148,11 +158,7 @@ export default function ReviewPanel({
         Current status: <span className="font-mono">{currentStatus}</span>
       </p>
 
-      {result ? (
-        <p className="text-sm text-argus-success">
-          Recorded. The pattern is now <span className="font-mono">{result}</span>.
-        </p>
-      ) : null}
+      <Announcement scope={ANNOUNCE_SCOPE} />
       {error ? (
         <p className="text-sm text-argus-error">Refused: {error}</p>
       ) : null}

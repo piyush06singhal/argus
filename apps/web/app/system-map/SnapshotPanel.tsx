@@ -100,6 +100,7 @@ export default function SnapshotPanel({ projectId }: Props) {
         <select
           value={aId}
           onChange={(e) => setAId(e.target.value)}
+          aria-label="Compare from snapshot"
           className="rounded-md border border-slate-300 px-2 py-1.5 text-xs"
         >
           {snapshots.map((s) => (
@@ -110,6 +111,7 @@ export default function SnapshotPanel({ projectId }: Props) {
         <select
           value={bId}
           onChange={(e) => setBId(e.target.value)}
+          aria-label="Compare to snapshot"
           className="rounded-md border border-slate-300 px-2 py-1.5 text-xs"
         >
           {snapshots.map((s) => (

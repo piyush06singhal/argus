@@ -312,8 +312,21 @@ const DATA_QUALITY_LABELS: Record<string, string> = {
   MISSING_TELEMETRY: 'Missing telemetry',
   BROKEN_RELATIONSHIP: 'Broken relationship',
   INVALID_EVIDENCE: 'Invalid evidence',
+  INCONSISTENT_STATE: 'Inconsistent state',
   LEARNING_RUN_WITHOUT_DATASET: 'Learning run without dataset',
+  // Hardening W5 — the checks added in the second audit pass.
+  MISSING_TIMESTAMP: 'Missing timestamp',
+  MISSING_PROVENANCE: 'Missing provenance',
+  IMPOSSIBLE_TRANSITION: 'Impossible transition',
+  MISSING_AUDIT_EVENT: 'Missing audit event',
+  CORRUPTED_ARTIFACT: 'Corrupted artifact',
 };
+
+/**
+ * The kinds a W5 check can raise, exported so a test can assert the label map
+ * covers the backend's enum instead of quietly falling through to the raw value.
+ */
+export const DATA_QUALITY_KINDS = Object.keys(DATA_QUALITY_LABELS);
 
 export function dataQualityKindLabel(kind?: string | null): string {
   if (!kind) {

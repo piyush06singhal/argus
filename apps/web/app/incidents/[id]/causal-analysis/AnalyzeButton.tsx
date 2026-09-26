@@ -11,7 +11,16 @@
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 
-import { api, type AnalyzeResult } from '@/lib/api';
+import { api, type AnalyzeResult } from '@/lib/api-client';
+import { announce, clearAnnouncement } from '@/lib/announce';
+
+import Announcement from '@/app/components/Announcement';
+
+//: Announcement scope, so this panel's confirmation cannot collide with another's.
+//: It is keyed per incident because an incident page can mount two of these
+//: (analyse, re-run) and each should speak for itself.
+const announceScope = (incidentId: string, force?: boolean) =>
+  `causal-analysis:${incidentId}:${force ? 'forced' : 'default'}`;
 
 export default function AnalyzeButton({
   incidentId,
@@ -25,17 +34,25 @@ export default function AnalyzeButton({
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<AnalyzeResult | null>(null);
+  const scope = announceScope(incidentId, force);
 
   const run = async () => {
     setBusy(true);
     setError(null);
+    clearAnnouncement(scope);
     try {
       const outcome = await api.analyzeIncidentCausally(incidentId, {
         force: force ?? false,
         trigger: 'ui',
       });
-      setResult(outcome);
+      // Recorded outside React: `router.refresh()` re-renders this component's
+      // server parent, and a message held in component state did not survive it.
+      announce(
+        scope,
+        outcome.reused
+          ? `Evidence unchanged — analysis v${outcome.analysis_version} reused.`
+          : `Analysis v${outcome.analysis_version} created.`
+      );
       router.refresh();
     } catch (cause: unknown) {
       setError(
@@ -56,13 +73,7 @@ export default function AnalyzeButton({
       >
         {busy ? 'Analysing…' : (label ?? (force ? 'Re-run analysis' : 'Run analysis'))}
       </button>
-      {result ? (
-        <span className="text-xs text-slate-500">
-          {result.reused
-            ? `Evidence unchanged — analysis v${result.analysis_version} reused.`
-            : `Analysis v${result.analysis_version} created.`}
-        </span>
-      ) : null}
+      <Announcement scope={scope} tone="info" />
       {error ? <span className="text-xs text-argus-error">{error}</span> : null}
     </div>
   );

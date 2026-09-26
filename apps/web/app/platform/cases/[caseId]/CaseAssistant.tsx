@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 
-import { api, ApiError, type AssistantAnswerResponse } from '@/lib/api';
+import { api, ApiError, type AssistantAnswerResponse } from '@/lib/api-client';
 import { searchKindLabel } from '@/lib/platform';
 
 /**
@@ -64,6 +64,7 @@ export default function CaseAssistant({
         <input
           className="input flex-1"
           placeholder="e.g. what changed before the incident?"
+          aria-label="Ask the case assistant a question"
           value={question}
           onChange={(event) => setQuestion(event.target.value)}
           onKeyDown={(event) => {

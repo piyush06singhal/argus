@@ -20,7 +20,7 @@ import type {
   KnowledgeItem,
   LearnedRelationshipItem,
   RecommendationItem,
-} from '../api';
+} from '../api-client';
 import {
   comparisonVerdictLabel,
   confidenceLabel,

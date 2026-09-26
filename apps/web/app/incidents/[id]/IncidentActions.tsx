@@ -3,7 +3,7 @@
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 
-import { api, ApiError, type IncidentStatus } from '@/lib/api';
+import { api, ApiError, type IncidentStatus } from '@/lib/api-client';
 import { allowedIncidentTransitions, transitionLabel } from '@/lib/incidents';
 
 /**

@@ -78,7 +78,7 @@ export default async function ActivityPage({ searchParams }: { searchParams: Sea
           <Card title="Filter" subtitle="Platform event types (§25)">
             <form method="get" className="flex flex-wrap gap-2">
               <input type="hidden" name="project_id" value={project.id} />
-              <select className="input" name="event_type" defaultValue={eventType}>
+              <select className="input" name="event_type" defaultValue={eventType} aria-label="Filter by event type">
                 <option value="">All events</option>
                 {[
                   'COMPONENT_STATE_CHANGED',

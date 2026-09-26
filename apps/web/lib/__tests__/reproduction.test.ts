@@ -4,7 +4,7 @@ import type {
   ReproductionComparison,
   ReproductionFault,
   ReproductionValidation,
-} from '../api';
+} from '../api-client';
 import {
   captureCoverage,
   determinismNote,

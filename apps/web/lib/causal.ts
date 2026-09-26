@@ -25,7 +25,7 @@ import type {
   ConfidenceLevel,
   RootCauseCandidate,
   ScoreBreakdown,
-} from './api';
+} from './api-client';
 
 // ---------------------------------------------------------------------------
 // Confidence (§26, §27)

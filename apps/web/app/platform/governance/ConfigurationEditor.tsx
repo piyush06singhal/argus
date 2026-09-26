@@ -3,7 +3,13 @@
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 
-import { api, ApiError, formatDate, type ConfigurationResponse } from '@/lib/api';
+import { api, ApiError, formatDate, type ConfigurationResponse } from '@/lib/api-client';
+import { announce, clearAnnouncement } from '@/lib/announce';
+
+import Announcement from '@/app/components/Announcement';
+
+//: Announcement scope, so this panel's confirmation cannot collide with another's.
+const ANNOUNCE_SCOPE = 'platform-configuration';
 
 /**
  * Versioned configuration editing (§91–§94).
@@ -41,7 +47,6 @@ export default function ConfigurationEditor({
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
 
   const save = async () => {
     let parsed: Record<string, unknown>;
@@ -57,7 +62,7 @@ export default function ConfigurationEditor({
     }
     setBusy(true);
     setError(null);
-    setNotice(null);
+    clearAnnouncement(ANNOUNCE_SCOPE);
     try {
       await api.platformWriteConfiguration(projectId, {
         scope,
@@ -66,7 +71,7 @@ export default function ConfigurationEditor({
         reason: reason.trim(),
         actor: 'ui',
       });
-      setNotice('Configuration saved as a new version.');
+      announce(ANNOUNCE_SCOPE, 'Configuration saved as a new version.');
       setReason('');
       router.refresh();
     } catch (cause: unknown) {
@@ -79,7 +84,7 @@ export default function ConfigurationEditor({
   const rollback = async (targetVersion: number) => {
     setBusy(true);
     setError(null);
-    setNotice(null);
+    clearAnnouncement(ANNOUNCE_SCOPE);
     try {
       await api.platformRollbackConfiguration(projectId, {
         scope,
@@ -87,7 +92,7 @@ export default function ConfigurationEditor({
         actor: 'ui',
         reason: `rolled back via UI to version ${targetVersion}`,
       });
-      setNotice(`Rolled back to version ${targetVersion}.`);
+      announce(ANNOUNCE_SCOPE, `Rolled back to version ${targetVersion}.`);
       router.refresh();
     } catch (cause: unknown) {
       setError(cause instanceof ApiError ? cause.message : 'The rollback was rejected.');
@@ -124,7 +129,7 @@ export default function ConfigurationEditor({
           Write a new version
         </h3>
         <div className="grid gap-2">
-          <select className="input" value={scope} onChange={(e) => setScope(e.target.value)}>
+          <select className="input" value={scope} onChange={(e) => setScope(e.target.value)} aria-label="Configuration scope">
             {WRITABLE_SCOPES.map((item) => (
               <option key={item.value} value={item.value}>
                 {item.label}
@@ -136,10 +141,12 @@ export default function ConfigurationEditor({
             rows={10}
             value={settings}
             onChange={(e) => setSettings(e.target.value)}
+            aria-label="Configuration JSON"
           />
           <input
             className="input"
             placeholder="Reason (required, recorded)"
+            aria-label="Reason for this configuration change"
             value={reason}
             onChange={(e) => setReason(e.target.value)}
           />
@@ -152,7 +159,7 @@ export default function ConfigurationEditor({
         >
           {busy ? 'Saving…' : 'Save new version'}
         </button>
-        {notice ? <p className="mt-2 text-xs text-argus-success">{notice}</p> : null}
+        <Announcement scope={ANNOUNCE_SCOPE} />
         {error ? <p className="mt-2 text-xs text-argus-error">{error}</p> : null}
       </div>
 

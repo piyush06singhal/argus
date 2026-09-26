@@ -26,7 +26,7 @@ import type {
   HypothesisValidationStatus,
   LocationValidation,
   TraceCodeMapping,
-} from './api';
+} from './api-client';
 
 // ---------------------------------------------------------------------------
 // Location validation (§2, §25) — the core honesty rule

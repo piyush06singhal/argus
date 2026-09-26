@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useState } from 'react';
 
-import { api, ApiError, type KnowledgeSearchAnswer } from '@/lib/api';
+import { api, ApiError, type KnowledgeSearchAnswer } from '@/lib/api-client';
 
 const SUGGESTIONS = [
   'Have we seen this before?',

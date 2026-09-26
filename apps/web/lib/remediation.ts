@@ -30,7 +30,7 @@ import type {
   RemediationStatusValue,
   PolicyDecisionValue,
   SafetyStatusValue,
-} from './api';
+} from './api-client';
 
 export type { RemediationStatusValue, RemediationExecutionModeValue };
 

@@ -7,7 +7,7 @@ import {
   ApiError,
   type DebugAssistantAnswer,
   type DebugMessage,
-} from '@/lib/api';
+} from '@/lib/api-client';
 import { isResolvableReference } from '@/lib/debugger';
 
 /**

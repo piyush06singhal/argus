@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import './globals.css';
+import ConnectionBadge from './components/ConnectionBadge';
 import Sidebar from './components/Sidebar';
 
 export const metadata: Metadata = {
@@ -30,6 +31,7 @@ export default function RootLayout({
               <span className="text-slate-600">/</span>
               <span>Observability &amp; Incident Response</span>
             </div>
+            <ConnectionBadge />
           </header>
           <div className="flex-1 p-6">{children}</div>
         </main>

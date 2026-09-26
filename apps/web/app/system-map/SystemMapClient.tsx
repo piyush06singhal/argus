@@ -9,7 +9,7 @@
  */
 
 import { useEffect, useMemo, useState } from 'react';
-import type { Project, Environment, RiskHeatmap, RiskHeatmapCell } from '@/lib/api';
+import type { Project, Environment, RiskHeatmap, RiskHeatmapCell } from '@/lib/api-client';
 import type { GraphData, GraphNode } from '@/lib/graph';
 import GraphExplorer from './GraphExplorer';
 import ImpactPanel from './ImpactPanel';
@@ -230,6 +230,7 @@ export default function SystemMapClient({ initial }: { initial: PreloadedState }
         <select
           value={activeProjectId}
           onChange={(e) => switchProject(e.target.value)}
+          aria-label="Active project"
           className="rounded-md border border-slate-700 bg-slate-800 px-3 py-1.5 text-sm text-slate-200"
         >
           {state.projects.map((p) => (

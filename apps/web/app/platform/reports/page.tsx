@@ -127,14 +127,14 @@ export default async function ReportsPage({ searchParams }: { searchParams: Sear
           <Card title="Report" subtitle={`${kind} · last ${days} days`}>
             <form method="get" className="mb-4 flex flex-wrap gap-2">
               <input type="hidden" name="project_id" value={project.id} />
-              <select className="input" name="kind" defaultValue={kind}>
+              <select className="input" name="kind" aria-label="Report kind" defaultValue={kind}>
                 {REPORT_KINDS.map((item) => (
                   <option key={item} value={item}>
                     {item}
                   </option>
                 ))}
               </select>
-              <input className="input w-24" name="days" defaultValue={String(days)} />
+              <input className="input w-24" name="days" aria-label="Report window in days" defaultValue={String(days)} />
               <button type="submit" className="btn btn-primary">
                 Generate
               </button>

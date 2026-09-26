@@ -15,7 +15,7 @@ import type {
   Forecast,
   ForecastRiskLevel,
   ForecastSignal,
-} from '../api';
+} from '../api-client';
 import {
   confidenceLabel,
   dataQualityStyle,

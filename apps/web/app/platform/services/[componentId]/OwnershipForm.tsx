@@ -3,7 +3,7 @@
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 
-import { api, ApiError } from '@/lib/api';
+import { api, ApiError } from '@/lib/api-client';
 
 /**
  * Record ownership for a service (§31, §92).
@@ -89,11 +89,11 @@ export default function OwnershipForm({
 
   return (
     <div className="mt-4 space-y-2 border-t border-slate-800 pt-4">
-      <input className="input" placeholder="Team (required)" value={team} onChange={(e) => setTeam(e.target.value)} />
-      <input className="input" placeholder="Owner name" value={ownerName} onChange={(e) => setOwnerName(e.target.value)} />
-      <input className="input" placeholder="Contact email" value={contactEmail} onChange={(e) => setContactEmail(e.target.value)} />
-      <input className="input" placeholder="On-call" value={onCall} onChange={(e) => setOnCall(e.target.value)} />
-      <input className="input" placeholder="Documentation URL" value={documentationUrl} onChange={(e) => setDocumentationUrl(e.target.value)} />
+      <input className="input" placeholder="Team (required)" aria-label="Owning team" value={team} onChange={(e) => setTeam(e.target.value)} />
+      <input className="input" placeholder="Owner name" aria-label="Owner name" value={ownerName} onChange={(e) => setOwnerName(e.target.value)} />
+      <input className="input" placeholder="Contact email" aria-label="Contact email" value={contactEmail} onChange={(e) => setContactEmail(e.target.value)} />
+      <input className="input" placeholder="On-call" aria-label="On-call rotation" value={onCall} onChange={(e) => setOnCall(e.target.value)} />
+      <input className="input" placeholder="Documentation URL" aria-label="Documentation URL" value={documentationUrl} onChange={(e) => setDocumentationUrl(e.target.value)} />
       <div className="flex gap-2">
         <button
           type="button"

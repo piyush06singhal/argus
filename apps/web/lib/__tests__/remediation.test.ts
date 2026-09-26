@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import type { RemediationAction, RemediationPolicy } from '../api';
+import type { RemediationAction, RemediationPolicy } from '../api-client';
 import {
   actionTypeLabel,
   attentionCounts,
