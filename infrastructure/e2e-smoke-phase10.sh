@@ -38,6 +38,8 @@
 #
 # Prereq: DATABASE_PORT=5433 docker compose up --build -d (seed runs on boot).
 set -eu
+# Hardening W1: resolve an admin token and authenticate every request.
+source "$(dirname "${BASH_SOURCE[0]}")/lib/gate-auth.sh"
 API="${API:-http://localhost:8000}"
 WEB="${WEB:-http://localhost:3000}"
 COMPOSE="docker compose"
@@ -526,11 +528,24 @@ echo "$SEARCH_HTML" | grep -qi "no comparable" \
 echo "== 16. Cleanup =="
 check_status "the scratch project deletes" "$(code -X DELETE "$API/api/v1/projects/$PROJ")" "204"
 check_status "the second scratch project deletes" "$(code -X DELETE "$API/api/v1/projects/$OTHER")" "204"
-LEFTOVER=$(sql "SELECT count(*) FROM reliability_experiences WHERE project_id = '$PROJ'")
+#: The 204 commits on the API's connection; this gate's psql session can still
+#: be a statement behind it, so the count is polled (bounded) instead of raced —
+#: an immediate read failed intermittently by observing the pre-commit state.
+LEFTOVER=""
+for _ in $(seq 1 20); do
+  LEFTOVER=$(sql "SELECT count(*) FROM reliability_experiences WHERE project_id = '$PROJ'")
+  [ "${LEFTOVER:-0}" = "0" ] && break
+  sleep 0.5
+done
 [ "${LEFTOVER:-0}" = "0" ] \
   && ok "nothing the run learned outlives the project it learned it from" \
   || bad "leftover experiences" "found=$LEFTOVER"
-LEFTOVER_REL=$(sql "SELECT count(*) FROM intelligence_relationships WHERE project_id = '$PROJ'")
+LEFTOVER_REL=""
+for _ in $(seq 1 20); do
+  LEFTOVER_REL=$(sql "SELECT count(*) FROM intelligence_relationships WHERE project_id = '$PROJ'")
+  [ "${LEFTOVER_REL:-0}" = "0" ] && break
+  sleep 0.5
+done
 [ "${LEFTOVER_REL:-0}" = "0" ] \
   && ok "and no learned relationship survived the delete" || bad "leftover relationships" "found=$LEFTOVER_REL"
 

@@ -3,6 +3,8 @@
 # Runs against a freshly-seeded stack. Creates a full data lifecycle then
 # verifies every API surface responds.
 set -eu
+# Hardening W1: every request carries the credential the other gates use.
+source "$(dirname "${BASH_SOURCE[0]}")/lib/gate-auth.sh"
 API="${API:-http://localhost:8000}"
 WEB="${WEB:-http://localhost:3000}"
 NOW=$(python3 -c "from datetime import datetime,timezone; print(datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'))")

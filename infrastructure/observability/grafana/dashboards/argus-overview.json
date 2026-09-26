@@ -1,0 +1,1140 @@
+{
+  "uid": "argus-overview",
+  "title": "ARGUS \u2014 platform overview",
+  "description": "Is ARGUS itself healthy? Fed by the /metrics endpoint only. Every expression here is verified against the live metric surface by infrastructure/e2e-smoke-observability.sh.",
+  "tags": [
+    "argus"
+  ],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "1m",
+  "editable": true,
+  "time": {
+    "from": "now-24h",
+    "to": "now"
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "instance",
+        "label": "Instance",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "argus-prometheus"
+        },
+        "query": {
+          "query": "label_values(argus_instance_info, instance)",
+          "refId": "ARGUS"
+        },
+        "includeAll": true,
+        "multi": true,
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        }
+      },
+      {
+        "name": "region",
+        "label": "Region",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "argus-prometheus"
+        },
+        "query": {
+          "query": "label_values(argus_instance_info, region)",
+          "refId": "ARGUS"
+        },
+        "includeAll": true,
+        "multi": true,
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "API reachable",
+      "gridPos": {
+        "h": 5,
+        "w": 3,
+        "x": 0,
+        "y": 0
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "argus-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "argus_api_up{instance=~\"$instance\"}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "argus-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "DOWN",
+                  "index": 0
+                }
+              }
+            },
+            {
+              "type": "value",
+              "options": {
+                "1": {
+                  "text": "UP",
+                  "index": 1
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background"
+      }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Rate limiting",
+      "description": "Shared (Redis) or per-process. Per-process with more than one replica multiplies the ceiling.",
+      "gridPos": {
+        "h": 5,
+        "w": 4,
+        "x": 3,
+        "y": 0
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "argus-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "argus_rate_limit_backend{instance=~\"$instance\"}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "argus-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "PER-PROCESS",
+                  "index": 0
+                }
+              }
+            },
+            {
+              "type": "value",
+              "options": {
+                "1": {
+                  "text": "SHARED",
+                  "index": 1
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background"
+      }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Backup age",
+      "description": "Hours since the last successful dump. Above 36 means the recovery point objective is already missed.",
+      "gridPos": {
+        "h": 5,
+        "w": 4,
+        "x": 7,
+        "y": 0
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "argus-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(time() - argus_backup_last_success_timestamp_seconds) / 3600",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "argus-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "h",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 24
+              },
+              {
+                "color": "red",
+                "value": 36
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background"
+      }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Instances scraped",
+      "gridPos": {
+        "h": 5,
+        "w": 3,
+        "x": 11,
+        "y": 0
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "argus-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "count(argus_instance_info{instance=~\"$instance\", region=~\"$region\"})",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "argus-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      }
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "Outstanding incidents",
+      "gridPos": {
+        "h": 5,
+        "w": 4,
+        "x": 14,
+        "y": 0
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "argus-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "argus_incidents_open{instance=~\"$instance\"}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "argus-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 50
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "value"
+      }
+    },
+    {
+      "id": 6,
+      "type": "table",
+      "title": "Deployed instances",
+      "description": "Which replicas and regions are actually reporting. Empty here with a healthy API elsewhere means the scrape is misconfigured.",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 18,
+        "y": 0
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "argus-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "argus_instance_info",
+          "format": "table",
+          "instant": true,
+          "datasource": {
+            "type": "prometheus",
+            "uid": "argus-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Ingestion \u2014 events received (24h window)",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 5
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "argus-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "argus_events_24h_total{instance=~\"$instance\"}",
+          "legendFormat": "all events",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "argus-prometheus"
+          }
+        },
+        {
+          "refId": "B",
+          "expr": "argus_events_24h_by_type{instance=~\"$instance\"}",
+          "legendFormat": "{{event_type}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "argus-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "Ingestion \u2014 queue depth and dead letters",
+      "description": "Durable backlog, not loss. A rising dead-letter line means events that nothing will re-process.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 5
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "argus-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "argus_ingestion_queue_depth{instance=~\"$instance\"}",
+          "legendFormat": "queue {{queue}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "argus-prometheus"
+          }
+        },
+        {
+          "refId": "B",
+          "expr": "argus_dead_letter_total{instance=~\"$instance\"}",
+          "legendFormat": "dead letters",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "argus-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 12,
+      "type": "timeseries",
+      "title": "Detection \u2014 anomalies and incidents",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 13
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "argus-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "argus_anomalies_open{instance=~\"$instance\"}",
+          "legendFormat": "anomalies open",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "argus-prometheus"
+          }
+        },
+        {
+          "refId": "B",
+          "expr": "argus_incidents_open{instance=~\"$instance\"}",
+          "legendFormat": "incidents open",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "argus-prometheus"
+          }
+        },
+        {
+          "refId": "C",
+          "expr": "argus_incidents_created_24h{instance=~\"$instance\"}",
+          "legendFormat": "created (24h)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "argus-prometheus"
+          }
+        },
+        {
+          "refId": "D",
+          "expr": "argus_incidents_resolved_24h{instance=~\"$instance\"}",
+          "legendFormat": "resolved (24h)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "argus-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 13,
+      "type": "timeseries",
+      "title": "Response \u2014 MTTA and MTTR (hours)",
+      "description": "Acknowledge and resolve times over the last 24h. Trend signals, not faults.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 13
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "argus-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "argus_incident_mtta_seconds{instance=~\"$instance\"} / 3600",
+          "legendFormat": "MTTA",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "argus-prometheus"
+          }
+        },
+        {
+          "refId": "B",
+          "expr": "argus_incident_mttr_seconds{instance=~\"$instance\"} / 3600",
+          "legendFormat": "MTTR",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "argus-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "h"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 14,
+      "type": "timeseries",
+      "title": "Pipeline \u2014 reproduction outcomes (24h)",
+      "description": "FAILED means the expected failure did not appear in the sandbox. That is a statement about sandbox fidelity, not about the hypothesis.",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 21
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "argus-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (result) (argus_reproduction_runs_24h_by_result{instance=~\"$instance\"})",
+          "legendFormat": "{{result}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "argus-prometheus"
+          }
+        },
+        {
+          "refId": "B",
+          "expr": "sum by (status) (argus_reproduction_runs_24h_by_status{instance=~\"$instance\"})",
+          "legendFormat": "state {{status}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "argus-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 15,
+      "type": "timeseries",
+      "title": "Pipeline \u2014 patch verification (24h)",
+      "description": "NOT_VERIFIED is never a pass.",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 21
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "argus-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (status) (argus_patch_verifications_24h_by_status{instance=~\"$instance\"})",
+          "legendFormat": "{{status}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "argus-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 16,
+      "type": "timeseries",
+      "title": "Pipeline \u2014 remediation and learning (24h)",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 21
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "argus-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (status) (argus_remediation_actions_24h_by_status{instance=~\"$instance\"})",
+          "legendFormat": "action {{status}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "argus-prometheus"
+          }
+        },
+        {
+          "refId": "B",
+          "expr": "sum by (status) (argus_learning_runs_24h_by_status{instance=~\"$instance\"})",
+          "legendFormat": "learning {{status}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "argus-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 17,
+      "type": "timeseries",
+      "title": "Data quality \u2014 open findings",
+      "description": "Cross-phase consistency issues awaiting an operator. Deliberately not auto-repaired.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 29
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "argus-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "argus_data_quality_issues_open{instance=~\"$instance\"}",
+          "legendFormat": "open issues",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "argus-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 18,
+      "type": "timeseries",
+      "title": "Sources by health status",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 29
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "argus-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "argus_sources_by_status{instance=~\"$instance\"}",
+          "legendFormat": "{{status}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "argus-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 19,
+      "type": "timeseries",
+      "title": "Detection \u2014 detail (24h)",
+      "description": "Suppressed is an explicit policy decision; deduplicated is repeats collapsed by fingerprint. Neither is a detection.",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 37
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "argus-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "argus_anomalies_detected_24h{instance=~\"$instance\"}",
+          "legendFormat": "detected",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "argus-prometheus"
+          }
+        },
+        {
+          "refId": "B",
+          "expr": "argus_anomalies_suppressed_24h{instance=~\"$instance\"}",
+          "legendFormat": "suppressed",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "argus-prometheus"
+          }
+        },
+        {
+          "refId": "C",
+          "expr": "argus_anomalies_deduplicated{instance=~\"$instance\"}",
+          "legendFormat": "deduplicated",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "argus-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 20,
+      "type": "timeseries",
+      "title": "Anomalies by severity and type (24h)",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 37
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "argus-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "argus_anomalies_24h_by_severity{instance=~\"$instance\"}",
+          "legendFormat": "{{severity}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "argus-prometheus"
+          }
+        },
+        {
+          "refId": "B",
+          "expr": "argus_anomalies_24h_by_type{instance=~\"$instance\"}",
+          "legendFormat": "{{anomaly_type}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "argus-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 21,
+      "type": "timeseries",
+      "title": "Telemetry volume (24h)",
+      "description": "Traces and logs are stored records; source_events_total is the cumulative counter the sources themselves reported.",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 37
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "argus-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "argus_traces_24h_total{instance=~\"$instance\"}",
+          "legendFormat": "traces",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "argus-prometheus"
+          }
+        },
+        {
+          "refId": "B",
+          "expr": "argus_logs_24h_by_severity{instance=~\"$instance\"}",
+          "legendFormat": "logs {{severity}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "argus-prometheus"
+          }
+        },
+        {
+          "refId": "C",
+          "expr": "argus_source_events_total{instance=~\"$instance\"}",
+          "legendFormat": "source events (cumulative)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "argus-prometheus"
+          }
+        },
+        {
+          "refId": "D",
+          "expr": "argus_sources_total{instance=~\"$instance\"}",
+          "legendFormat": "registered sources",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "argus-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 22,
+      "type": "timeseries",
+      "title": "Backups \u2014 runs, size and duration",
+      "description": "A climbing FAILED line with a flat size is the pattern that says the schedule is firing and cannot succeed.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 45
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "argus-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (status) (argus_backup_runs_24h_by_status)",
+          "legendFormat": "{{status}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "argus-prometheus"
+          }
+        },
+        {
+          "refId": "B",
+          "expr": "argus_backup_last_size_bytes / 1048576",
+          "legendFormat": "size (MiB)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "argus-prometheus"
+          }
+        },
+        {
+          "refId": "C",
+          "expr": "argus_backup_last_duration_seconds",
+          "legendFormat": "duration (s)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "argus-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 23,
+      "type": "stat",
+      "title": "Restore rehearsal age",
+      "description": "Days since the last successful drill. Verification proves the archive is readable; only a restore proves it reproduces the data.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 45
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "argus-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(time() - argus_backup_last_drill_timestamp_seconds) / 86400",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "argus-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "d",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 7
+              },
+              {
+                "color": "red",
+                "value": 14
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background"
+      }
+    },
+    {
+      "id": 24,
+      "type": "timeseries",
+      "title": "Access \u2014 single sign-on (24h)",
+      "description": "Successful and refused SSO logins. Both series are initialized at zero on startup, so an empty panel means 'no logins', not 'no data' \u2014 the distinction a rate() would hide. A rise in refusals is worth reading the authentication audit for: the reason codes separate policy working as configured (email_domain, identity_disabled) from a provider misconfiguration or probing (id_token_invalid, state_unknown).",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 53
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "argus-prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "increase(argus_oidc_logins_total[$__range])",
+          "legendFormat": "successful"
+        },
+        {
+          "refId": "B",
+          "expr": "increase(argus_oidc_login_failures_total[$__range])",
+          "legendFormat": "refused"
+        }
+      ]
+    },
+    {
+      "id": 25,
+      "type": "stat",
+      "title": "Single sign-on enabled",
+      "description": "1 when an identity provider is configured on this deployment. Read with the panel beside it: 'configured' and 'working' are different claims, and only a successful login tests the second.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 53
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "argus-prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "not configured"
+                },
+                "1": {
+                  "text": "configured"
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max(argus_oidc_enabled)"
+        }
+      ]
+    }
+  ]
+}

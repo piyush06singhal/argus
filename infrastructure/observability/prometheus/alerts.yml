@@ -1,0 +1,292 @@
+# ARGUS — alert rules for ARGUS itself (hardening W10).
+#
+# Every expression here is checked against the *real* metric surface by
+# `infrastructure/e2e-smoke-observability.sh`, which loads these rules into a
+# live Prometheus, evaluates each expression against a live scrape, and fails if
+# a series or a label does not exist. A rule that can never fire is worse than
+# no rule: it reads as coverage.
+#
+# Two conventions, applied without exception:
+#
+#   * every rule carries `severity` and a `summary`, because a rule that cannot
+#     be routed is a rule nobody acts on;
+#   * every rule links a runbook section in `docs/operations.md`.
+#
+# Severities: `critical` = a person should be woken up; `warning` = look at it
+# during working hours; `info` = a trend worth noticing, never a page.
+
+groups:
+  - name: argus-availability
+    rules:
+      - alert: ArgusApiDown
+        expr: up{job="argus-api"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "ARGUS API is not answering scrapes"
+          description: >-
+            `/metrics` has been unreachable for 2 minutes. Ingestion, detection
+            and every console view stop here; check the container and its
+            database dependency first.
+          runbook_url: "docs/operations.md#the-api-is-down"
+
+      - alert: ArgusApiTargetMissing
+        expr: absent(up{job="argus-api"})
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "ARGUS API scrape target has disappeared"
+          description: >-
+            The target is not merely down, it is absent from service discovery.
+            Usually a renamed or removed container, or Prometheus itself running
+            with a stale configuration.
+          runbook_url: "docs/operations.md#the-api-is-down"
+
+  - name: argus-self
+    rules:
+      - alert: ArgusRateLimitDegraded
+        expr: argus_rate_limit_backend == 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Rate limiting is per-replica, not shared"
+          description: >-
+            This replica is limiting in process memory, so the effective ceiling
+            is RATE_LIMIT_PER_MINUTE multiplied by the number of replicas.
+            Either Redis is unreachable from this process (check
+            argus_rate_limit_fallbacks_total) or RATE_LIMIT_BACKEND is set to
+            `memory` on a multi-replica deployment.
+          runbook_url: "docs/operations.md#rate-limiting-degraded"
+
+      - alert: ArgusRateLimitFallbacks
+        expr: increase(argus_rate_limit_fallbacks_total[15m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "The shared rate limiter is falling back to per-process buckets"
+          description: >-
+            Requests are being admitted through the local bucket because the
+            shared one could not be reached. Traffic is still served — that is
+            the designed degradation — but the ceiling is no longer global.
+          runbook_url: "docs/operations.md#rate-limiting-degraded"
+
+      - alert: ArgusSsoLoginFailures
+        expr: increase(argus_oidc_login_failures_total[30m]) > 20
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Single sign-on logins are being refused repeatedly"
+          description: >-
+            More than 20 refusals in half an hour. The causes are not
+            equivalent and the audit trail distinguishes them: `email_domain`
+            and `identity_disabled` are policy working as configured, while
+            `id_token_invalid`, `state_unknown` and `token_exchange_failed`
+            point at a provider misconfiguration or someone probing the
+            callback. Query the authentication audit for `oidc:` reasons.
+          runbook_url: "docs/operations.md#single-sign-on-failures"
+
+      - alert: ArgusSsoEnabledButSilent
+        expr: argus_oidc_enabled == 1 and increase(argus_oidc_logins_total[24h]) == 0
+        for: 1h
+        labels:
+          severity: info
+        annotations:
+          summary: "Single sign-on is enabled and nobody has signed in for a day"
+          description: >-
+            Not necessarily a defect: a quiet deployment looks exactly like
+            this. It is worth knowing, because "SSO is configured" and "SSO
+            works" are different claims, and only a successful login tests the
+            second one.
+          runbook_url: "docs/operations.md#single-sign-on-failures"
+
+      - alert: ArgusBackupStale
+        expr: time() - argus_backup_last_success_timestamp_seconds > 129600
+        for: 15m
+        labels:
+          severity: critical
+        annotations:
+          summary: "No successful database backup in over 36 hours"
+          description: >-
+            Postgres is the one component whose loss cannot be re-derived from
+            stored telemetry. A backup older than 36 hours means the recovery
+            point objective is already missed; check the backup job's last
+            failure reason before assuming the schedule is running.
+          runbook_url: "docs/operations.md#backups-and-recovery"
+
+      - alert: ArgusBackupNeverSucceeded
+        expr: absent(argus_backup_last_success_timestamp_seconds)
+        for: 30m
+        labels:
+          severity: critical
+        annotations:
+          summary: "No backup has ever succeeded"
+          description: >-
+            The freshness series is absent, which is not the same as stale: no
+            run has ever been recorded. Either the backup job is not scheduled
+            or it has failed every time since deployment.
+          runbook_url: "docs/operations.md#backups-and-recovery"
+
+      - alert: ArgusBackupDrillStale
+        expr: time() - argus_backup_last_drill_timestamp_seconds > 604800
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: "The restore drill has not run in a week"
+          description: >-
+            Backups are verified on write, but only a restore proves they
+            reproduce the data. An un-rehearsed backup is a hypothesis.
+          runbook_url: "docs/operations.md#backups-and-recovery"
+
+  - name: argus-ingestion
+    rules:
+      - alert: ArgusSourcesSilent
+        expr: argus_sources_total > 0 and argus_events_24h_total < 1
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: "Sources are registered but nothing has arrived in 24 hours"
+          description: >-
+            At least one observability source exists and no events have been
+            ingested for a day. Either the producers stopped exporting, or the
+            ingest credential was rotated without updating them.
+          runbook_url: "docs/operations.md#no-data-arriving"
+
+      - alert: ArgusSourcesFailing
+        expr: sum(argus_sources_by_status{status="FAILING"}) > 0
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "One or more ingestion sources are failing"
+          description: >-
+            A source is in the FAILING state, which means ARGUS itself observed
+            repeated delivery errors from it in `ingestion_failures`.
+          runbook_url: "docs/operations.md#no-data-arriving"
+
+      - alert: ArgusIngestionBacklog
+        expr: max(argus_ingestion_queue_depth{queue="argus:ingest:events"}) > 1000
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "The ingestion queue is backing up"
+          description: >-
+            More than 1000 jobs are waiting on the events queue. Sustained
+            backlog means the worker cannot keep up with the arrival rate; the
+            queue is durable, so this is a throughput problem, not data loss.
+          runbook_url: "docs/operations.md#ingestion-lag"
+
+      - alert: ArgusDeadLetterGrowing
+        expr: delta(argus_dead_letter_total[1h]) > 50
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Dead-lettered events are accumulating"
+          description: >-
+            More than 50 events failed to ingest irrecoverably in the last hour.
+            They are stored, not dropped, but nothing will re-process them until
+            an operator does.
+          runbook_url: "docs/operations.md#dead-letters"
+
+  - name: argus-investigation
+    rules:
+      - alert: ArgusReproductionNotReproducing
+        expr: sum(argus_reproduction_runs_24h_by_result{result="FAILED"}) > 5
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: "Reproduction experiments are not reproducing the failure"
+          description: >-
+            More than five experiments observed FAILED in 24 hours, meaning the
+            expected failure did not appear in the sandbox. That is a statement
+            about the sandbox's fidelity, not proof the hypothesis is wrong —
+            check whether the environment provisioning is masking the fault.
+          runbook_url: "docs/operations.md#investigation-pipelines"
+
+      - alert: ArgusPatchesNotVerified
+        expr: sum(argus_patch_verifications_24h_by_status{status="NOT_VERIFIED"}) > 0
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Generated patches are failing verification"
+          description: >-
+            NOT_VERIFIED is not a pass and never was: the patch did not
+            demonstrably resolve the failure or regressed existing behaviour.
+            These pull requests must not be merged without a human reading the
+            evidence.
+          runbook_url: "docs/operations.md#investigation-pipelines"
+
+      - alert: ArgusRemediationFailing
+        expr: sum(argus_remediation_actions_24h_by_status{status=~"FAILED|ROLLED_BACK"}) > 0
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "A remediation action failed or was rolled back"
+          description: >-
+            A policy-authorized action did not achieve its intended effect and
+            the system either failed it or reversed it. The audit trail holds
+            the reason; a rollback is the safety system working, not a bug.
+          runbook_url: "docs/operations.md#remediation-failures"
+
+      - alert: ArgusLearningRunsFailing
+        expr: sum(argus_learning_runs_24h_by_status{status="FAILED"}) > 0
+        for: 2h
+        labels:
+          severity: info
+        annotations:
+          summary: "The learning pipeline has failing runs"
+          description: >-
+            Learning runs produce candidate knowledge only; a failure degrades
+            learning, never detection or remediation.
+          runbook_url: "docs/operations.md#learning-pipeline"
+
+  - name: argus-detection
+    rules:
+      - alert: ArgusIncidentBacklog
+        expr: argus_incidents_open > 50
+        for: 2h
+        labels:
+          severity: warning
+        annotations:
+          summary: "A large number of incidents are open"
+          description: >-
+            More than 50 incidents have been open for two hours. Either a real
+            multi-component failure is in progress or the detection thresholds
+            are too tight for this environment.
+          runbook_url: "docs/operations.md#incident-backlog"
+
+      - alert: ArgusMttrDegraded
+        expr: argus_incident_mttr_seconds > 86400
+        for: 6h
+        labels:
+          severity: info
+        annotations:
+          summary: "Mean time to resolution exceeds 24 hours"
+          description: >-
+            Detection-to-resolution over the last 24 hours averages more than a
+            day. This is a trend signal about the team's loop, not a fault.
+          runbook_url: "docs/operations.md#incident-backlog"
+
+      - alert: ArgusDataQualityBacklog
+        expr: argus_data_quality_issues_open > 500
+        for: 12h
+        labels:
+          severity: info
+        annotations:
+          summary: "The data-quality backlog is large"
+          description: >-
+            More than 500 cross-phase consistency issues are open. They are
+            findings for a human, deliberately not auto-repaired, so this grows
+            until someone works through them.
+          runbook_url: "docs/operations.md#data-quality-backlog"

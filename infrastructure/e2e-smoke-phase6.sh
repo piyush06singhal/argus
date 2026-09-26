@@ -34,6 +34,8 @@
 #         The api service must have the Phase 6 volumes from docker-compose.yml
 #         (./demo/argus-commerce mounted read-only, plus the code_scratch volume).
 set -eu
+# Hardening W1: resolve an admin token and authenticate every request.
+source "$(dirname "${BASH_SOURCE[0]}")/lib/gate-auth.sh"
 API="${API:-http://localhost:8000}"
 COMPOSE="docker compose"
 PASS=0; FAIL=0
@@ -406,13 +408,20 @@ LOCATIONS=$(curl -fsS "$API/api/v1/debug-sessions/$SESSION/locations")
 # The crux of the phase: a displayed location must exist in the *pinned*
 # snapshot, with a symbol and a line range that the snapshot really has. The
 # check reads the snapshot back over HTTP rather than trusting the analysis.
-GROUNDED=$(API="$API" SNAP="$SNAP" SESSION="$SESSION" python3 - <<PY
+GROUNDED=$(API="$API" SNAP="$SNAP" SESSION="$SESSION" ARGUS_TOKEN="$ARGUS_TOKEN" python3 - <<PY
 import json, os, urllib.request, urllib.parse
 
 api, snapshot = os.environ["API"], os.environ["SNAP"]
 
 def get(path):
-    with urllib.request.urlopen(api + path) as response:
+    # The API enforces auth (W1), so this check — like every other request in
+    # the gate — carries the caller's credential. An unauthenticated 401 here
+    # used to surface as a Python traceback instead of a gate verdict.
+    request = urllib.request.Request(api + path)
+    token = os.environ.get("ARGUS_TOKEN", "")
+    if token:
+        request.add_header("Authorization", f"Bearer {token}")
+    with urllib.request.urlopen(request) as response:
         return json.load(response)
 
 files = {f["path"]: f for f in get(f"/api/v1/snapshots/{snapshot}/files?limit=500")["items"]}

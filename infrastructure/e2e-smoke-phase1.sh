@@ -18,6 +18,8 @@
 #
 # Prereq: the stack is up (docker compose up) and seed has run.
 set -eu
+# Hardening W1: resolve an admin token and authenticate every request.
+source "$(dirname "${BASH_SOURCE[0]}")/lib/gate-auth.sh"
 API="${API:-http://localhost:8000}"
 WEB="${WEB:-http://localhost:3000}"
 NOW=$(python3 -c "from datetime import datetime,timezone; print(datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'))")

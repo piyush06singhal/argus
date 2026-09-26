@@ -10,6 +10,8 @@
 #
 # Prereq: DATABASE_PORT=5433 docker compose up --build -d (seed runs on boot).
 set -eu
+# Hardening W1: resolve an admin token and authenticate every request.
+source "$(dirname "${BASH_SOURCE[0]}")/lib/gate-auth.sh"
 API="${API:-http://localhost:8000}"
 WEB="${WEB:-http://localhost:3000}"
 PASS=0; FAIL=0

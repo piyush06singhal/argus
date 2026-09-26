@@ -27,6 +27,8 @@
 #
 # Prereq: DATABASE_PORT=5433 docker compose up --build -d (seed runs on boot).
 set -eu
+# Hardening W1: resolve an admin token and authenticate every request.
+source "$(dirname "${BASH_SOURCE[0]}")/lib/gate-auth.sh"
 API="${API:-http://localhost:8000}"
 COMPOSE="docker compose"
 PASS=0; FAIL=0
@@ -224,9 +226,18 @@ if [ -n "$OTHER" ]; then
     "$(code "$API/api/v1/reliability/components/$CO/profile?project_id=$OTHER")" "404"
   check_status "a foreign project cannot backtest this component" \
     "$(code -X POST "$API/api/v1/reliability/backtests?project_id=$OTHER" -H 'Content-Type: application/json' -d "{\"start_time\":\"$START\",\"end_time\":\"$END\",\"training_window_seconds\":7200,\"component_ids\":[\"$CO\"]}")" "404"
+  # Isolation, not emptiness.
+  #
+  # This used to assert that the foreign project's list was empty, which only
+  # held while that project happened to have no forecasts — a data-dependent
+  # assertion that failed the moment anything generated a forecast for it,
+  # while the platform was behaving correctly. The property that actually
+  # matters is that the list is *scoped*: every row belongs to the project that
+  # was asked for, and none belongs to the smoke project.
   FLIST=$(curl -fsS "$API/api/v1/reliability/forecasts?project_id=$OTHER")
-  echo "$FLIST" | jb "d['items'] == []" \
-    && ok "the foreign project's forecast list is empty" || bad "foreign list" "$FLIST"
+  echo "$FLIST" | jb "all(f['project_id'] == '$OTHER' for f in d['items']) and all(f['project_id'] != '$DEMO' for f in d['items'])" \
+    && ok "the foreign forecast list contains only that project's forecasts" \
+    || bad "foreign list scope" "$(echo "$FLIST" | head -c 300)"
 else
   ok "(single-project stack; isolation covered by the 404 checks in step 1)"
 fi

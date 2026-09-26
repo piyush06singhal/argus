@@ -1,0 +1,19 @@
+# Grafana datasource provisioning (hardening W10).
+#
+# The uid is fixed on purpose: the shipped dashboard references it, so a
+# provisioned dashboard works on first boot instead of rendering "datasource not
+# found" and needing a human to click through a picker.
+apiVersion: 1
+
+datasources:
+  - name: ARGUS Prometheus
+    uid: argus-prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    jsonData:
+      #: Matches the scrape interval; a shorter query step would only produce
+      #: repeated points.
+      timeInterval: 30s
+      httpMethod: POST

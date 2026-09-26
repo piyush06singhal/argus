@@ -31,6 +31,8 @@
 #
 # Prereq: DATABASE_PORT=5433 docker compose up --build -d (seed runs on boot).
 set -eu
+# Hardening W1: resolve an admin token and authenticate every request.
+source "$(dirname "${BASH_SOURCE[0]}")/lib/gate-auth.sh"
 API="${API:-http://localhost:8000}"
 COMPOSE="docker compose"
 PASS=0; FAIL=0
@@ -406,7 +408,18 @@ echo "== 16. Cleanup: the scratch project and everything it changed =="
 # gate paused at one point and which must not stay paused for the other gates.
 check_status "the scratch project is deleted (cascading every row it owns)" \
   "$(code -X DELETE "$API/api/v1/projects/$PROJ")" "204"
-LEFT=$(sql "select count(*) from remediation_actions where project_id = '$PROJ'")
+#: The 204 answers when the API transaction has committed *locally*; the psql
+#: session this gate counts through is a different connection and can still be a
+#: statement behind it, so a single immediate count raced the delete and failed
+#: intermittently (19 = the demo project's rows, read mid-commit). Polling until
+#: the count settles at 0 — bounded — asserts the property (cascade completed)
+#: rather than the timing (a particular millisecond).
+LEFT=""
+for _ in $(seq 1 20); do
+  LEFT=$(sql "select count(*) from remediation_actions where project_id = '$PROJ'")
+  [ "${LEFT:-1}" = "0" ] && break
+  sleep 0.5
+done
 [ "${LEFT:-1}" = "0" ] && ok "no remediation action outlived its project" \
   || bad "leftover actions" "${LEFT:-?}"
 LEFT_C=$(sql "select count(*) from remediation_controls where project_id = '$PROJ' and is_current = true")

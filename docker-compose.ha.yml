@@ -1,0 +1,154 @@
+# ARGUS — high-availability overlay (hardening W4).
+#
+# Apply it on top of the base file:
+#
+#     docker compose -f docker-compose.yml -f docker-compose.ha.yml up -d
+#
+# It adds exactly two capabilities, and states plainly what it does not:
+#
+#   1. **Continuous WAL archiving** on the primary, so a point-in-time recovery
+#      is possible at all. Without archived WAL, the newest recovery point is
+#      the last `pg_dump` — the difference between "we lost an hour" and "we
+#      lost whatever happened since the last backup".
+#   2. **A streaming replica** (`postgres-replica`) that can be promoted, and
+#      that also serves as a live copy for an off-host restore rehearsal.
+#
+# What this file deliberately does NOT do:
+#
+#   * **It is not automatic failover.** There is no consensus layer, no
+#     leader election and nothing that promotes the replica by itself — a
+#     promotion is a deliberate operator action (`pg_ctl promote`, or pointing
+#     `DATABASE_URL` at the replica after promoting it). Building a fake
+#     failover into a compose file would be worse than having none: it would
+#     look automatic and silently split the cluster when the two hosts
+#     disagree.
+#   * **It does not split reads.** The API uses one DSN. Routing reads to a
+#     replica needs read-your-writes reasoning that ARGUS does not have (a
+#     request that writes and then reads would see a stale copy), so the
+#     replica is for durability and failover, not for throughput.
+#   * **It is not multi-region.** A replica on the same host survives a disk
+#     failure and a bad migration; it does not survive the host. See
+#     `docs/high-availability.md` for what a real topology adds.
+#
+# WAL accumulates in the `argus_wal_archive` volume. That is intentional — a
+# recovery point is only useful if the WAL for the window still exists — and
+# it is bounded by the operator: see the retention section of
+# `docs/high-availability.md` for the documented prune procedure.
+
+services:
+  postgres:
+    command:
+      - postgres
+      #: Replication requires `replica` (the PG16 default, stated explicitly so
+      #: a future base-file change cannot quietly break streaming).
+      - -c
+      - wal_level=replica
+      - -c
+      - max_wal_senders=10
+      - -c
+      - max_replication_slots=10
+      - -c
+      - hot_standby=on
+      #: Archive every completed segment.
+      #:
+      #: `mkdir -p` first: a fresh volume has no `wal/` directory, and an
+      #: archive_command that cannot create it fails on every segment —
+      #: PostgreSQL retries forever, `pg_stat_archiver.failed_count` climbs, and
+      #: the WAL piles up on the primary's disk while the archive stays empty.
+      #: (That is exactly what the first run of the HA gate found.)
+      #:
+      #: `test ! -f` makes the command fail rather than silently succeed when
+      #: the target already exists, which is how a duplicated or truncated
+      #: archive is noticed instead of trusted.
+      - -c
+      - archive_mode=on
+      - -c
+      - archive_command=mkdir -p /wal-archive/wal && test ! -f /wal-archive/wal/%f && cp %p /wal-archive/wal/%f
+      #: A quiet primary must still be recoverable to a recent moment. Without
+      #: this, a low-traffic hour can hold an uncompressed, unarchived segment
+      #: for as long as the segment takes to fill — so "restore to 14:05" would
+      #: silently be "restore to 13:12".
+      - -c
+      - archive_timeout=60
+      #: The shipped pg_hba.conf, which is the image default plus the
+      #: replication record that `all` does not cover. Mounted rather than
+      #: appended because init scripts do not re-run on a database that
+      #: already has data.
+      - -c
+      - hba_file=/etc/argus/pg_hba.conf
+    #: The archive volume is created by Docker as root, but `archive_command`
+    #: runs as the postgres user (uid 70) — so without this, every archive
+    #: attempt fails with "Permission denied" while `pg_stat_archiver` counts
+    #: the failures, and the WAL piles up on the primary's disk. The second run
+    #: of the HA gate found exactly that.
+    #:
+    #: ``chown`` is not recursive on purpose: the volume root and ``wal/`` are
+    #: the only things postgres does not create itself, and `-R` over an archive
+    #: of thousands of segments on every container start is real work for no
+    #: benefit. ``"$@"`` (with the ``--`` placeholder) forwards the service's
+    #: own ``command`` — the ``-c`` settings above — to the image entrypoint.
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        set -e
+        mkdir -p /wal-archive/wal
+        chown 70:70 /wal-archive /wal-archive/wal
+        exec docker-entrypoint.sh "$@"
+      - --
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - wal_archive:/wal-archive
+      - ./infrastructure/postgres/pg_hba.conf:/etc/argus/pg_hba.conf:ro
+
+  postgres-replica:
+    image: postgres:16-alpine
+    container_name: argus-postgres-replica
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      POSTGRES_DB: ${DATABASE_NAME:-argus_db}
+      POSTGRES_USER: ${DATABASE_USER:-argus}
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD:-argus_password}
+      PRIMARY_HOST: postgres
+      PRIMARY_PORT: 5432
+      DATABASE_USER: ${DATABASE_USER:-argus}
+      DATABASE_PASSWORD: ${DATABASE_PASSWORD:-argus_password}
+      DATABASE_NAME: ${DATABASE_NAME:-argus_db}
+      REPLICATION_SLOT: argus_replica_slot
+      PGDATA: /var/lib/postgresql/data
+    #: Port 5434 on the host, deliberately not 5433: the primary owns the
+    #: documented port, and a replica that answers on the same one turns
+    #: "which database am I looking at" into a guess.
+    ports:
+      - "${DATABASE_REPLICA_PORT:-5434}:5432"
+    entrypoint: ["/usr/local/bin/argus-replica-entrypoint.sh"]
+    volumes:
+      - replica_data:/var/lib/postgresql/data
+      - wal_archive:/wal-archive
+      - ./infrastructure/postgres/pg_hba.conf:/etc/argus/pg_hba.conf:ro
+      - ./infrastructure/postgres/replica-entrypoint.sh:/usr/local/bin/argus-replica-entrypoint.sh:ro
+    healthcheck:
+      #: `pg_isready` alone is not enough for a standby: it answers while the
+      #: cluster is still catching up. This asks the database the question that
+      #: matters — is it in recovery *and* accepting read queries.
+      test:
+        [
+          "CMD-SHELL",
+          "psql -U ${DATABASE_USER:-argus} -d ${DATABASE_NAME:-argus_db} -tAc 'select pg_is_in_recovery()' | grep -q t",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 120s
+
+volumes:
+  #: Explicit names, not project-prefixed: the recovery rehearsal and the
+  #: operator's own tooling both need to name the archive volume, and guessing
+  #: a compose-generated name is how a restore silently reads an empty one.
+  wal_archive:
+    name: argus_wal_archive
+  replica_data:
+    name: argus_replica_data

@@ -31,6 +31,8 @@
 #         The api service must have the Phase 6 volumes from docker-compose.yml
 #         (./demo/argus-commerce mounted read-only, plus the code_scratch volume).
 set -eu
+# Hardening W1: resolve an admin token and authenticate every request.
+source "$(dirname "${BASH_SOURCE[0]}")/lib/gate-auth.sh"
 API="${API:-http://localhost:8000}"
 COMPOSE="docker compose"
 PASS=0; FAIL=0

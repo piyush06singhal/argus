@@ -1,0 +1,17 @@
+# Dashboard provisioning (hardening W10): the shipped dashboards load on boot,
+# so an operator does not have to import JSON by hand to see the platform.
+apiVersion: 1
+
+providers:
+  - name: ARGUS
+    orgId: 1
+    folder: ARGUS
+    type: file
+    disableDeletion: false
+    #: A dashboard edited in the UI is overwritten by the file on the next scan;
+    #: `allowUiUpdates` keeps that honest instead of surprising.
+    allowUiUpdates: true
+    updateIntervalSeconds: 30
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: false

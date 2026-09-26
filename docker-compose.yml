@@ -1,4 +1,19 @@
-version: '3.9'
+# ARGUS — single-host deployment (docker compose).
+#
+# Honest about what this file is: the reference topology for one host, not a
+# production HA deployment. It is deliberately complete enough to run the whole
+# platform, including the split HTTP/worker topology (see the ``worker`` service
+# and ``docs/operations.md``).
+#
+# Every credential below has a development default so a clone works with no
+# configuration. Production must set them in ``.env``:
+#
+#   DATABASE_PASSWORD=...   REDIS_PASSWORD is not used (Redis is not exposed
+#                           beyond the compose network in production)
+#
+# Nothing here bakes a secret into an image: values arrive as environment
+# variables at run time, which is what makes rotating them a restart and not a
+# rebuild.
 
 services:
   postgres:
@@ -10,19 +25,48 @@ services:
       POSTGRES_USER: ${DATABASE_USER:-argus}
       POSTGRES_PASSWORD: ${DATABASE_PASSWORD:-argus_password}
     ports:
-      - "${DATABASE_PORT:-5432}:5432"
+      # Bound to the host for local tooling (psql, a GUI). Remove this in
+      # production and let only the api reach Postgres over the compose network.
+      #
+      # The host side defaults to 5433 rather than 5432 because 5432 is the one
+      # port on a developer machine that is almost always already taken by
+      # another project's Postgres — a collision that presents as a stack that
+      # simply will not start. The container side stays 5432, which is what
+      # DATABASE_URL uses over the compose network.
+      - "${DATABASE_PORT:-5433}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DATABASE_USER:-argus} -d ${DATABASE_NAME:-argus_db}"]
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${DATABASE_USER:-argus} -d ${DATABASE_NAME:-argus_db}",
+        ]
       interval: 5s
       timeout: 5s
-      retries: 5
+      retries: 10
+      start_period: 20s
 
   redis:
     image: redis:7-alpine
     container_name: argus-redis
     restart: unless-stopped
+    #: AOF persistence is a deliberate choice, not the image default
+    #: (hardening §5). ARGUS's queues live in Redis; without it, a restart of
+    #: this container silently drops every enqueued ingestion and detection job.
+    #: ``everysec`` is the documented durability/throughput trade-off: at most
+    #: one second of queue loss on a hard kill, no fsync on the request path.
+    command:
+      [
+        "redis-server",
+        "--appendonly",
+        "yes",
+        "--appendfsync",
+        "everysec",
+        "--save",
+        "900",
+        "1",
+      ]
     ports:
       - "${REDIS_PORT:-6379}:6379"
     volumes:
@@ -31,7 +75,8 @@ services:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 5s
-      retries: 5
+      retries: 10
+      start_period: 10s
 
   api:
     build:
@@ -40,16 +85,29 @@ services:
     container_name: argus-api
     restart: unless-stopped
     environment:
-      DATABASE_URL: postgresql+asyncpg://argus:argus_password@postgres:5432/argus_db
+      #: The DSN is built from the same variables Postgres reads, so an operator
+      #: who sets DATABASE_PASSWORD cannot end up with a mismatched credential
+      #: pair (the failure that produced the worst kind of "it worked in dev").
+      DATABASE_URL: postgresql+asyncpg://${DATABASE_USER:-argus}:${DATABASE_PASSWORD:-argus_password}@postgres:5432/${DATABASE_NAME:-argus_db}
       REDIS_URL: redis://redis:6379/0
       REDIS_HOST: redis
       REDIS_PORT: 6379
       API_HOST: 0.0.0.0
       API_PORT: 8000
       API_DEBUG: "false"
-      API_ENVIRONMENT: development
-      CORS_ORIGINS: '["http://localhost:3000"]'
-      LOG_LEVEL: INFO
+      API_ENVIRONMENT: ${API_ENVIRONMENT:-development}
+      #: Set to false on the HTTP processes of a split topology.
+      BACKGROUND_JOBS_ENABLED: ${BACKGROUND_JOBS_ENABLED:-true}
+      #: Edge rate limit, tunable without editing the image. The defaults are the
+      #: shipped policy (600/min sustained, 120 burst per token); raise them only
+      #: for a trusted internal client or a load test. See docs/operations.md.
+      RATE_LIMIT_ENABLED: ${RATE_LIMIT_ENABLED:-true}
+      RATE_LIMIT_PER_MINUTE: ${RATE_LIMIT_PER_MINUTE:-600}
+      RATE_LIMIT_BURST: ${RATE_LIMIT_BURST:-120}
+      #: Unset means "seeded outside production, skipped in production".
+      SEED_DEMO: ${SEED_DEMO:-}
+      CORS_ORIGINS: '${CORS_ORIGINS:-["http://localhost:3000"]}'
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
       # Phase 6 code intelligence. The API reads repositories through the local
       # provider, which refuses any root outside CODE_ALLOWED_ROOTS — a request
       # cannot talk the API into reading /etc. ``/repos/demo-commerce`` is the
@@ -72,6 +130,63 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+      #: Migrations + first-boot seeding run before uvicorn binds the port, so a
+      #: short start period would report a healthy stack as unhealthy.
+      start_period: 60s
+
+  #: The worker half of the split topology (hardening W6, G12). Not started by
+  #: default: ``docker compose up`` runs the single-container topology, where the
+  #: api process does everything. To split the roles:
+  #
+  #     BACKGROUND_JOBS_ENABLED=false docker compose up -d api
+  #     docker compose --profile worker up -d worker
+  #
+  # One worker, however many HTTP processes: the sweeps run in exactly one place
+  # because they are gated on BACKGROUND_JOBS_ENABLED, not arbitrated at runtime.
+  worker:
+    build:
+      context: ./apps/api
+      dockerfile: Dockerfile
+    container_name: argus-worker
+    restart: unless-stopped
+    profiles: ["worker"]
+    #: Skip the HTTP entrypoint entirely: this process must never serve traffic.
+    entrypoint: ["python", "-m", "app.cli", "worker"]
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${DATABASE_USER:-argus}:${DATABASE_PASSWORD:-argus_password}@postgres:5432/${DATABASE_NAME:-argus_db}
+      REDIS_URL: redis://redis:6379/0
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      API_ENVIRONMENT: ${API_ENVIRONMENT:-development}
+      BACKGROUND_JOBS_ENABLED: "true"
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      RATE_LIMIT_ENABLED: ${RATE_LIMIT_ENABLED:-true}
+      RATE_LIMIT_PER_MINUTE: ${RATE_LIMIT_PER_MINUTE:-600}
+      RATE_LIMIT_BURST: ${RATE_LIMIT_BURST:-120}
+      CODE_INTELLIGENCE_ENABLED: "true"
+      CODE_ALLOWED_ROOTS: '["/repos"]'
+    volumes:
+      - ./demo/argus-commerce:/repos/demo-commerce:ro
+      - code_scratch:/repos/scratch
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      #: A worker has no HTTP surface, so liveness is "the process is alive and
+      #: its config imports" — the same import the task list is built from.
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import app.cli, app.main",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
 
   web:
     build:
@@ -82,17 +197,152 @@ services:
     container_name: argus-web
     restart: unless-stopped
     environment:
-      NEXT_PUBLIC_API_URL: http://localhost:8000
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
       API_PROXY_TARGET: http://api:8000
     ports:
       - "3000:3000"
     depends_on:
       api:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/"]
+      interval: 15s
+      timeout: 5s
+      retries: 4
+      start_period: 30s
+
+  #: Scheduled backups (hardening W10). Not started by default, because writing
+  #: dumps is a deliberate operational choice about *where* they live — but an
+  #: ARGUS deployment that has not enabled them has no recovery point, and
+  #: `ArgusBackupNeverSucceeded` will say so out loud:
+  #
+  #     docker compose --profile backup up -d
+  #
+  #: The postgres image is used on purpose: its `pg_dump` always matches the
+  #: server's major version, and the API process never receives a
+  #: database-dumping binary it does not need.
+  backup:
+    image: postgres:16-alpine
+    container_name: argus-backup
+    restart: unless-stopped
+    profiles: ["backup"]
+    entrypoint: ["bash", "/infrastructure/backup-scheduler.sh"]
+    environment:
+      BACKUP_LOCAL: "1"
+      BACKUP_DIR: /backups
+      BACKUP_INTERVAL_HOURS: ${BACKUP_INTERVAL_HOURS:-24}
+      BACKUP_DRILL_INTERVAL_HOURS: ${BACKUP_DRILL_INTERVAL_HOURS:-168}
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-14}
+      DATABASE_USER: ${DATABASE_USER:-argus}
+      DATABASE_NAME: ${DATABASE_NAME:-argus_db}
+      POSTGRES_SERVICE: postgres
+      #: libpq reads these, so `psql`, `pg_dump`, `pg_restore` and `pg_isready`
+      #: all reach the database over the compose network without every call site
+      #: repeating a host. There is no local socket in this container — without
+      #: these, every client would try one and report "postgres is not
+      #: reachable", which is exactly the failure the first version had.
+      PGHOST: postgres
+      PGPORT: "5432"
+      PGUSER: ${DATABASE_USER:-argus}
+      PGPASSWORD: ${DATABASE_PASSWORD:-argus_password}
+    volumes:
+      - ./infrastructure:/infrastructure:ro
+      - backup_data:/backups
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      #: No HTTP surface: liveness is "the loop is still running". A scheduler
+      #: that exited (for any reason) is the failure this must surface.
+      test: ["CMD-SHELL", "pgrep -f backup-scheduler.sh >/dev/null"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+  #: Monitoring for ARGUS itself (hardening W10). Not started by default: a
+  #: self-hosted deployment may already have Prometheus, and shipping a second
+  #: one unasked would be rude. Enable with:
+  #
+  #     docker compose --profile observability up -d
+  #
+  #: Without these, ARGUS could be scraped but nothing scraped it — a platform
+  #: whose product is reliability was the one system in the deployment with no
+  #: alert rules of its own.
+  prometheus:
+    image: prom/prometheus:v3.1.0
+    container_name: argus-prometheus
+    restart: unless-stopped
+    profiles: ["observability"]
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=15d
+      - --web.enable-lifecycle
+    volumes:
+      - ./infrastructure/observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./infrastructure/observability/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "wget",
+          "-q",
+          "--spider",
+          "http://localhost:9090/-/healthy",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  grafana:
+    image: grafana/grafana:11.5.1
+    container_name: argus-grafana
+    restart: unless-stopped
+    profiles: ["observability"]
+    environment:
+      #: Anonymous access is off, and the admin password is a variable rather
+      #: than a default. A dashboard that exposes every incident, metric and
+      #: queue in the deployment must not be open by default, and `admin/admin`
+      #: is the credential every scanner tries first.
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-argus_grafana_local}
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      #: Provisioning is read from files, so a fresh volume renders the shipped
+      #: dashboard instead of an empty home screen.
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/argus-overview.json
+    volumes:
+      - ./infrastructure/observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./infrastructure/observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    ports:
+      - "${GRAFANA_PORT:-3001}:3000"
+    depends_on:
+      prometheus:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/api/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
 
 volumes:
   postgres_data:
   redis_data:
+  #: Dumps live here. A local volume is not off-host storage: it survives a
+  #: container loss and not a host loss, so a real deployment also ships these
+  #: somewhere else (see docs/operations.md).
+  backup_data:
+  prometheus_data:
+  grafana_data:
   #: Scratch space for code-intelligence smoke runs (a real git working tree
   #: built from the read-only demo checkout). Kept out of the image so nothing
   #: the tests write can touch tracked source.
