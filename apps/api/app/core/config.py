@@ -239,6 +239,12 @@ class Settings(BaseSettings):
     REPRO_MAX_CPU_SECONDS: int = 60
     REPRO_MAX_MEMORY_MB: int = 512
     REPRO_MAX_DISK_MB: int = 64
+    #: Per-sandbox process ceiling. Enforced by the Docker backend as
+    #: ``--pids-limit``. The local backend cannot enforce it: Linux
+    #: ``RLIMIT_NPROC`` counts the whole real UID's tasks, so a small value
+    #: breaks the sandbox's own health-check thread instead of isolating it (see
+    #: ``_rlimit_preexec``). Sandbox metadata records which is in force as
+    #: ``process_cap_enforced``.
     REPRO_MAX_PROCESSES: int = 32
     REPRO_MAX_REPLAY_REQUESTS: int = 200
     REPRO_MAX_TELEMETRY_SIGNALS: int = 5000

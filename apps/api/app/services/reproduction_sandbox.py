@@ -6,20 +6,22 @@ part that matters most — guarantees it goes away afterwards.
 Two backends, chosen by ``REPRO_SANDBOX_BACKEND``:
 
 ``LOCAL_PROCESS`` (default)
-    One process per service, in its own process group, behind POSIX resource
-    limits (CPU seconds, address space, process count, file size, open files),
-    with a sanitized environment, a private working tree, and loopback-only
-    sockets. It is the default because it is *always* available: an experiment
-    that needs a Docker daemon to run cannot be relied on, and a safety feature
-    that is unavailable by default is not a safety feature.
+    One process per service, in its own process group, behind the per-process
+    POSIX resource limits (CPU seconds, address space, file size), with a
+    sanitized environment, a private working tree, and loopback-only sockets.
+    It is the default because it is *always* available: an experiment that needs
+    a Docker daemon to run cannot be relied on, and a safety feature that is
+    unavailable by default is not a safety feature. The process-count ceiling is
+    the one limit it cannot apply — see ``_rlimit_preexec`` — so it records that
+    in the sandbox metadata (``process_cap_enforced``) instead of implying it.
 
 ``DOCKER``
     One container per service on a dedicated **internal** Docker network, with
     ``--cap-drop ALL``, ``--security-opt no-new-privileges``, a read-only root
-    filesystem, no host network, and CPU/memory/PID limits. Opt-in, and it
-    refuses clearly when the daemon is unreachable rather than silently falling
-    back (a silent fallback would mean the operator's isolation choice was
-    quietly ignored).
+    filesystem, no host network, and CPU/memory limits plus a real per-container
+    PID ceiling (``--pids-limit``). Opt-in, and it refuses clearly when the
+    daemon is unreachable rather than silently falling back (a silent fallback
+    would mean the operator's isolation choice was quietly ignored).
 
 Isolation rules enforced here, not merely documented:
 
@@ -259,31 +261,54 @@ class _BaseBackend:
         return {"services": handle.services, "alive": True}
 
 
+def rlimit_spec(limits: dict[str, Any]) -> tuple[tuple[int, int], ...]:
+    """The ``(resource, value)`` pairs applied to every sandbox service.
+
+    Extracted so the decision is testable without forking: the regression this
+    guards against was a limit that *looked* right in the child and broke the
+    sandbox on hosts it was never run on (see :func:`_rlimit_preexec`).
+    """
+    if _resource is None:  # pragma: no cover - Windows
+        return ()
+    return (
+        (_resource.RLIMIT_CPU, int(limits.get("cpu_seconds") or 60)),
+        (_resource.RLIMIT_AS, int(limits.get("memory_mb") or 512) * 1024 * 1024),
+        (_resource.RLIMIT_FSIZE, int(limits.get("disk_mb") or 64) * 1024 * 1024),
+    )
+
+
 def _rlimit_preexec(limits: dict[str, Any]):  # pragma: no cover - POSIX only
     """Build a ``preexec_fn`` that applies POSIX resource limits.
 
     Run between fork and exec, so the limits apply to the service process from
-    its very first instruction. ``RLIMIT_AS``/``RLIMIT_CPU``/``RLIMIT_NPROC``
-    and ``RLIMIT_FSIZE`` are what turn "please do not use much" into a kernel
-    guarantee that a runaway fault (a RESOURCE_PRESSURE experiment, say) cannot
-    take down the host.
+    its very first instruction. ``RLIMIT_AS``, ``RLIMIT_CPU`` and
+    ``RLIMIT_FSIZE`` are per-process limits, which is what makes them usable
+    here: they turn "please do not use much" into a kernel guarantee that a
+    runaway fault (a RESOURCE_PRESSURE experiment, say) cannot take down the
+    host.
+
+    ``processes`` is deliberately **not** applied as ``RLIMIT_NPROC``. On Linux
+    that limit is checked against the real **UID's** total task count — threads
+    included — rather than against the process tree it is set on, so a small
+    value does not isolate a sandbox from the host; it stops the sandbox from
+    working on it. Measured on a non-root account with 44 tasks: with the
+    shipped ``REPRO_MAX_PROCESSES=32`` the service process could not create the
+    thread that answers its own health probe, so every experiment failed with
+    "not ready within 60s" (that is a CI runner, or any service account that is
+    not idle); with the cap raised out of the way the same tests pass in 13s.
+    Root is exempt from ``RLIMIT_NPROC``, which is why the defect did not show
+    up on a root-owned host. The Docker backend enforces a real per-sandbox cap
+    with ``--pids-limit``; the local backend cannot without cgroups, and says so
+    in ``process_cap_enforced`` on the sandbox metadata.
     """
     if _resource is None:
         return None
 
-    cpu = int(limits.get("cpu_seconds") or 60)
-    memory = int(limits.get("memory_mb") or 512) * 1024 * 1024
-    processes = int(limits.get("processes") or 32)
-    disk = int(limits.get("disk_mb") or 64) * 1024 * 1024
+    spec = rlimit_spec(limits)
 
     def _apply() -> None:  # pragma: no cover - runs in the child
         os.setsid()
-        for resource_id, value in (
-            (_resource.RLIMIT_CPU, cpu),
-            (_resource.RLIMIT_AS, memory),
-            (_resource.RLIMIT_FSIZE, disk),
-            (_resource.RLIMIT_NPROC, processes),
-        ):
+        for resource_id, value in spec:
             try:
                 soft, hard = _resource.getrlimit(resource_id)
                 limit = value if hard == _resource.RLIM_INFINITY else min(value, hard)
@@ -328,6 +353,10 @@ class LocalProcessBackend(_BaseBackend):
                 "limits": spec.limits(),
                 "runner": template.get("runner", "runners/service_runner.py"),
                 "rlimit_applied": _resource is not None,
+                #: ``REPRO_MAX_PROCESSES`` is *not* enforceable here: see
+                #: ``_rlimit_preexec``. Say so in the manifest instead of
+                #: recording a limit that does not exist.
+                "process_cap_enforced": False,
             },
         )
 
@@ -694,6 +723,10 @@ class DockerSandboxBackend(_BaseBackend):
                 "runner": template.get("runner", "runners/service_runner.py"),
                 "container_ports": container_ports,
                 "port_overrides": container_ports,
+                #: ``--pids-limit`` below is a genuine per-container cap, so this
+                #: backend enforces ``REPRO_MAX_PROCESSES`` and the local one
+                #: does not (see ``_rlimit_preexec``).
+                "process_cap_enforced": True,
             },
         )
 
@@ -726,6 +759,9 @@ class DockerSandboxBackend(_BaseBackend):
                 "ALL",
                 "--security-opt",
                 "no-new-privileges",
+                #: The one place the process cap is enforced for real: it is a
+                #: per-container limit, unlike RLIMIT_NPROC (see
+                #: ``_rlimit_preexec``).
                 "--pids-limit",
                 str(int(limits.get("processes") or 32)),
                 "--cpus",

@@ -46,8 +46,11 @@ asynchronously by the existing Redis worker. See
 - **Isolation:** per-service processes in their own process group (default) or
   per-service containers on an internal network (`--cap-drop ALL`,
   `no-new-privileges`, read-only root fs) when Docker is selected.
-- **Limits:** CPU seconds, memory, disk, process count, file size, open files,
-  wall-clock deadline, telemetry bytes — all configurable, conservative defaults.
+- **Limits:** CPU seconds, memory, disk, file size, wall-clock deadline,
+  telemetry bytes — all configurable, conservative defaults. The process-count
+  ceiling is enforced by the Docker backend (`--pids-limit`); the local backend
+  records `process_cap_enforced: false` rather than pretending, because Linux
+  measures `RLIMIT_NPROC` per UID and applying it low breaks the sandbox.
 - **Network:** `ISOLATED` by default; loopback-only sockets; no proxy variables in
   a sandbox's environment; optional allow-listed egress.
 - **Cleanup:** unconditional. Orchestrator `finally` + reaper; failures recorded

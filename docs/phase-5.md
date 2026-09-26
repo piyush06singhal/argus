@@ -202,8 +202,16 @@ quietly ignored.
 - The environment handed to a sandbox carries no credential and no proxy
   variable, and does not put ARGUS's own package on `PYTHONPATH` — the sandbox
   cannot import the platform it is running under.
-- Resource limits: CPU seconds, address space, process count, file size and open
-  files (POSIX `RLIMIT_*`), plus wall-clock, disk and telemetry-byte ceilings.
+- Resource limits, applied in the child before `exec` so they bind from its first
+  instruction: CPU seconds (`RLIMIT_CPU`), address space (`RLIMIT_AS`) and file
+  size (`RLIMIT_FSIZE`), plus wall-clock, disk and telemetry-byte ceilings.
+  The process-count ceiling (`REPRO_MAX_PROCESSES`) is enforced by the Docker
+  backend as `--pids-limit`. The local backend cannot enforce it: Linux checks
+  `RLIMIT_NPROC` against the real **UID's** total task count rather than the
+  sandbox, so a low value there stops the service from creating the thread that
+  answers its own health probe. The sandbox metadata records which is in force
+  (`process_cap_enforced`), so the manifest never claims a limit that was not
+  applied.
 
 ### 5.3 Namespaces
 

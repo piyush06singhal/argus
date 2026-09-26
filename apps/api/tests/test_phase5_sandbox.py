@@ -23,6 +23,7 @@ import pytest
 
 from app.core.config import get_settings
 from app.models.reproduction import SandboxBackendKind, SandboxNetworkPolicy
+from app.services import reproduction_sandbox
 from app.services.reproduction_sandbox import (
     DockerSandboxBackend,
     LocalProcessBackend,
@@ -181,7 +182,11 @@ class TestSandboxLifecycle:
             during = sandbox_metrics()
             assert during["sandboxes_on_disk"] == before["sandboxes_on_disk"] + 1
             assert during["sandbox_bytes"] >= 0
-            assert during["sandbox_root"].endswith("argus-reproduction")
+            # The reported root is the *configured* one, not a hard-coded
+            # default: `REPRO_SANDBOX_ROOT` is honoured, and a test that only
+            # passes while the setting happens to be unset would fail on a host
+            # that configures it.
+            assert during["sandbox_root"] == str(sandbox_root_base())
         finally:
             await manager.destroy(handle)
         assert sandbox_metrics()["sandboxes_on_disk"] == before["sandboxes_on_disk"]
@@ -244,6 +249,61 @@ class TestSandboxIsolation:
         try:
             assert handle.metadata["limits"]["memory_mb"] == 128
             assert handle.network_policy is SandboxNetworkPolicy.ISOLATED
+        finally:
+            await manager.destroy(handle)
+
+    def test_a_service_is_never_given_a_per_user_process_limit(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """``RLIMIT_NPROC`` must not be applied to a sandbox service.
+
+        Linux checks that limit against the real **UID's** task count, threads
+        included, so capping it at 32 does not isolate the sandbox: it stops the
+        service from creating the thread that answers its own health probe as
+        soon as the account already runs more than 32 tasks. That is any
+        non-root service account, and it is exactly what a CI runner is; root is
+        exempt from the limit, which is why this was invisible on a root-owned
+        host. The symptom was every experiment failing with "not ready within
+        60s". This test reads the same spec the child executes.
+
+        The cap is not dropped silently: the Docker backend enforces it with
+        ``--pids-limit`` and the local backend records
+        ``process_cap_enforced: False``.
+        """
+
+        class _FakeResource:
+            RLIMIT_CPU = 1
+            RLIMIT_AS = 2
+            RLIMIT_NPROC = 3
+            RLIMIT_FSIZE = 4
+            RLIM_INFINITY = -1
+
+        monkeypatch.setattr(reproduction_sandbox, "_resource", _FakeResource)
+
+        spec = reproduction_sandbox.rlimit_spec(
+            {"cpu_seconds": 7, "memory_mb": 128, "disk_mb": 8, "processes": 8}
+        )
+        applied = {resource_id for resource_id, _value in spec}
+        assert applied == {
+            _FakeResource.RLIMIT_CPU,
+            _FakeResource.RLIMIT_AS,
+            _FakeResource.RLIMIT_FSIZE,
+        }
+        assert _FakeResource.RLIMIT_NPROC not in applied
+        # Values are the configured ones, in bytes where the kernel says bytes.
+        assert dict(spec) == {
+            _FakeResource.RLIMIT_CPU: 7,
+            _FakeResource.RLIMIT_AS: 128 * 1024 * 1024,
+            _FakeResource.RLIMIT_FSIZE: 8 * 1024 * 1024,
+        }
+
+    async def test_the_local_backend_says_it_cannot_cap_processes(self) -> None:
+        """The manifest must not claim a limit this backend cannot apply."""
+        manager = SandboxManager(LocalProcessBackend())
+        handle = await manager.create(_spec(), experiment_id=uuid.uuid4())
+        try:
+            assert handle.metadata["process_cap_enforced"] is False
+            assert handle.metadata["rlimit_applied"] is True
         finally:
             await manager.destroy(handle)
 

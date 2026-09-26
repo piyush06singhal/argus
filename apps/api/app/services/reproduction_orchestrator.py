@@ -1245,6 +1245,10 @@ class ReproductionOrchestrator:
                     "template": plan_data.template,
                     "services_planned": plan_data.required_services,
                     "rlimit_applied": handle.metadata.get("rlimit_applied"),
+                    #: Whether this backend can actually cap the process count.
+                    #: The local backend cannot (RLIMIT_NPROC is per-UID on
+                    #: Linux); the Docker backend does it with --pids-limit.
+                    "process_cap_enforced": handle.metadata.get("process_cap_enforced"),
                 },
             )
             session.add(row)
@@ -1644,6 +1648,9 @@ class ReproductionOrchestrator:
                         "cleanup": outcome.sandbox_cleanup,
                         "resource_limits": outcome.handle.metadata.get("limits"),
                         "rlimit_applied": outcome.handle.metadata.get("rlimit_applied"),
+                        "process_cap_enforced": outcome.handle.metadata.get(
+                            "process_cap_enforced"
+                        ),
                     },
                     ArtifactType.SANDBOX_METADATA,
                 )
