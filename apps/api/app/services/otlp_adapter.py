@@ -321,7 +321,19 @@ class OTLPAdapter:
         *,
         source_name: str = "otlp",
     ) -> List[RawObservabilityEvent]:
-        """Convert OTLP ``ExportMetricsServiceRequest`` JSON to raw events."""
+        """Convert OTLP ``ExportMetricsServiceRequest`` JSON to raw events.
+
+        OTLP protojson nests metrics under ``scope_metrics[].metrics`` (or
+        ``scopeMetrics``); the flat ``rm["metrics"]`` form is also accepted for
+        older collectors and the original ARGUS tests.
+
+        That descent was missing here while traces and logs already did it, which
+        meant a **spec-correct** metric export produced zero events and reported
+        success (``accepted: 0``, no failure) — a silent drop of every metric a
+        real collector sends. Found by the OTLP/Protobuf work, whose payloads are
+        generated from the protocol's own descriptors and are therefore always
+        spec-correct.
+        """
         events: List[RawObservabilityEvent] = []
         resource_metrics = payload.get("resource_metrics", [])
 
@@ -329,7 +341,12 @@ class OTLPAdapter:
             resource = _resource_to_dict(rm.get("resource", {}))
             service_name = resource.get("service.name", source_name)
 
-            for metric_data in rm.get("metrics", []):
+            metrics = list(_pick(rm, "metrics") or [])
+            if not metrics:
+                for scope in rm.get("scope_metrics", rm.get("scopeMetrics", [])) or []:
+                    metrics.extend(_pick(scope, "metrics") or [])
+
+            for metric_data in metrics:
                 metric = self._parse_metric(metric_data, resource)
 
                 for dp in (

@@ -543,6 +543,49 @@ class TestSourceRegistryAPI:
         assert resp.status_code == 200
         assert resp.json()["total"] == 1
 
+    def test_source_list_is_paginated(self, client: TestClient) -> None:
+        """The list is bounded, and `total` reflects the whole registry.
+
+        The source registry grows with the estate, so an uncapped SELECT here
+        was the last endpoint whose response size scaled with its table. The
+        page cap is the guarantee; `total` is what makes pagination honest.
+        """
+        project = _create_project(client)
+        for i in range(3):
+            client.post(
+                "/api/v1/ingestion/sources",
+                json={
+                    "project_id": project["id"],
+                    "name": f"paged-src-{i}",
+                    "source_type": "CUSTOM",
+                },
+            )
+
+        # A small page returns a slice, not the registry.
+        page1 = client.get(
+            f"/api/v1/ingestion/sources?project_id={project['id']}&page_size=2"
+        )
+        assert page1.status_code == 200
+        body = page1.json()
+        assert len(body["items"]) == 2
+        assert body["total"] == 3
+
+        # The second page carries the remainder, with no overlap.
+        page2 = client.get(
+            f"/api/v1/ingestion/sources?project_id={project['id']}&page=2&page_size=2"
+        )
+        assert page2.status_code == 200
+        names1 = {s["name"] for s in body["items"]}
+        names2 = {s["name"] for s in page2.json()["items"]}
+        assert len(names2) == 1
+        assert not names1 & names2
+
+        # The cap is enforced, not decorative.
+        oversized = client.get(
+            f"/api/v1/ingestion/sources?project_id={project['id']}&page_size=1000"
+        )
+        assert oversized.status_code == 422
+
 
 # ---------------------------------------------------------------------------
 # Config change events API

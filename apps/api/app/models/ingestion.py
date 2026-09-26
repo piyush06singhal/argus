@@ -96,6 +96,17 @@ class ObservabilitySource(BaseModel):
     metadata_: Mapped[Optional[dict]] = mapped_column(
         "metadata", JSONType, nullable=True
     )
+    # Ingestion trust (hardening W1). SHA-256 of the per-source ingest token;
+    # the raw token is shown once at creation and never stored. ``None`` means
+    # the source predates the hardening pass and has not been issued a token
+    # yet — the ingestion auth dependency treats a configured-but-tokenless
+    # source as closed until a token is rotated in.
+    ingest_token_hash: Mapped[Optional[str]] = mapped_column(
+        String(64), nullable=True, index=True
+    )
+    ingest_token_rotated_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
 
 class ConfigurationChangeEvent(BaseModel):
