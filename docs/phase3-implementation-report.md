@@ -1,5 +1,11 @@
 # Phase 3 — Implementation Report: Anomaly & Incident Intelligence
 
+> **Snapshot, not current state.** This is the report written when the phase
+> shipped, and its numbers are from that run. The authoritative, current
+> verification matrix lives in the [README](../README.md#verification);
+> nothing here is kept in sync with later work.
+
+
 **Status: COMPLETE — all increments delivered, all gates green, validated live.**
 
 Phase 3 turns the Phase 1 evidence stream and the Phase 2 structural graph into an

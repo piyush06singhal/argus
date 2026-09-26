@@ -12,7 +12,13 @@ POST /api/v1/otlp/v1/logs
 POST /api/v1/otlp/v1/metrics
 ```
 
-Only the JSON transport is supported (not gRPC/protobuf). The adapter (`app/services/otlp_adapter.py`) is stateless and deterministic; all side-effects happen in the shared ingestion pipeline.
+Both OTLP HTTP transports are accepted: **Protobuf** (`Content-Type: application/x-protobuf`, which is what a stock collector's `otlphttp` exporter sends by default) and **JSON** (`application/json`). Protobuf is decoded at the edge into the same dictionary the JSON transport produces — `OtlpProtobufMiddleware` in `app/core/edge.py` uses the official `opentelemetry-proto` descriptors — so there is exactly one adapter, one pipeline and one set of scope checks for both encodings.
+
+gRPC (port 4317) is **not** served: ARGUS exposes the OTLP/HTTP endpoints only, which every collector and SDK can target. Point the exporter at `http://argus-host:8000/api/v1/otlp` with `protocol: http/protobuf` (the default).
+
+Because Protobuf has no field for ARGUS's tenancy extension, the destination project is resolved from the credential; when the credential does not imply exactly one project, name it out of band with `?project_id=` or the `X-Argus-Project-Id` header (`?environment_id=` / `X-Argus-Environment-Id` likewise). The project scope check applies to whatever is named, so this cannot be used to write outside the credential's grants.
+
+The adapter (`app/services/otlp_adapter.py`) is stateless and deterministic; all side-effects happen in the shared ingestion pipeline.
 
 ### 1.1 protojson wire format — camelCase **and** snake_case accepted
 

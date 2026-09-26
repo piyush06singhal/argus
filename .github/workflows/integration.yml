@@ -1,0 +1,185 @@
+name: Integration
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  postgres-suite:
+    name: Backend suite on PostgreSQL
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/api
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: argus
+          POSTGRES_PASSWORD: argus_password
+          POSTGRES_DB: argus_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U argus"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      ARGUS_TEST_DB: postgresql+asyncpg://argus:argus_password@localhost:5432/argus_test
+      REDIS_URL: redis://localhost:6379/0
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: apps/api/requirements-dev.txt
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+      - name: Run integration suite
+        run: python -m pytest tests/ -q --tb=short
+
+  # ---------------------------------------------------------------------------
+  # Live-gate tier
+  # ---------------------------------------------------------------------------
+  # The suites above answer "does the code do what the tests say". This job answers
+  # "does the assembled system work", which is a different question: it boots the
+  # real stack, ingests telemetry over HTTP, and asserts that anomalies, incidents,
+  # causal analyses and code intelligence are *derived* rather than stubbed. It
+  # runs the same scripts an operator runs, so a gate that passes here is one they
+  # can reproduce.
+  live-gates:
+    name: Live gates — stack, UI, browser
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+
+      # The SSO gate drives a *second* API process and a stub identity provider
+      # as host processes (so it never has to reconfigure a running container),
+      # which means it needs the API's dependencies installed on the runner.
+      - name: Install API dependencies (for the SSO gate)
+        run: pip install -r apps/api/requirements-dev.txt
+
+      - name: Boot the stack
+        run: docker compose up -d --build
+
+      - name: Wait for the API and the web app
+        run: |
+          for url in http://localhost:8000/health http://localhost:3000/; do
+            for attempt in $(seq 1 60); do
+              if curl -fsS -o /dev/null "$url"; then break; fi
+              [ "$attempt" = 60 ] && { echo "::error::$url never became ready"; docker compose logs --tail=80; exit 1; }
+              sleep 5
+            done
+          done
+
+      # The gates resolve an admin token through the documented operator path
+      # (docker compose exec api python -m app.cli bootstrap-token) and cache it
+      # for the run, so no secret needs to be configured here.
+      - name: Phase gates (knowledge graph → unified platform)
+        run: |
+          for gate in 1 2 3 4 5 6 7 8 9 10 11; do
+            echo "::group::phase $gate gate"
+            bash "infrastructure/e2e-smoke-phase${gate}.sh"
+            echo "::endgroup::"
+          done
+
+      # The new-user journey: a *non-demo* project taken from "create project" to
+      # an incident with causal evidence, with SEED_DEMO disabled so nothing about
+      # it can depend on the seeded demo.
+      - name: Onboarding gate (new user, no demo data)
+        run: bash infrastructure/e2e-smoke-onboarding.sh
+
+      # Every route, as a real caller, over the built app. --strict turns a route
+      # with no data into a failure: on this stack the gates above have just
+      # created data, so a skip would mean the resolver, not the corpus, is wrong.
+      - name: UI gate (all routes)
+        run: bash infrastructure/e2e-ui-smoke.sh --strict
+
+      # Security: authentication, per-source credentials, and cross-project read
+      # and write refusal over real HTTP. This gate exists because the in-process
+      # suite could *not* see those defects — the middleware context bug made
+      # every isolation check pass under TestClient while the running server was
+      # wide open — so it must run on every PR, not only when someone remembers.
+      - name: Security gate (auth & isolation)
+        run: bash infrastructure/e2e-smoke-hardening.sh
+
+      # Single sign-on, driven end to end: a strict stub IdP over a real socket,
+      # a second API process with OIDC_ENABLED, and assertions that the session
+      # the callback minted is accepted by the edge — plus every refusal (replay,
+      # forgery, unverified email, disabled identity, provider-side revocation).
+      # The unit suite covers the client; only this covers the assembled system.
+      - name: SSO gate (single sign-on end to end)
+        run: bash infrastructure/e2e-smoke-sso.sh
+
+      # Fault injection: stop Redis mid-ingest and prove the outage is reported
+      # as degraded, telemetry still ingests through the synchronous fallback,
+      # the queues drain on recovery, and zero rows are lost. Restores the broker
+      # in an EXIT trap so later steps are unaffected.
+      - name: Fault-injection gate (Redis outage)
+        run: bash infrastructure/e2e-smoke-faults.sh
+
+      # Backup rehearsal: take a real dump, prove a truncated copy is refused by
+      # both `verify` and `drill`, prove an inflated floor is refused (so the
+      # comparison is load-bearing), restore it into a scratch database, and
+      # prove the drill survives live drift. A backup nobody restored is a belief.
+      - name: Backup gate (restore rehearsal)
+        run: bash infrastructure/e2e-smoke-backup.sh
+
+      # Self-observability: bring up the monitoring profile, then assert that
+      # *every* metric the alert rules and the dashboard reference actually
+      # exists in the live scrape. A rule that queries a series nobody exports
+      # is an alert that silently never fires — and an anti-fiction check is the
+      # only kind that can catch it.
+      - name: Observability gate (alerts & dashboard)
+        run: bash infrastructure/e2e-smoke-observability.sh
+
+      # High availability: apply the HA overlay, prove the replica streams and
+      # is read-only, then rehearse a point-in-time recovery — restore a base
+      # backup to a moment *between* two commits and prove the earlier one came
+      # back and the later one did not, with a no-target control run proving the
+      # archive really replays. A restore nobody rehearsed is a belief.
+      - name: HA gate (replication & PITR)
+        run: bash infrastructure/e2e-smoke-ha.sh
+
+      # The browser tier: hydration, interactivity and the token boundary as a
+      # browser experiences them, which no HTTP-level gate can observe.
+      - name: Browser gate (Playwright)
+        working-directory: apps/web
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+          npm run test:e2e
+
+      - name: Container logs on failure
+        if: failure()
+        run: docker compose logs --tail=200
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-traces
+          path: apps/web/test-results/
+          retention-days: 7

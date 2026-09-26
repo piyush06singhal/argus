@@ -1,5 +1,11 @@
 # Phase 9 Implementation Report — Safe Autonomous Remediation
 
+> **Snapshot, not current state.** This is the report written when the phase
+> shipped, and its numbers are from that run. The authoritative, current
+> verification matrix lives in the [README](../README.md#verification);
+> nothing here is kept in sync with later work.
+
+
 **Status: complete — implemented, tested, documented, validated live.**
 
 Phase 9 gives ARGUS the ability to act on what it has diagnosed: propose a

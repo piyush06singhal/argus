@@ -1,0 +1,41 @@
+name: Supply-chain audit
+
+on:
+  schedule:
+    # Weekly, Mondays 06:00 UTC
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+jobs:
+  python-audit:
+    name: pip-audit (backend dependencies)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install pip-audit
+        run: pip install pip-audit
+      - name: Audit pinned requirements
+        run: pip-audit -r apps/api/requirements.txt --strict
+
+  npm-audit:
+    name: npm audit (production dependencies)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      # --omit=dev matches what actually ships in the production image.
+      # The gate fails on any high/critical advisory NOT triaged in
+      # docs/supply-chain-triage.md (+ scripts/audit-allowlist.json), and on
+      # a next version below the security-fix floor.
+      - name: Triage-aware audit gate
+        run: node scripts/audit-gate.mjs

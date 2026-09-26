@@ -52,7 +52,10 @@ This document describes the Phase 0 (Foundation) and Phase 1 (Observability & In
 | Cache/Queue | Redis 7 | Async ingestion queue (`argus:ingest:*`) + dead-letter accounting |
 | Web         | Next.js 14 (App Router) | Server components + typed fetch to `/api/v1` |
 | Migrations  | Alembic (async) | Versioned schema evolution |
-| Orchestration | Docker Compose | web / api / postgres / redis with health checks + ordering |
+| Self-monitoring | Prometheus + Grafana (compose `observability` profile) | 20 alert rules with runbooks + a provisioned dashboard over the `argus_*` exporter |
+| Backup | `pg_dump` + a continuously archived WAL, `backup` profile | Scheduled dump with a verification drill, retention pruning; a dump is *not* a WAL archive |
+| HA / PITR | `docker-compose.ha.yml` overlay | Streaming replica + archive-based point-in-time recovery; deliberately no automatic failover (see [high-availability.md](high-availability.md)) |
+| Orchestration | Docker Compose | web / api / worker / postgres / redis, with opt-in `observability`, `backup` and HA profiles; health checks + ordering |
 
 ## 4. API layer
 
@@ -180,7 +183,7 @@ Event-heavy list endpoints share one contract:
 
 The Software Knowledge Graph (Phase 2) is a **materialized overlay** over the canonical tables: `graph_nodes`/`graph_edges` reference canonical entities via `entity_kind` + `entity_id` (unique per project) — no duplicate component/dependency representations, no separate graph database. See [docs/software-knowledge-graph.md](software-knowledge-graph.md).
 
-See [docs/data-model.md](docs/data-model.md) for the full entity-relationship model. Highlights:
+See [data-model.md](data-model.md) for the full entity-relationship model. Highlights:
 
 - UUID primary keys on all entities
 - `TotalConst` style — `created_at`/`updated_at` on every row via `TimestampMixin`
@@ -190,7 +193,7 @@ See [docs/data-model.md](docs/data-model.md) for the full entity-relationship mo
 
 ## 6. Observability model
 
-See [docs/observability-model.md](docs/observability-model.md).
+See [observability-model.md](observability-model.md).
 
 Core design: a **normalized** representation shared by all sources — events, logs, metrics, traces, and spans — each with stable identity, explicit timestamps, and structured `metadata`.
 
@@ -307,8 +310,24 @@ ARGUS monitors its own internal health:
 - `GET /health/live` — is the process up?
 - `GET /health/ready` — can it serve traffic (DB reachable)?
 - `GET /health/dependencies` — per-dependency status + latency
+- `GET /metrics` — the `argus_*` Prometheus exporter, including self-observability
+  series (rate-limit backend and fallbacks, backup age/duration/size)
 
 Internal failures that ARGUS logs (ingestion, processing, API, database, queue) are tracked via the structured logging layer (`app/core/logging.py`). No secrets are exposed in health responses.
+
+**Shipped, not aspirational.** Bringing the stack up with the `observability`
+profile provisions Prometheus, Grafana and 20 alert rules — each with a runbook
+link into [operations.md](operations.md) — plus a pre-built dashboard. The
+`backup` profile adds a scheduled `pg_dump` with a periodic restore drill and
+retention pruning; the `ha` overlay adds a streaming replica and WAL archiving
+for point-in-time recovery. These are proved by
+`infrastructure/e2e-smoke-observability.sh`, `e2e-smoke-backup.sh`,
+`e2e-smoke-ha.sh` and `e2e-smoke-sso.sh`; the honest boundaries (no automatic failover, no read
+routing, a single Redis node) are stated in
+[high-availability.md](high-availability.md) and
+[production-readiness.md](production-readiness.md). Authentication federates to
+an OIDC provider when `OIDC_*` is configured, with `argus_rate_limit_backend`
+showing whether shared rate limiting is active.
 
 ## 10. Pagination & performance foundation
 
@@ -331,8 +350,45 @@ Phase 1 materialized **configuration changes** and **health checks** as first-cl
 
 ## 12. Current limitations
 
-- No authentication/authorization yet (readiness stubs present)
-- No anomaly detection, no root-cause analysis, no remediation
-- The AI trust model is documented policy, not yet enforced at runtime (no AI runs in the data path)
-- Retention policy is configuration-only; sweep removes events by timestamp but does not cascade to related spans/logs
-- Ingestion backpressure and worker scaling beyond single-process are not yet implemented
+This section listed the gaps of the *Phase 1* system and went stale as the later
+phases closed them. What follows is the state of the shipped platform:
+**established** (with the evidence), then **genuinely open**.
+
+**No longer limitations** (each is implemented and proved by a live gate):
+
+- Authentication and authorization — bearer tokens with roles and per-project
+  grants, per-source ingest tokens, `401`/`404` refusals over real HTTP
+  (`infrastructure/e2e-smoke-hardening.sh`); SSO/OIDC sign-in when configured,
+  with sessions retained under their own policy
+  (`infrastructure/e2e-smoke-sso.sh`).
+- Operational alerting, dashboards, scheduled backups and Postgres HA/PITR —
+  alert rules with runbooks, a provisioned dashboard, a dump-plus-drill
+  scheduler and a streaming replica with WAL archiving
+  (`e2e-smoke-observability.sh`, `e2e-smoke-backup.sh`, `e2e-smoke-ha.sh`,
+  `e2e-smoke-sso.sh`).
+- Anomaly detection, incident correlation, causal/root-cause analysis,
+  reproduction, fix generation, predictive reliability, policy-controlled
+  remediation and cross-incident learning — Phases 3–10, each with its own gate.
+- The AI trust model is **enforced at runtime**, not merely documented: every fact
+  handed to the model carries an evidence id, every reference it returns is
+  resolved against that index, and an unresolvable claim is reported as refused
+  rather than displayed (`app/services/ai_debugger.py`).
+- Worker scaling — the queue consumer is replica-safe (Redis `BLPOP` hands each
+  job to exactly one consumer) and sweep work is arbitrated by a per-sweep
+  PostgreSQL advisory lock, so replicas do not duplicate passes
+  (`app/services/sweep_leader.py`, proved in `tests/test_sweep_leader_postgres.py`).
+
+**Genuinely open** (documented at the same detail in
+[production-readiness.md](production-readiness.md) §7):
+
+- Retention is per table and does not cascade from a parent row to its children;
+  the windows are deliberately different lengths (traces 30 days, events 90).
+- No OTLP/gRPC listener on 4317 — OTLP/HTTP is served in both encodings.
+- Reads are not routed to the HA replica, and failover is manual: the overlay
+  removes single-node Postgres durability risk, not availability orchestration.
+- No multi-region replication, and Redis is a single node.
+- Write-heavy scenarios above 8 concurrent clients are unmeasured (reads and
+  metrics are characterised to 64).
+- Reproduction needs a runnable sandbox image, and code intelligence needs a
+  registered repository — without them those surfaces degrade honestly
+  (`ENVIRONMENT_UNAVAILABLE`, "no readable repository") rather than pretending.

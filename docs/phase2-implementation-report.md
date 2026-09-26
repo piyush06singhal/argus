@@ -1,5 +1,11 @@
 # ARGUS — Phase 2 Implementation Report: Software Knowledge Graph
 
+> **Snapshot, not current state.** This is the report written when the phase
+> shipped, and its numbers are from that run. The authoritative, current
+> verification matrix lives in the [README](../README.md#verification);
+> nothing here is kept in sync with later work.
+
+
 **Status: COMPLETE — all increments delivered, all gates green, live end-to-end validated.**
 
 Final gate evidence (this run, live compose stack `DATABASE_PORT=5433`):

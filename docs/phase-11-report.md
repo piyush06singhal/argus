@@ -1,5 +1,11 @@
 # ARGUS — Phase 11 Delivery Report
 
+> **Snapshot, not current state.** This is the report written when the phase
+> shipped, and its numbers are from that run. The authoritative, current
+> verification matrix lives in the [README](../README.md#verification);
+> nothing here is kept in sync with later work.
+
+
 **Unified Reliability Intelligence Platform & Autonomous Engineering Control Plane**
 
 Status: **shipped**. Every gate below was run against the live Docker Compose

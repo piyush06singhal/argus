@@ -1,5 +1,11 @@
 # Phase 8 Implementation Report — Predictive Reliability
 
+> **Snapshot, not current state.** This is the report written when the phase
+> shipped, and its numbers are from that run. The authoritative, current
+> verification matrix lives in the [README](../README.md#verification);
+> nothing here is kept in sync with later work.
+
+
 **Status: complete — implemented, tested, documented, validated live.**
 
 Phase 8 adds evidence-backed reliability forecasting to ARGUS: which components

@@ -137,7 +137,7 @@ The `component_dependencies` table models the relationship **graph**. It is self
 
 ### 3.4 Observability
 
-All observability entities carry `project_id`, optional `environment_id`/`component_id`, and a structured `metadata`/`payload` document. See [docs/observability-model.md](docs/observability-model.md).
+All observability entities carry `project_id`, optional `environment_id`/`component_id`, and a structured `metadata`/`payload` document. See [observability-model.md](observability-model.md).
 
 | Entity | Table | Key fields |
 |--------|-------|------------|
@@ -548,7 +548,7 @@ Pydantic validates these enums at the API boundary, so malformed values are reje
 
 ## 6. Migrations
 
-Schema is managed by Alembic (`apps/api/alembic/`). See [docs/development.md](docs/development.md).
+Schema is managed by Alembic (`apps/api/alembic/`). See [development.md](development.md).
 
 ## 7. Testing with SQLite
 

@@ -309,4 +309,7 @@ answers `404` rather than confirming existence.
 * **Autonomous execution carries residual risk.** It is bounded, scoped,
   reversible where the action allows, breaker-limited, audited and instantly
   revocable by one emergency-stop call — and it is still an action taken without
-  a person in the loop, which is why it ships disabled.
+  a person in the loop, which is why nothing executes until an operator writes a
+  policy: a project with no policy row resolves to `OBSERVE_ONLY`. The master
+  switch (`REMEDIATION_EXECUTION_ENABLED`) defaults to on and is the kill switch an
+  operator flips to stop every action everywhere, independently of any policy.

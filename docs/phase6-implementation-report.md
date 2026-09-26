@@ -1,5 +1,11 @@
 # Phase 6 — Completion Report
 
+> **Snapshot, not current state.** This is the report written when the phase
+> shipped, and its numbers are from that run. The authoritative, current
+> verification matrix lives in the [README](../README.md#verification);
+> nothing here is kept in sync with later work.
+
+
 **AI Debugger — Code Intelligence & Evidence-Grounded Debugging**
 
 Status: **complete** — implemented end to end, verified live against the compose

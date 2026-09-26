@@ -1,5 +1,11 @@
 # Phase 5 — Completion Report
 
+> **Snapshot, not current state.** This is the report written when the phase
+> shipped, and its numbers are from that run. The authoritative, current
+> verification matrix lives in the [README](../README.md#verification);
+> nothing here is kept in sync with later work.
+
+
 **Failure Reproduction, Incident Replay & Hypothesis Validation**
 
 Status: **complete** — implemented end to end, verified live against the compose

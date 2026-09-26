@@ -1,0 +1,108 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend — lint, format, types, tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/api
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: apps/api/requirements-dev.txt
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+      - name: Ruff lint
+        run: ruff check app tests
+      - name: Ruff format check
+        run: ruff format --check app tests
+      - name: Mypy typecheck
+        run: mypy app
+      - name: Test suite (SQLite)
+        run: python -m pytest tests/ -q --tb=short
+
+  web:
+    name: Web — types, lint, tests, build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: TypeScript
+        run: npx tsc --noEmit
+      - name: Next lint
+        run: npx next lint --dir app
+      - name: Vitest
+        run: npm test
+      - name: Production build
+        run: npm run build
+
+  hygiene:
+    name: Repo hygiene
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # The check is an *inspection of the built image*, not a grep of the
+      # Dockerfile. The previous version passed while the image shipped
+      # playwright, playwright-core and @playwright/test: `next` 14 declares
+      # @playwright/test as a real dependency, so `--omit=dev` never removed it.
+      # A production web server must contain neither our dev tooling nor Next's
+      # own test tooling, and only the image can be asked that question.
+      - name: Production web image carries no test tooling
+        run: |
+          docker build -t argus-web-check apps/web
+          fail=0
+          for pkg in vitest typescript tailwindcss eslint postcss autoprefixer \
+                     @playwright playwright playwright-core; do
+            if docker run --rm --entrypoint sh argus-web-check \
+                 -c "test -d node_modules/$pkg"; then
+              echo "::error::dev-only package '$pkg' is present in the production image"
+              fail=1
+            fi
+          done
+          # The runtime packages must still be there — a prune that removed the
+          # app itself would otherwise look like a pass.
+          for pkg in next react react-dom; do
+            if ! docker run --rm --entrypoint sh argus-web-check \
+                   -c "test -d node_modules/$pkg"; then
+              echo "::error::runtime package '$pkg' is missing from the production image"
+              fail=1
+            fi
+          done
+          exit $fail
+      - name: No committed .env
+        run: |
+          if git ls-files --error-unmatch .env >/dev/null 2>&1; then
+            echo "::error::.env is committed"; exit 1
+          fi
+      - name: Next.js version carries the security fixes
+        run: |
+          version=$(python3 -c "import json;print(json.load(open('apps/web/package.json'))['dependencies']['next'])")
+          python3 - "$version" <<'PY'
+          import sys
+          v = sys.argv[1].lstrip("^~")
+          major, minor, patch = (int(p) for p in v.split(".")[:3])
+          ok = (major > 14) or (major == 14 and minor > 2) or (major == 14 and minor == 2 and patch >= 25)
+          sys.exit(0 if ok else "::error::next must be >= 14.2.25 (CVE-2025-29927)")
+          PY

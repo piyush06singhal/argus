@@ -22,6 +22,14 @@ build/
 # Node.js
 node_modules/
 .next/
+
+# Browser-gate output (hardening W3): Playwright writes traces, screenshots and
+# the HTML report per run. They are diagnostics for a failure, not source.
+apps/web/test-results/
+apps/web/playwright-report/
+apps/web/blob-report/
+playwright-report/
+test-results/
 out/
 .nuxt/
 *.tsbuildinfo
@@ -76,3 +84,10 @@ apps/api/var/
 # Local agent/tooling metadata (never part of the project)
 .freebuff/
 .claude/
+
+# Generated Postgres dumps from `infrastructure/backup.sh` (never source: they
+# are hundreds of megabytes and contain production data). The gate writes its own
+# dumps to a temporary directory; this entry covers manual runs.
+backups/
+*.dump
+*.dump.counts

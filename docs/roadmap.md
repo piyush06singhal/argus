@@ -1,6 +1,17 @@
 # ARGUS Roadmap
 
-ARGUS is built in phases. This document records the planned evolution. **Phases 0–11 are implemented. Do not implement later phases now** — the roadmap is a contract for architecture boundaries, not a to-do list.
+> **Status: Phases 0–11 are shipped.** This document is the *historical phase
+> contract* — what each phase was planned to add and the architectural boundaries
+> it had to respect while doing it. It is deliberately frozen: the per-phase
+> numbers inside it are the ones reported when that phase landed, not today's
+> (current figures are in the [README verification matrix](../README.md#verification)).
+>
+> The README's [Roadmap section](../README.md#roadmap) lists what is genuinely
+> next (operations, identity, durability, scale, interop, adapters). Nothing in
+> this file is an unstarted to-do list for the phases it describes.
+
+ARGUS is built in phases. This document records the planned evolution, phase by
+phase, including the boundaries each phase was required to hold.
 
 ## Phase 0 — Foundation ✅
 

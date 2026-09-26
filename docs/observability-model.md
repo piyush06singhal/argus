@@ -122,6 +122,6 @@ The API exposes its own health via `/health/live`, `/health/ready`, and `/health
 Everything later depends on these primitives:
 
 - **Incident linking** reuses `incident_id` on events and `IncidentEvidence` rows with `source_id`
-- **The knowledge graph** consumes the `system_components`/`component_dependencies` model described in [docs/data-model.md](docs/data-model.md)
+- **The knowledge graph** consumes the `system_components`/`component_dependencies` model described in [data-model.md](data-model.md)
 - **Root-cause reasoning** in future phases will correlate across events, logs, metrics, traces, deployments, and incidents through these stable IDs
 - **Retention policies** layer onto the existing timestamps and lifecycle metadata without schema changes — implemented in Phase 1 (policy + preview + sweep, §5a)
