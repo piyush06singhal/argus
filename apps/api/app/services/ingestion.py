@@ -121,12 +121,20 @@ class IngestionPipeline:
         # If the session's transaction was rolled back by the original error,
         # recover it before we attempt any further DB work, so dead-lettering a
         # failed event never itself fails on a poisoned session.
-        transaction = self._db.get_transaction()
-        if (
-            self._db.in_transaction()
-            and transaction is not None
-            and not transaction.is_active
-        ):
+        #
+        # The probe goes through `sync_session` on purpose. The async
+        # `AsyncSession.get_transaction()` rebuilds a proxy for the underlying
+        # transaction, and SQLAlchemy 2.0.36 raises a bare `NotImplementedError`
+        # when the current transaction is the savepoint proxy that
+        # `begin_nested()` leaves behind — which is precisely the state a failed
+        # event in a batch leaves the session in. The bare exception carries no
+        # message, and it was swallowed by the handler below, so no dead-letter
+        # row was written at all: the failure was counted in the response and
+        # never preserved for inspection. Reading the same state through
+        # `sync_session.get_transaction()` involves no proxy regeneration and
+        # works on every 2.0.x.
+        transaction = self._db.sync_session.get_transaction()
+        if transaction is not None and not transaction.is_active:
             await self._db.rollback()
 
         summary = self._redactor.payload_summary(raw.payload)
@@ -264,7 +272,11 @@ class IngestionPipeline:
                 try:
                     await self._dead_letter(raw, e, retry_count=1)
                 except Exception as dl_e:
-                    logger.error(f"Dead-lettering failed: {dl_e}")
+                    # `exc_info=True` because a failed dead-letter is how this
+                    # class of defect stays invisible: the exception may carry
+                    # no message at all, and the traceback is the only evidence
+                    # of why the failure was not recorded.
+                    logger.error(f"Dead-lettering failed: {dl_e!r}", exc_info=True)
         await self._record_source_signal(
             success=result.failed == 0,
             event_count=result.accepted + result.duplicates,
