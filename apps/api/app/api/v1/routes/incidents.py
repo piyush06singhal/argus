@@ -146,6 +146,26 @@ async def create_incident(
                 ),
             ) from e
         raise
+    #: A hand-filed incident gets the same history a correlated one gets. The
+    #: alternative — an incident row with an empty timeline — is a state the
+    #: data-quality center reports (``MISSING_AUDIT_EVENT``), and it should be
+    #: impossible to *create*, not merely detectable afterwards.
+    db.add(
+        IncidentTimelineEvent(
+            incident_id=incident.id,
+            project_id=incident.project_id,
+            environment_id=incident.environment_id,
+            event_type=TimelineEventType.INCIDENT_CREATED,
+            occurred_at=incident.detected_at,
+            title="Incident filed manually",
+            description=(
+                "Created directly through the API rather than by correlation; "
+                "any anomalies were attached afterwards."
+            ),
+            provenance="manual",
+        )
+    )
+    await db.flush()
     await db.refresh(incident)
     return incident
 

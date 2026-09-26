@@ -23,6 +23,22 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 _test_db_path = tempfile.mktemp(suffix=".argus_test.db")
 TEST_DATABASE_URL = f"sqlite+aiosqlite:///{_test_db_path}"
 
+# Say out loud which database the PostgreSQL-gated modules will use, and what it
+# does to it. The suite empties every ARGUS table before each test, so a DSN that
+# points somewhere unintended is destructive rather than merely wrong — and a
+# silent wrong target is easy to miss in a six-minute run. This is not a guard
+# (an operator may deliberately test the compose database); it is the line that
+# makes the target impossible to overlook.
+if os.getenv("ARGUS_TEST_DB"):
+    _target = os.environ["ARGUS_TEST_DB"]
+    print(
+        f"\n[conftest] PostgreSQL-gated modules will run against: {_target}\n"
+        "[conftest] NOTE: they DELETE every row in every ARGUS table there.\n"
+        "[conftest] The compose Postgres is exposed on localhost:5433 "
+        "(5432 is usually another project's).\n",
+        file=sys.stderr,
+    )
+
 os.environ["API_ENVIRONMENT"] = "test"
 os.environ["DATABASE_URL"] = TEST_DATABASE_URL
 

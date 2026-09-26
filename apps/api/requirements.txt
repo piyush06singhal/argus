@@ -1,5 +1,5 @@
 # ARGUS API Dependencies
-fastapi==0.115.6
+fastapi==0.141.1
 uvicorn[standard]==0.34.0
 pydantic>=2.10,<3
 pydantic-settings>=2.6,<3
@@ -8,12 +8,33 @@ asyncpg==0.31.0
 psycopg2-binary==2.9.10
 alembic==1.14.1
 redis==5.2.1
-python-dotenv==1.0.1
+python-dotenv==1.2.3
 httpx==0.28.1
 
+# Single sign-on (hardening W2).
+#
+# PyJWT is the verifier for ID tokens; `cryptography` comes with the `crypto`
+# extra and is what actually validates the RSA/EC signature. Both are pinned
+# because a signature check must not move underneath a pinned parser: PyJWT
+# alone cannot verify RS256, and hand-rolling RSA PKCS#1 v1.5 verification is
+# exactly the kind of code that looks correct and accepts forged tokens.
+PyJWT[crypto]==2.15.0
+cryptography==50.0.1
+
+# OTLP/Protobuf ingestion (hardening — stock-collector interop).
+#
+# The official OpenTelemetry proto descriptors, not a hand-rolled wire reader:
+# a stock collector's `otlphttp` exporter defaults to Protobuf, and decoding it
+# with the protocol's own definitions is the only way to be sure about a schema
+# that is large and versioned. `protobuf` is pinned alongside because it is the
+# runtime those descriptors generate against; leaving it unpinned would let a
+# resolver pick a major version the generated code does not support.
+opentelemetry-proto==1.44.0
+protobuf==7.36.2
+
 # Testing
-pytest==8.3.4
-pytest-asyncio==0.24.0
+pytest==9.1.1
+pytest-asyncio==1.4.0
 pytest-cov==6.0.0
 aiosqlite==0.21.0
 

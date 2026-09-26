@@ -147,3 +147,75 @@ async def test_seed_rerun_adds_no_duplicate_graph_rows() -> None:
     assert nodes_after == nodes_before
     assert edges_after == edges_before
     assert endpoints_after == endpoints_before
+
+
+# ---------------------------------------------------------------------------
+# SEED_DEMO — the demo dataset is a choice, not a side effect (W3)
+# ---------------------------------------------------------------------------
+
+
+def test_seed_toggle_unset_seeds_outside_production_only() -> None:
+    """Unset is the sensible default, not a coin flip.
+
+    Development and test get the demo dataset (the UI is empty without it);
+    production does not, so a real deployment never inherits a "Demo Commerce"
+    project it never asked for.
+    """
+    from app.core.config import Settings
+
+    for environment, expected in (
+        ("development", True),
+        ("test", True),
+        ("production", False),
+    ):
+        configured = Settings(API_ENVIRONMENT=environment, SEED_DEMO=None)
+        assert configured.seed_demo_enabled is expected, environment
+
+
+def test_seed_toggle_is_explicit_when_set() -> None:
+    """A set value wins everywhere — including "seed in production anyway"."""
+    from app.core.config import Settings
+
+    assert Settings(API_ENVIRONMENT="production", SEED_DEMO=True).seed_demo_enabled
+    assert not Settings(
+        API_ENVIRONMENT="development", SEED_DEMO=False
+    ).seed_demo_enabled
+    assert not Settings(API_ENVIRONMENT="test", SEED_DEMO=False).seed_demo_enabled
+
+
+def test_main_skips_seeding_when_disabled(monkeypatch) -> None:
+    """``python seed_data.py`` with SEED_DEMO=false seeds nothing and exits 0.
+
+    Exit code matters: the container entrypoint runs this under ``set -e``, so a
+    non-zero skip would crash-loop the API container.
+    """
+    import seed_data
+
+    called = False
+
+    async def _never(*args, **kwargs):  # pragma: no cover - must not run
+        nonlocal called
+        called = True
+
+    monkeypatch.setattr(seed_data.settings, "SEED_DEMO", False)
+    monkeypatch.setattr(seed_data, "seed_demo_data", _never)
+
+    assert seed_data.main() == 0
+    assert called is False
+
+
+def test_main_seeds_when_enabled(monkeypatch) -> None:
+    """With SEED_DEMO unset in development the seeder actually runs."""
+    import seed_data
+
+    called = False
+
+    async def _record(*args, **kwargs) -> None:
+        nonlocal called
+        called = True
+
+    monkeypatch.setattr(seed_data.settings, "SEED_DEMO", True)
+    monkeypatch.setattr(seed_data, "seed_demo_data", _record)
+
+    assert seed_data.main() == 0
+    assert called is True

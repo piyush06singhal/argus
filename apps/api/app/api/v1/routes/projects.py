@@ -10,6 +10,8 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
+from app.core.edge import require_auth_context
+from app.api.v1.deps import require_project
 from app.models.project import SoftwareProject
 from app.schemas.project import (
     ProjectCreate,
@@ -19,6 +21,26 @@ from app.schemas.project import (
 )
 
 router = APIRouter(prefix="/projects", tags=["Projects"])
+
+
+def _scope_project_query(query, auth):
+    """Constrain a project query to the caller's grants (hardening W1).
+
+    A scoped token listing projects must not see foreign ones — an unfiltered
+    ``SELECT`` would leak the whole project inventory even though individual
+    reads are grant-checked.
+
+    The context is required, not optional: the middleware binds one for every
+    authenticated ``/api`` route, so ``None`` only means something is wrong —
+    and "something is wrong" must not read as "no filter" (that was the live
+    authorization bypass this pass fixed).
+    """
+    if auth.is_admin or auth.project_ids is None:
+        return query
+    if not auth.project_ids:
+        # A scoped token with no grants sees nothing — not everything.
+        return query.where(SoftwareProject.id.is_(None))
+    return query.where(SoftwareProject.id.in_(auth.project_ids))
 
 
 @router.post("", response_model=ProjectResponse, status_code=201)
@@ -50,13 +72,17 @@ async def list_projects(
     status: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
 ) -> ProjectList:
-    """List all software projects."""
+    """List software projects visible to the caller."""
     query = select(SoftwareProject)
     count_query = select(func.count(SoftwareProject.id))
 
     if status:
         query = query.where(SoftwareProject.status == status)
         count_query = count_query.where(SoftwareProject.status == status)
+
+    auth = require_auth_context()
+    query = _scope_project_query(query, auth)
+    count_query = _scope_project_query(count_query, auth)
 
     # Get total count
     total_result = await db.execute(count_query)
@@ -81,14 +107,8 @@ async def get_project(
     project_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
 ) -> SoftwareProject:
-    """Get a software project by ID."""
-    result = await db.execute(
-        select(SoftwareProject).where(SoftwareProject.id == project_id)
-    )
-    project = result.scalar_one_or_none()
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
-    return project
+    """Get a software project by ID (grant-checked)."""
+    return await require_project(db, project_id)
 
 
 @router.put("/{project_id}", response_model=ProjectResponse)
@@ -97,13 +117,8 @@ async def update_project(
     project_data: ProjectUpdate,
     db: AsyncSession = Depends(get_db),
 ) -> SoftwareProject:
-    """Update a software project."""
-    result = await db.execute(
-        select(SoftwareProject).where(SoftwareProject.id == project_id)
-    )
-    project = result.scalar_one_or_none()
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
+    """Update a software project (grant-checked)."""
+    project = await require_project(db, project_id)
 
     update_data = project_data.model_dump(exclude_unset=True)
     for field, value in update_data.items():
@@ -134,11 +149,6 @@ async def delete_project(
     from app.services.project_lock import lock_project
 
     await lock_project(db, project_id=project_id)
-    result = await db.execute(
-        select(SoftwareProject).where(SoftwareProject.id == project_id)
-    )
-    project = result.scalar_one_or_none()
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
+    project = await require_project(db, project_id)
 
     await db.delete(project)

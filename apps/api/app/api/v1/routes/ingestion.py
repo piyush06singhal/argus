@@ -15,7 +15,7 @@ import uuid
 from datetime import datetime
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from starlette.responses import JSONResponse
 from pydantic import Field
 from sqlalchemy import func, select
@@ -23,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.core.database import get_db
+from app.core.security import INGEST_TOKEN_PREFIX, require_project_access
 from app.core.sources import MockObservabilitySource, RawObservabilityEvent
 from app.models.ingestion import (
     ConfigurationChangeEvent,
@@ -110,18 +111,37 @@ async def register_source(
 async def list_sources(
     project_id: Optional[uuid.UUID] = None,
     source_type: Optional[ObservabilitySourceCategory] = None,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(100, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
 ) -> ObservabilitySourceList:
-    """List registered sources (optionally filtered)."""
-    stmt = select(ObservabilitySource).order_by(ObservabilitySource.name)
+    """List registered sources (optionally filtered), paginated.
+
+    Bounded like every other list endpoint: the source registry grows with the
+    estate (one per collector, region and team), so an uncapped ``SELECT`` here
+    was the last endpoint whose response grew with its table. The default page
+    of 100 keeps the web console's single-fetch usage unchanged — it renders
+    one page, and ``total`` tells it (and any other client) how many more exist.
+    """
+    base = select(ObservabilitySource)
+    count_base = select(func.count(ObservabilitySource.id))
     if project_id:
-        stmt = stmt.where(ObservabilitySource.project_id == project_id)
+        base = base.where(ObservabilitySource.project_id == project_id)
+        count_base = count_base.where(ObservabilitySource.project_id == project_id)
     if source_type:
-        stmt = stmt.where(ObservabilitySource.source_type == source_type)
+        base = base.where(ObservabilitySource.source_type == source_type)
+        count_base = count_base.where(ObservabilitySource.source_type == source_type)
+
+    total = (await db.execute(count_base)).scalar() or 0
+    stmt = (
+        base.order_by(ObservabilitySource.name)
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+    )
     sources = (await db.execute(stmt)).scalars().all()
     return ObservabilitySourceList(
         items=[ObservabilitySourceResponse.model_validate(s) for s in sources],
-        total=len(sources),
+        total=total,
     )
 
 
@@ -152,6 +172,53 @@ async def update_source(
     await db.flush()
     await db.refresh(source)
     return source
+
+
+@router.post("/sources/{source_id}/rotate-token")
+async def rotate_source_token(
+    source_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Issue or rotate the source's ingest token (hardening W1).
+
+    The raw token is returned **once**, exactly like an API token; only its
+    SHA-256 hash is stored. Any previously issued token stops working
+    immediately. A source without a token cannot ingest over OTLP — issue one
+    when you register the source and rotate it on a schedule.
+    """
+    from app.services.ingest_trust import rotate_ingest_token
+
+    source = await db.get(ObservabilitySource, source_id)
+    if not source:
+        raise HTTPException(status_code=404, detail="Source not found")
+    from app.core.edge import require_auth_context
+
+    auth = require_auth_context()
+    raw = await rotate_ingest_token(db, source, actor=f"token:{auth.token_id}")
+    return {
+        "source_id": str(source_id),
+        "ingest_token": raw,
+        "note": "Store this token now — it is not retrievable again. Use it as "
+        "Authorization: Bearer <token> or X-Argus-Ingest-Token on OTLP calls.",
+    }
+
+
+@router.delete("/sources/{source_id}/ingest-token", status_code=204)
+async def revoke_source_token(
+    source_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    """Revoke the source's ingest token: OTLP ingestion for it closes now."""
+    from app.services.ingest_trust import revoke_ingest_token
+
+    source = await db.get(ObservabilitySource, source_id)
+    if not source:
+        raise HTTPException(status_code=404, detail="Source not found")
+    from app.core.edge import require_auth_context
+
+    auth = require_auth_context()
+    await revoke_ingest_token(db, source, actor=f"token:{auth.token_id}")
+    return Response(status_code=204)
 
 
 @router.delete("/sources/{source_id}", status_code=204)
@@ -478,10 +545,14 @@ async def list_dead_letter(
 # Webhook ingestion foundation (§47)
 # ---------------------------------------------------------------------------
 class _WebhookEnvelope(BaseSchema):
-    """Webhook-delivered event. Signature verification is out of scope here —
-    the foundation records, validates, and *queues* the envelope for async
+    """Webhook-delivered event.
+
+    The foundation records, validates, and *queues* the envelope for async
     processing. A project (or a registered source that resolves to one) is
-    required so the event can be routed; unknown sources 404."""
+    required so the event can be routed; unknown sources 404. Signature
+    verification is enforced by the per-source webhook path (hardening W1) —
+    see :func:`_require_webhook_signature`.
+    """
 
     event_type: EventType
     timestamp: datetime
@@ -504,12 +575,18 @@ async def _enqueue_webhook(
     *,
     db: AsyncSession,
     source_id_hint: Optional[str] = None,
+    source: Optional[ObservabilitySource] = None,
 ) -> _WebhookResponse:
     """Route a webhook envelope into the ingestion pipeline (§47).
 
     Resolution: explicit project_id wins; otherwise a registered source's
     project is used. The event is handed to the async queue; if the broker is
     unreachable it degrades to the synchronous pipeline rather than dropping.
+
+    The resolved project is authorized *before* anything is written, and the
+    authorization does not trust the envelope: an envelope naming a foreign
+    ``project_id`` is refused (404) even when the delivery carries a valid
+    per-source credential for another project.
     """
     _reject_secrets(envelope.payload)
     _reject_secrets(envelope.metadata)
@@ -519,7 +596,7 @@ async def _enqueue_webhook(
     source_type = "WEBHOOK"
 
     source_id = source_id_hint or envelope.source_id
-    if source_id:
+    if source is None and source_id:
         # Validate the source identifier before touching the DB: a malformed
         # non-UUID string must be a clean 404, never a 500 from the binder.
         try:
@@ -533,6 +610,7 @@ async def _enqueue_webhook(
             raise HTTPException(
                 status_code=404, detail=f"Source '{source_id}' not found"
             )
+    if source is not None:
         project_id = project_id or source.project_id
         source_name = source_name or source.name
         source_type = (
@@ -540,12 +618,18 @@ async def _enqueue_webhook(
             if hasattr(source.source_type, "value")
             else str(source.source_type)
         )
+        source_id = str(source.id)
 
     if project_id is None:
         raise HTTPException(
             status_code=422,
             detail="Webhook requires a project_id or a registered source_id",
         )
+
+    # Ownership is proven *before* anything is written (hardening W1). The
+    # per-source path already checked the source credential; this is the
+    # project floor on whatever project the envelope actually routed to.
+    _authorize_ingestion_caller(project_id)
 
     # use_enum_values=True means ``envelope.event_type`` is already the enum's
     # string value; ``str()`` is safe for both enum instances and plain strings.
@@ -610,6 +694,7 @@ async def _enqueue_webhook(
 
 @router.post("/webhook", response_model=_WebhookResponse, status_code=202)
 async def ingest_webhook(
+    request: Request,
     envelope: _WebhookEnvelope,
     db: AsyncSession = Depends(get_db),
 ) -> _WebhookResponse:
@@ -617,22 +702,144 @@ async def ingest_webhook(
 
     Requires ``project_id`` or ``source_id`` to route; secrets are rejected at
     the boundary; the event is queued for async processing (Phase 1 §47).
+
+    Authentication (hardening W1), in order:
+
+    * when the deployment configures ``PLATFORM_WEBHOOK_SECRET``, the delivery
+      **must** carry a valid ``X-Argus-Signature`` over the raw body — an
+      unsigned delivery is refused, never trusted;
+    * otherwise the caller must hold an ARGUS API token (the middleware
+      already requires one) with a grant on the routed project, so a token
+      scoped to another project cannot inject events here.
     """
+    raw_body = await request.body()
+    _authorize_ingestion_caller_for_request(request, raw_body)
     return await _enqueue_webhook(envelope, db=db)
 
 
 @router.post("/webhooks/{source_id}", response_model=_WebhookResponse, status_code=202)
 async def ingest_webhook_for_source(
     source_id: str,
-    envelope: _WebhookEnvelope,
+    request: Request,
     db: AsyncSession = Depends(get_db),
 ) -> _WebhookResponse:
     """Accept a webhook for a specific registered source (§47).
 
-    Source must exist; its project is used for routing. Signature verification
-    and replay protection are documented future work for the webhook pass.
+    The source must exist (404 otherwise) and its project is what the event is
+    routed to. The raw bytes are read first so the credential can be checked
+    against exactly what was sent — the envelope is parsed only afterwards, so
+    a sender cannot re-serialize the payload after signing it.
+
+    Authentication (hardening W1), in order:
+
+    1. **Per-source ingest token** — when the delivery presents an
+       ``argus_ing_…`` credential it must belong to *this* source; a sibling
+       source's token in the same project is refused, so source credentials
+       are not interchangeable.
+    2. **HMAC signature** — when ``PLATFORM_WEBHOOK_SECRET`` is configured the
+       delivery must carry a valid ``X-Argus-Signature`` (replay-resistant).
+    3. **API token with a project grant** — otherwise (no ingest-token model in
+       play) the caller must be an authenticated ARGUS token allowed to write
+       to the source's project.
+
+    All three require a credential: the endpoint never accepts an anonymous
+    delivery, and it never accepts one that fails every check above.
     """
-    return await _enqueue_webhook(envelope, db=db, source_id_hint=source_id)
+    try:
+        parsed = uuid.UUID(str(source_id))
+    except (ValueError, TypeError, AttributeError):
+        raise HTTPException(status_code=404, detail=f"Source '{source_id}' not found")
+    source = await db.get(ObservabilitySource, parsed)
+    if source is None:
+        raise HTTPException(status_code=404, detail=f"Source '{source_id}' not found")
+    raw_body = await request.body()
+    _authorize_source_delivery(request, source, raw_body)
+    try:
+        envelope = _WebhookEnvelope.model_validate_json(raw_body)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=f"Invalid webhook envelope: {exc}")
+    return await _enqueue_webhook(
+        envelope, db=db, source_id_hint=source_id, source=source
+    )
+
+
+def _presented_credential(request: Request) -> Optional[str]:
+    """The raw credential a delivery presented, if any."""
+    header = request.headers.get("authorization", "")
+    if header.startswith("Bearer "):
+        return header[7:]
+    return request.headers.get("X-Argus-Ingest-Token")
+
+
+def _has_valid_signature(request: Request, raw_body: bytes) -> bool:
+    """Is this delivery HMAC-signed with the deployment's webhook secret?"""
+    secret = get_settings().PLATFORM_WEBHOOK_SECRET
+    if not secret:
+        return False
+    from app.services.ingest_trust import verify_webhook_signature
+
+    return verify_webhook_signature(
+        secret=secret,
+        timestamp=request.headers.get("X-Argus-Timestamp", ""),
+        signature=request.headers.get("X-Argus-Signature", ""),
+        body=raw_body,
+    )
+
+
+def _authorize_ingestion_caller_for_request(request: Request, raw_body: bytes) -> None:
+    """Credential check for the generic webhook path (no owning source).
+
+    With no single source to hold a credential, the two admissible models are
+    a deployment-wide HMAC secret (required when configured) or an API token
+    whose grant will be checked against the routed project downstream.
+    """
+    from app.core.edge import require_auth_context
+
+    if get_settings().PLATFORM_WEBHOOK_SECRET:
+        if not _has_valid_signature(request, raw_body):
+            raise HTTPException(
+                status_code=401,
+                detail="Webhook signature required (X-Argus-Signature)",
+            )
+        return
+    require_auth_context()  # no context ⇒ the middleware never ran: refuse
+
+
+def _authorize_source_delivery(
+    request: Request, source: ObservabilitySource, raw_body: bytes
+) -> None:
+    """Credential check for a delivery addressed to one specific source."""
+    from app.services.ingest_trust import source_matches_ingest_token
+
+    presented = _presented_credential(request)
+    if presented and presented.startswith(INGEST_TOKEN_PREFIX):
+        if not source_matches_ingest_token(source, presented):
+            raise HTTPException(
+                status_code=401, detail="Ingest token does not belong to this source"
+            )
+        return
+    if get_settings().PLATFORM_WEBHOOK_SECRET:
+        if not _has_valid_signature(request, raw_body):
+            raise HTTPException(
+                status_code=401,
+                detail="Webhook signature required (X-Argus-Signature)",
+            )
+        return
+    from app.core.edge import require_auth_context
+
+    require_project_access(require_auth_context(), source.project_id)
+
+
+def _authorize_ingestion_caller(project_id: uuid.UUID) -> None:
+    """Project floor on the project a delivery actually routed to.
+
+    Runs inside :func:`_enqueue_webhook` after resolution, so it also catches
+    the case where the envelope's own ``project_id`` disagrees with the
+    credential's scope.
+    """
+    from app.core.edge import require_auth_context
+
+    require_project_access(require_auth_context(), project_id)
 
 
 # ---------------------------------------------------------------------------

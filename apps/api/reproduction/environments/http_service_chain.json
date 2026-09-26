@@ -1,5 +1,5 @@
 {
-  "label": "demo-commerce-production",
+  "label": "http-service-chain",
   "application_version": "1.4.2",
   "schema_version": "0007_phase5_reproduction",
   "runtime_versions": {

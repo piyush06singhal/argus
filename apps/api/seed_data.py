@@ -9,6 +9,7 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import get_settings
 from app.core.database import async_session_factory, init_db
 from app.models.deployment import CodeRepository, DeploymentEvent, DeploymentStatus
 from app.models.graph import GraphEdge, GraphNode
@@ -18,6 +19,8 @@ from app.models.incident import (
     IncidentEvidence,
     IncidentSeverity,
     IncidentStatus,
+    IncidentTimelineEvent,
+    TimelineEventType,
 )
 from app.models.observability import (
     LogRecord,
@@ -44,6 +47,8 @@ from app.services.graph_reconciler import GraphReconciler
 from app.services.graph_snapshot_service import GraphSnapshotService
 from app.schemas.graph import OwnerCreate
 
+
+settings = get_settings()
 
 SEED_PROJECT_ID = uuid.UUID("10000000-0000-0000-0000-00000000a001")
 
@@ -574,6 +579,27 @@ async def seed_demo_data() -> None:
         db.add(incident)
         await db.flush()
 
+        #: The demo incident must satisfy the invariant ARGUS enforces everywhere
+        #: else — an incident has a recorded history. Seeding one without it made
+        #: the reference dataset violate the platform's own data-quality rule
+        #: (``MISSING_AUDIT_EVENT``) on first boot (found by the W5 checks).
+        db.add(
+            IncidentTimelineEvent(
+                incident_id=incident.id,
+                project_id=project.id,
+                environment_id=environments["production"].id,
+                event_type=TimelineEventType.INCIDENT_CREATED,
+                occurred_at=incident.detected_at,
+                title="Incident detected from deployment-correlated telemetry",
+                description=(
+                    "Checkout latency rose after the inventory-service deployment; "
+                    "recorded as the incident's first history entry."
+                ),
+                provenance="seed",
+            )
+        )
+        await db.flush()
+
         # Create evidence
         evidence_items = [
             IncidentEvidence(
@@ -980,5 +1006,24 @@ async def _seed_phase2_graph(
     }
 
 
-if __name__ == "__main__":
+def main() -> int:
+    """Boot-time seeding entry point (``python seed_data.py``).
+
+    Honours ``SEED_DEMO`` (see :attr:`Settings.seed_demo_enabled`): unset means
+    "seed in development, skip in production", so a production deployment never
+    gets the ARGUS Demo Commerce project unless an operator explicitly asks for
+    it. Skipping is logged loudly rather than silently, because "the UI is
+    empty" should be an explained state and not a mystery.
+    """
+    if not settings.seed_demo_enabled:
+        print(
+            "argus-api: SEED_DEMO is off for "
+            f"API_ENVIRONMENT={settings.API_ENVIRONMENT} — skipping the demo dataset."
+        )
+        return 0
     asyncio.run(seed_demo_data())
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

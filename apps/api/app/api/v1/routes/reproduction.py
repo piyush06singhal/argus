@@ -107,6 +107,7 @@ from app.services.reproduction_orchestrator import ReproductionOrchestrator
 from app.services.reproduction_planner import PlanningError
 from app.services.reproduction_context import ensure_utc
 from app.services.reproduction_sandbox import (
+    DEFAULT_TEMPLATE,
     SandboxError,
     backend_for,
     load_template,
@@ -127,7 +128,7 @@ router = APIRouter(tags=["reproduction"])
 _MAX_ITEMS = 500
 _MAX_HISTORY = 50
 
-_DEFAULT_TEMPLATE = "demo_commerce"
+_DEFAULT_TEMPLATE = DEFAULT_TEMPLATE
 
 
 def _enum_text(value: Any) -> str:

@@ -5,12 +5,29 @@ from __future__ import annotations
 from typing import Any, List, Optional
 from urllib.parse import urlparse
 
-from pydantic import field_validator
-from pydantic_settings import BaseSettings
+from pydantic import field_validator, model_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
     """Application settings loaded from environment variables."""
+
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        case_sensitive=True,
+        #: An empty environment variable means "not set", because that is what
+        #: it means to every shell and every .env file a human writes. Without
+        #: this, `SEED_DEMO=` (the shape Compose interpolates for an unset
+        #: variable, and the shape `.env.example` ships) arrives as the string
+        #: "" and fails bool parsing — a boot-time crash caused entirely by an
+        #: *absent* setting, which is the worst possible failure mode. This
+        #: applies to every optional setting, not just the ones that exist today.
+        env_ignore_empty=True,
+        #: A stale or deployment-specific key in someone's `.env` must not stop
+        #: the process from booting; unknown keys are ignored, never fatal.
+        extra="ignore",
+    )
 
     # Application
     APP_NAME: str = "ARGUS"
@@ -40,7 +57,66 @@ class Settings(BaseSettings):
     API_WORKERS: int = 4
     CORS_ORIGINS: List[str] = ["http://localhost:3000"]
 
-    # Authentication (future use)
+    # Authentication (hardening W1)
+    #: Three-state switch:
+    #:   * unset (None) — enforced everywhere except API_ENVIRONMENT=test
+    #:     (so the unit suite runs without tokens, as it always has);
+    #:   * false — always enforced, including local dev;
+    #:   * true — bypassed in development/test; **refused in production**
+    #:     (see the validator below).
+    AUTH_DISABLED: Optional[bool] = None
+    #: Floor for request bodies (bytes). Ingestion routes get the OTLP headroom;
+    #: everything else is refused at 413 above this declared size.
+    MAX_REQUEST_BODY_BYTES: int = 10 * 1024 * 1024
+    #: Maximum container nesting depth accepted in a JSON request body. A JSON
+    #: parser descends recursively, so a hostile body nested tens of thousands
+    #: of levels deep raises ``RecursionError`` — an unhandled 500, and a cheap
+    #: way to make the API log noise on demand. No legitimate ARGUS payload is
+    #: deeper than ~4 levels; 64 is generous headroom, not a tight fit.
+    MAX_JSON_DEPTH: int = 64
+    #: Background work (the ingestion queue worker and every scheduled sweep).
+    #: ``true`` in a single-container deployment; ``false`` on the HTTP-serving
+    #: processes of a split topology, where a dedicated worker container runs the
+    #: same image with this set to ``true``. Gating *everything* here is what
+    #: makes "one leader for the sweeps" a deployment decision rather than a race
+    #: the platform has to arbitrate.
+    BACKGROUND_JOBS_ENABLED: bool = True
+    #: Edge rate limiting (token bucket).
+    #:
+    #: ``RATE_LIMIT_BACKEND`` selects where the bucket lives:
+    #:   * ``auto`` (default) — a *shared* Redis bucket when ``REDIS_URL`` is
+    #:     configured, otherwise per-process. Shared is what makes the ceiling
+    #:     hold across replicas; per-process multiplies it by the replica count.
+    #:   * ``redis`` — require the shared bucket (warns and degrades if no URL).
+    #:   * ``memory`` — per-process on purpose (single replica, or a deployment
+    #:     that would rather not pay a Redis round-trip per request).
+    #: If Redis becomes unreachable the request is still served through the
+    #: per-process bucket, and the downgrade is counted in
+    #: ``argus_rate_limit_fallbacks_total`` and shown by
+    #: ``argus_rate_limit_backend``. It is never silent.
+    RATE_LIMIT_ENABLED: bool = True
+    RATE_LIMIT_PER_MINUTE: int = 600
+    RATE_LIMIT_BURST: int = 120
+    RATE_LIMIT_BACKEND: str = "auto"
+    RATE_LIMIT_REDIS_KEY_PREFIX: str = "argus:rl:"
+
+    #: Identity of this process and its site, exported as labels on
+    #: ``argus_instance_info``. With more than one replica (or more than one
+    #: region) a dashboard cannot attribute a series to a deployment without
+    #: them. Defaults are a usable per-process identity and ``local``.
+    INSTANCE_ID: str = ""
+    INSTANCE_REGION: str = "local"
+
+    #: Demo dataset toggle. Three-state, same shape as ``AUTH_DISABLED``:
+    #:   * unset (None) — seeded in development/test, skipped in production;
+    #:   * true — seeded everywhere (including production, if you really want
+    #:     the demo project in a production database);
+    #:   * false — never seeded, in any environment.
+    #: The boot-time seeder (``seed_data.py``) reads this, so a production
+    #: deployment does not get "ARGUS Demo Commerce" in its project list.
+    SEED_DEMO: Optional[bool] = None
+
+    # Legacy JWT fields (reserved; token auth does not use them)
     AUTH_SECRET: str = "change-this-in-production"
     AUTH_ALGORITHM: str = "HS256"
     AUTH_TOKEN_EXPIRY: int = 3600
@@ -723,6 +799,70 @@ class Settings(BaseSettings):
     #: (DEPRECATED / SUPERSEDED) and stays readable.
     RETENTION_LEARNING_EVENTS: int = 180
 
+    # SSO / OIDC (hardening W2)
+    #:
+    #: Off by default. Every value below is *inert* until ``OIDC_ENABLED`` is
+    #: true, so shipping them documented is not the same as shipping a login
+    #: path nobody asked for. When enabled, ARGUS acts as an OAuth2 client:
+    #: authorization-code flow with PKCE, ID token verified against the
+    #: provider's JWKS, and role/grants derived from claims — never from the
+    #: user's word and never from an unverified token.
+    OIDC_ENABLED: bool = False
+    #: Display name on the sign-in button ("Okta", "Entra ID", "Keycloak"…).
+    OIDC_PROVIDER_NAME: str = "SSO"
+    #: Issuer identifier. Doubles as the discovery base: ARGUS fetches
+    #: ``{issuer}/.well-known/openid-configuration`` and additionally requires
+    #: the document's ``issuer`` to match this string exactly, so a redirected
+    #: discovery document cannot move the trust anchor.
+    OIDC_ISSUER: str = ""
+    OIDC_CLIENT_ID: str = ""
+    OIDC_CLIENT_SECRET: str = ""
+    #: Must match a redirect URI registered at the provider byte-for-byte.
+    OIDC_REDIRECT_URI: str = ""
+    OIDC_SCOPES: List[str] = ["openid", "email", "profile"]
+    #: Claim carrying group/role membership ("groups", "roles", "realm_access.roles").
+    #: Dotted paths are traversed, because providers nest claims.
+    OIDC_ROLE_CLAIM: str = "groups"
+    #: Claim values that map to a role. First match wins, ADMIN before OPERATOR.
+    #: A token holding none of these gets ``OIDC_DEFAULT_ROLE``.
+    OIDC_ADMIN_CLAIM_VALUES: List[str] = []
+    OIDC_OPERATOR_CLAIM_VALUES: List[str] = []
+    #: Lowest role, for an authenticated person with no matching claim. Never
+    #: ADMIN, and never more than VIEWER unless an operator says so explicitly.
+    OIDC_DEFAULT_ROLE: str = "VIEWER"
+    #: Claim carrying project ids (UUIDs) to grant. Unknown ids are ignored and
+    #: counted. Empty = no project grants, which is a valid but nearly useless
+    #: configuration, so it is worth stating rather than discovering.
+    OIDC_PROJECT_CLAIM: str = ""
+    #: Mandatory email-domain allowlist. Empty means "trust the provider" (any
+    #: identity it will authenticate); set it in production, because an IdP
+    #: most places have configured also authenticates contractors, personal
+    #: accounts, or an entire corporate directory.
+    OIDC_ALLOWED_EMAIL_DOMAINS: List[str] = []
+    #: Refuse an identity whose email is not marked verified. On by default:
+    #: an unverified address means the mail claim was self-asserted.
+    OIDC_REQUIRE_VERIFIED_EMAIL: bool = True
+    #: How long an SSO session token lives. Short by design — the provider
+    #: remains the authority, and ARGUS re-reads claims at every login.
+    OIDC_SESSION_TTL_SECONDS: int = 43_200
+    OIDC_STATE_TTL_SECONDS: int = 600
+    OIDC_HTTP_TIMEOUT_SECONDS: float = 10.0
+    #: Clock skew tolerated on ``exp``/``iat``/``nbf``. Providers and clients
+    #: are not the same clock; zero makes legitimate logins fail at the margin.
+    OIDC_LEEWAY_SECONDS: int = 60
+    #: How long a fetched JWKS/discovery document is trusted before refetch.
+    OIDC_JWKS_CACHE_SECONDS: int = 900
+    #: One live session per identity: a new login revokes older ones. Keeps the
+    #: credential list meaningful and its growth bounded. Off means every login
+    #: adds a session until it expires.
+    OIDC_SINGLE_SESSION: bool = True
+    #: Retention for non-active SSO sessions, so a busy deployment's token
+    #: table does not grow forever. Active sessions are never swept.
+    RETENTION_OIDC_SESSIONS_DAYS: int = 30
+    #: Frontend origin to send the browser back to after the callback (the web
+    #: app's ``/auth/callback``). Empty derives it from ``OIDC_REDIRECT_URI``.
+    OIDC_POST_LOGIN_REDIRECT: str = ""
+
     @field_validator("CORS_ORIGINS", mode="before")
     @classmethod
     def parse_cors_origins(cls, v: Any) -> List[str]:
@@ -760,10 +900,84 @@ class Settings(BaseSettings):
     def is_production(self) -> bool:
         return self.API_ENVIRONMENT == "production"
 
-    class Config:
-        env_file = ".env"
-        env_file_encoding = "utf-8"
-        case_sensitive = True
+    @property
+    def background_jobs_active(self) -> bool:
+        """Whether this process should run the worker and the sweeps.
+
+        One decision, in one place, read by the lifespan: the queue worker and
+        every scheduled sweep are gated together, so "this is an HTTP process"
+        and "this is the worker process" cannot disagree subsystem by subsystem.
+        The unit suite is always off — background timers inside a test process
+        are races with a delay attached.
+        """
+        return not self.is_testing and self.BACKGROUND_JOBS_ENABLED
+
+    @property
+    def seed_demo_enabled(self) -> bool:
+        """Whether the boot seeder should create the demo dataset.
+
+        Unset means "sensible default": seeded while developing (the web UI is
+        useless without something in it) and **not** seeded in production, so a
+        real deployment does not inherit a demo project it never asked for.
+        """
+        if self.SEED_DEMO is None:
+            return not self.is_production
+        return self.SEED_DEMO
+
+    @model_validator(mode="after")
+    def _refuse_auth_disabled_in_production(self) -> "Settings":
+        """Production refuses to boot with authentication disabled (W1).
+
+        The dev bypass exists so local development and the existing smoke
+        gates keep working; production has no such mode. Failing at config
+        load (not at request time) is the point — a misconfigured production
+        deploy must not come up half-open.
+        """
+        if self.is_production and self.AUTH_DISABLED:
+            raise ValueError(
+                "AUTH_DISABLED=true is not allowed when API_ENVIRONMENT=production. "
+                "Remove the setting or provide tokens."
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _refuse_a_half_configured_identity_provider(self) -> "Settings":
+        """An enabled SSO login must be complete and trustworthy (W2).
+
+        Two failure modes are worth refusing at boot rather than discovering in
+        production:
+
+        * **Half-configured.** ``OIDC_ENABLED`` with no issuer/client/secret is
+          a sign-in button that cannot work. The window between enabling the
+          feature and finishing the configuration is exactly when a deployment
+          is being cut over, so it fails now, loudly, instead of at the first
+          login attempt.
+        * **A plaintext issuer in production.** The JWKS fetched over ``http``
+          is not the provider's key, and anything that can answer the request
+          can mint an ID token ARGUS will happily believe. That is not a
+          hardening nit — it is the whole trust model. ``http`` stays available
+          outside production because a local Keycloak is the normal way to test
+          this.
+        """
+        if not self.OIDC_ENABLED:
+            return self
+        missing = [
+            name
+            for name, value in (
+                ("OIDC_ISSUER", self.OIDC_ISSUER),
+                ("OIDC_CLIENT_ID", self.OIDC_CLIENT_ID),
+                ("OIDC_REDIRECT_URI", self.OIDC_REDIRECT_URI),
+            )
+            if not value.strip()
+        ]
+        if missing:
+            raise ValueError("OIDC_ENABLED requires " + ", ".join(sorted(missing)))
+        if self.is_production and self.OIDC_ISSUER.lower().startswith("http://"):
+            raise ValueError(
+                "OIDC_ISSUER must use https in production: the JWKS is the trust "
+                "anchor, and a plaintext fetch of it verifies nothing."
+            )
+        return self
 
 
 def get_settings() -> Settings:

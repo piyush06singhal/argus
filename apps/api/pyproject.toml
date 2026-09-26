@@ -1,0 +1,14 @@
+[project]
+name = "argus-api"
+#: Must match ``APP_VERSION`` (app/core/config.py) and apps/web/package.json.
+#: It said 1.0.0 while the API, the web app and the published maturity all said
+#: 0.1.0 — three answers to "what version is this?" is one too many.
+version = "0.1.0"
+description = "ARGUS — Autonomous Software Reliability & Engineering Intelligence Platform (API)"
+readme = "../README.md"
+requires-python = ">=3.12,<3.13"
+license = { file = "../../LICENSE" }
+authors = [{ name = "Piyush Singhal" }]
+
+[tool.mypy]
+python_version = "3.12"

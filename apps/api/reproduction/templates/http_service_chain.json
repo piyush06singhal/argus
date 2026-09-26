@@ -1,7 +1,7 @@
 {
-  "template": "demo_commerce",
+  "template": "http_service_chain",
   "version": "1.0.0",
-  "description": "ARGUS Demo Commerce — checkout → inventory → datastore. Used by the Phase 5 reproduction engine as the system under test. Every service is a real process making real loopback HTTP calls under real timeouts.",
+  "description": "A three-tier HTTP service chain — gateway → service → datastore (checkout → inventory → datastore by default). Used by the reproduction engine as the system under test. Every service is a real process making real loopback HTTP calls under real timeouts, which is what makes a captured reproduction comparable to the incident it came from. Rename the services, or add a template of your own under reproduction/templates/, to model your own topology.",
   "entry_service": "checkout",
   "runner": "runners/service_runner.py",
   "aliases": {

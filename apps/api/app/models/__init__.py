@@ -1,6 +1,25 @@
 """ARGUS Models."""
 
 from app.models.base import BaseModel, TimestampMixin
+from app.models.backup import (
+    BackupKind,
+    BackupRun,
+    BackupRunStatus,
+    BackupTrigger,
+)
+from app.models.auth import (
+    ApiToken,
+    ApiTokenProject,
+    AuthAuditAction,
+    AuthSource,
+    AuthenticationAudit,
+    TokenRole,
+    TokenStatus,
+)
+from app.models.oidc import (
+    ExternalIdentity,
+    OidcLoginState,
+)
 from app.models.project import (
     SoftwareProject,
     Environment,
@@ -628,4 +647,20 @@ __all__ = [
     "WorkflowStage",
     "WorkflowStatus",
     "WorkflowStopReason",
+    # Backup history (hardening W10)
+    "BackupKind",
+    "BackupRun",
+    "BackupRunStatus",
+    "BackupTrigger",
+    # Auth (hardening W1)
+    "ApiToken",
+    "ApiTokenProject",
+    "AuthAuditAction",
+    "AuthSource",
+    "AuthenticationAudit",
+    "TokenRole",
+    "TokenStatus",
+    # SSO / OIDC (hardening W2)
+    "ExternalIdentity",
+    "OidcLoginState",
 ]

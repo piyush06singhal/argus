@@ -16,21 +16,84 @@ from __future__ import annotations
 import uuid
 from typing import Optional
 
-from fastapi import HTTPException
+from fastapi import Depends, HTTPException, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.database import get_db
+
+from app.core.edge import require_auth_context
+from app.core.security import require_project_access
 from app.models.anomaly import Anomaly
 from app.models.incident import Incident
 from app.models.project import Environment, SoftwareProject
 from app.models.system import SystemComponent
 
 
+async def enforce_path_scope(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    """Enforce the caller's project grant from the *path*, for every route.
+
+    The per-route ``require_project`` calls are the intended choke point, but
+    they only cover the routes that remembered to use them: an audit found
+    project-scoped routes (environments, for one) that validated only that the
+    project *existed*, so a token scoped to project A could create resources in
+    project B.
+
+    Wired once on the v1 router, this dependency makes coverage structural
+    instead of a matter of recollection: a route added tomorrow inherits the
+    check with no author action. It reads the matched path parameters, so it
+    applies to every router including ones written after this comment.
+
+    ``environment_id`` in a path is resolved through its environment's own
+    project, so an environment cannot be used as a side door into a project.
+    """
+    auth = require_auth_context()
+    params = request.path_params
+
+    raw_project = params.get("project_id")
+    if raw_project is not None:
+        candidate = _as_uuid(raw_project)
+        if candidate is None:
+            return  # malformed id: the router's own 422 is the right answer
+        require_project_access(auth, candidate)
+        return
+
+    raw_environment = params.get("environment_id")
+    if raw_environment is not None:
+        candidate = _as_uuid(raw_environment)
+        if candidate is None:
+            return
+        environment = await db.get(Environment, candidate)
+        if environment is None:
+            raise HTTPException(status_code=404, detail="Environment not found")
+        require_project_access(auth, environment.project_id)
+
+
+def _as_uuid(value: object) -> Optional[uuid.UUID]:
+    """Parse a path parameter, or ``None`` when it is not a UUID at all."""
+    try:
+        return uuid.UUID(str(value))
+    except (ValueError, AttributeError, TypeError):
+        return None
+
+
 async def require_project(db: AsyncSession, project_id: uuid.UUID) -> SoftwareProject:
-    """Return the project or raise 404."""
+    """Return the project or raise 404 — enforcing the caller's token grants.
+
+    This is the single choke point every project-scoped route passes through,
+    which is why per-project authorization (hardening W1) lives here: a token
+    without the grant gets the same 404 as an unknown project, so a scoped
+    caller cannot even discover foreign project ids. Admin tokens and the
+    auth-disabled bypass pass through untouched.
+    """
     project = await db.get(SoftwareProject, project_id)
     if project is None:
         raise HTTPException(status_code=404, detail="Project not found")
+    # Fail closed: a missing context is a refusal, never a skipped check.
+    require_project_access(require_auth_context(), project_id)
     return project
 
 
