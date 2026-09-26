@@ -10,13 +10,13 @@ hardening pass, so it reports findings rather than intentions.
 
 | | |
 | --- | --- |
-| Backend | 130,632 lines across `apps/api/app` |
-| Backend tests | 103 test modules, 2,093 passing on the PostgreSQL configuration |
-| Frontend | 41,466 lines, 66 pages |
-| Domain modules | 156 services, 19 model modules, 22 route modules |
-| Migrations | 21 revisions (123 tables from zero) |
+| Backend | 133,699 lines across `apps/api/app` |
+| Backend tests | 108 test modules, 2,185 passing on the PostgreSQL configuration (2,171 on SQLite) |
+| Frontend | 42,282 lines across `apps/web/app` and `apps/web/lib`, 68 pages |
+| Domain modules | 157 services, 20 model modules, 22 route modules |
+| Migrations | 23 revisions (126 `create_table` calls; 127 tables from zero, including `alembic_version`) |
 | Background sweeps | 8 (`anomaly`, `code`, `fix`, `intelligence`, `platform`, `reliability`, `remediation`, `reproduction`) |
-| Live gates | 17, 1,049 assertions (incl. fault injection and backup restore rehearsal) |
+| Live gates | 19, 1,157 assertions (incl. fault injection, backup restore rehearsal and SSO) |
 
 The shape is a **modular monolith**: one deployable API, one deployable web app,
 one PostgreSQL, one Redis. That is a deliberate fit for the problem — every phase
@@ -30,7 +30,7 @@ reliability gain.
 
 ```text
 ┌──────────────────────────────────────────────────────────────┐
-│ apps/web — Next.js App Router (66 pages)                     │
+│ apps/web — Next.js App Router (68 pages)                     │
 │   server components fetch as the *caller* (cookie token)      │
 └───────────────────────────┬──────────────────────────────────┘
                             │  HTTP + Bearer / ingest token
@@ -46,14 +46,14 @@ reliability gain.
 └───────────────────────────┬──────────────────────────────────┘
                             │
 ┌───────────────────────────▼──────────────────────────────────┐
-│ services (154) — the phase engines, each pure where it can be  │
+│ services (157) — the phase engines, each pure where it can be  │
 │   ingestion · graph · detection · correlation · causal ·       │
 │   reproduction · code intelligence · fixes · forecasting ·     │
 │   remediation · learning · platform                            │
 └───────────────────────────┬──────────────────────────────────┘
                             │  SQLAlchemy async
 ┌───────────────────────────▼──────────────────────────────────┐
-│ PostgreSQL (21 revisions)          Redis (queues + buckets)    │
+│ PostgreSQL (23 revisions)          Redis (queues + buckets)    │
 └──────────────────────────────────────────────────────────────┘
           ▲                                        ▲
           │ sweeps (8), gated on BACKGROUND_JOBS_ENABLED
@@ -204,11 +204,16 @@ against a real database.
 
 Not defects — accepted positions, each with a reason:
 
-1. **One worker, by design.** Sweeps are gated on `BACKGROUND_JOBS_ENABLED`
-   rather than elected, so correctness does not depend on distributed locking.
-   The cost is that background throughput does not scale horizontally.
-2. **Single-region.** No cross-region replication story; `pg_dump`-based backup
-   only.
+1. **Background throughput is not the scaling axis.** Sweeps are gated on
+   `BACKGROUND_JOBS_ENABLED` and, since the hardening pass, elected through an
+   advisory lock (`app/services/sweep_leader.py`): one worker runs a given sweep
+   and a second stands down instead of duplicating it. The cost is that sweep
+   throughput still does not scale with worker count.
+2. **Single-region, and failover is manual.** `docker-compose.ha.yml` adds a
+   streaming replica plus WAL archiving for point-in-time recovery, but reads are
+   not routed to the replica, promotion is a deliberate operator action, and there
+   is no cross-region replication story. The `pg_dump` artifact remains the
+   portable one.
 3. **Detection tuning is heuristic.** Rules are declared and bounded, and their
    limits are surfaced, but the thresholds need real traffic to tune properly.
 4. **The learning layer is only as good as history.** Cold-start behaviour is
@@ -233,8 +238,11 @@ the class of defect visible next time.
 **Recommended next work, in order of value:**
 
 1. Run the load harness at higher concurrency and record a real envelope
-   (the current table stops at 8 clients).
+   (the measured table stops at 8 clients).
 2. Instrument sweep runtime, so background throughput has a number too.
-3. Add a fault-injection gate: kill Redis mid-ingest and assert the queue drains
-   after recovery (the design says it will; nothing proves it).
-4. Promote the live gates into required CI status checks on `main`.
+3. Take the deferred Next.js 16 upgrade recorded in
+   [supply-chain-triage.md](supply-chain-triage.md) — the advisories are triaged
+   against the features ARGUS uses, not eliminated.
+4. Mark the live-gate CI jobs as required status checks on `main`. The jobs and
+   the gates they run already exist (`.github/workflows/integration.yml`);
+   requiring them is a repository setting, not code.
