@@ -529,9 +529,19 @@ class TestFalseMergeProtection:
 class TestScopeIsolation:
     """A cluster never spans environments, even if a caller hands over mixed rows."""
 
-    async def test_project_scope_ignores_environment_anomalies(
+    async def test_project_scope_correlates_each_environment_separately(
         self, db_session: AsyncSession
     ) -> None:
+        """A project-wide pass groups per environment instead of finding nothing.
+
+        This previously asserted ``clusters == []``: a project-wide correlation
+        read only environment-less anomalies, so with real (environment-scoped)
+        anomalies on the record it silently correlated nothing and opened no
+        incident. The property that has to hold is *no cross-environment
+        cluster*, and it is enforced by :meth:`build_clusters` partitioning —
+        see ``test_mixed_scopes_are_partitioned_not_merged`` below. The cluster
+        here belongs to the environment its anomalies came from.
+        """
         project_id, env_id, components = await _seed(db_session)
         await _add_anomaly(db_session, project_id, env_id, components[0], at=NOW)
         await _add_anomaly(
@@ -545,7 +555,12 @@ class TestScopeIsolation:
         clusters = await IncidentCorrelationEngine(
             db_session, now=NOW + timedelta(seconds=10)
         ).correlate_scope(project_id=project_id, environment_id=None)
-        assert clusters == []
+
+        assert len(clusters) == 1
+        assert len(clusters[0].anomalies) == 2
+        #: Attributed to the environment it was observed in — never merged and
+        #: never reported as environment-less.
+        assert {a.environment_id for a in clusters[0].anomalies} == {env_id}
 
     async def test_environment_scope_ignores_project_anomalies(
         self, db_session: AsyncSession

@@ -903,6 +903,20 @@ class DataQualityIssueKind(str, enum.Enum):
     BROKEN_RELATIONSHIP = "BROKEN_RELATIONSHIP"
     INCONSISTENT_STATE = "INCONSISTENT_STATE"
     INVALID_EVIDENCE = "INVALID_EVIDENCE"
+    #: Hardening W5 — the checks the second audit pass added, each one a
+    #: different way a row can look fine and still be untrustworthy.
+    #:
+    #: There is deliberately no ``DUPLICATE_INCIDENT``. The audit that designed
+    #: these checks proposed one, and implementation proved it unnecessary: a
+    #: partial unique index on ``(project_id, fingerprint)`` for unresolved
+    #: statuses makes two live incidents with one fingerprint impossible to
+    #: insert. An invariant enforced by the schema does not need a detector —
+    #: adding one would have implied a gap that does not exist.
+    MISSING_TIMESTAMP = "MISSING_TIMESTAMP"
+    MISSING_PROVENANCE = "MISSING_PROVENANCE"
+    IMPOSSIBLE_TRANSITION = "IMPOSSIBLE_TRANSITION"
+    MISSING_AUDIT_EVENT = "MISSING_AUDIT_EVENT"
+    CORRUPTED_ARTIFACT = "CORRUPTED_ARTIFACT"
 
 
 class DataQualitySeverity(str, enum.Enum):

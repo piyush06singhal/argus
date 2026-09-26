@@ -39,7 +39,11 @@ from app.services.fault_injection import FaultInjectionEngine, FaultSpec, build_
 from app.services.replay_engine import ReplayItem
 from app.services.reproduction_context import SourceBehavior
 from app.services.reproduction_expectations import ExpectedBehavior
-from app.services.reproduction_sandbox import load_template, match_service
+from app.services.reproduction_sandbox import (
+    DEFAULT_TEMPLATE,
+    load_template,
+    match_service,
+)
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -190,7 +194,7 @@ class ReproductionPlanner:
     def __init__(
         self,
         *,
-        template: str = "demo_commerce",
+        template: str = DEFAULT_TEMPLATE,
         fault_engine: Optional[FaultInjectionEngine] = None,
     ) -> None:
         self._template_name = template

@@ -29,6 +29,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.core.config import get_settings
 from app.models.project import Environment, ProjectStatus, SoftwareProject
+from app.services.sweep_leader import sweep_lease
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -205,19 +206,27 @@ async def sweep_forever(
     )
     interval = max(5, interval)
     while True:
-        try:
-            result = await run_detection_sweep(session_factory)
-            if result.anomalies_opened or result.anomalies_updated:
-                logger.info(
-                    "Detection sweep: scopes=%d opened=%d updated=%d",
-                    result.scopes,
-                    result.anomalies_opened,
-                    result.anomalies_updated,
-                )
-        except asyncio.CancelledError:
-            raise
-        except Exception as e:  # keep the loop alive
-            logger.error("Detection sweep pass failed: %s", e)
+        # One pass per interval across the fleet (see ``sweep_leader``): with N
+        # worker processes only the lease holder sweeps, so replicas add
+        # throughput instead of duplicating this work.
+        async with sweep_lease(session_factory, "anomaly") as leader:
+            if not leader:
+                logger.debug("Detection sweep: another worker holds the lease")
+                await asyncio.sleep(interval)
+                continue
+            try:
+                result = await run_detection_sweep(session_factory)
+                if result.anomalies_opened or result.anomalies_updated:
+                    logger.info(
+                        "Detection sweep: scopes=%d opened=%d updated=%d",
+                        result.scopes,
+                        result.anomalies_opened,
+                        result.anomalies_updated,
+                    )
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:  # keep the loop alive
+                logger.error("Detection sweep pass failed: %s", e)
         await asyncio.sleep(interval)
 
 

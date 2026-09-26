@@ -36,6 +36,7 @@ from app.services.reliability_evaluation import PredictionEvaluationService
 from app.services.reliability_features import aware_utc
 from app.services.reliability_forecast_service import ReliabilityForecastService
 from app.services.reliability_warnings import EarlyWarningService
+from app.services.sweep_leader import sweep_lease
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -207,12 +208,18 @@ async def sweep_reliability_forever(
     """
     interval = max(60, settings.RELIABILITY_SWEEP_INTERVAL_SECONDS)
     while True:
-        try:
-            await sweep_reliability_once(session_factory)
-        except asyncio.CancelledError:
-            raise
-        except Exception as error:  # noqa: BLE001 - the loop must survive
-            logger.exception("reliability sweep failed: %s", error)
+        # One pass per interval across the fleet (see ``sweep_leader``).
+        async with sweep_lease(session_factory, "reliability") as leader:
+            if not leader:
+                logger.debug("Reliability sweep: another worker holds the lease")
+                await asyncio.sleep(interval)
+                continue
+            try:
+                await sweep_reliability_once(session_factory)
+            except asyncio.CancelledError:
+                raise
+            except Exception as error:  # noqa: BLE001 - the loop must survive
+                logger.exception("reliability sweep failed: %s", error)
         await asyncio.sleep(interval)
 
 

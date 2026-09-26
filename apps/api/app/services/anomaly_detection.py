@@ -52,6 +52,7 @@ from app.models.anomaly import (
 )
 from app.models.graph import GraphCriticality, GraphNode
 from app.models.ingestion import HealthCheckEvent
+from app.models.project import Environment
 from app.models.observability import (
     LogRecord,
     MetricRecord,
@@ -83,6 +84,12 @@ settings = get_settings()
 
 #: Log severities that count as failures for error-rate detection.
 _ERROR_SEVERITIES = {Severity.ERROR, Severity.FATAL}
+
+#: Upper bound on how many environments a single *project-wide* run evaluates a
+#: project-wide rule against. A project with more environments than this is told
+#: so in ``DetectionRunResult.errors`` rather than being scanned unboundedly;
+#: scoping the run to one environment always evaluates exactly that one.
+MAX_ENVIRONMENTS_PER_RUN = 25
 
 
 def _latest_timestamp(values: Any) -> Optional[datetime]:
@@ -209,32 +216,96 @@ class AnomalyDetectionService(AnomalyDetector):
             )
             rules = rules[: self._max_rules]
 
-        for rule in rules:
-            result.rules_evaluated += 1
-            try:
-                evaluations = await self._evaluate_rule(
-                    rule, project_id=project_id, environment_id=environment_id
-                )
-            except Exception as e:  # one bad rule must not stop the pass
-                logger.exception("Rule %s evaluation failed", rule.id)
-                result.errors.append(f"rule {rule.id}: {type(e).__name__}: {e}")
-                continue
+        #: Telemetry scopes to evaluate each rule against. Resolved once per run
+        #: (one cheap metadata query) and then per rule — see :meth:`_rule_scopes`.
+        project_environments = (
+            []
+            if environment_id is not None
+            else await self._project_environment_ids(project_id)
+        )
+        if len(project_environments) > MAX_ENVIRONMENTS_PER_RUN:
+            result.errors.append(
+                f"project has {len(project_environments)} environments; "
+                f"evaluating the first {MAX_ENVIRONMENTS_PER_RUN} only"
+            )
+            project_environments = project_environments[:MAX_ENVIRONMENTS_PER_RUN]
 
-            for evaluation in evaluations:
-                if evaluation is None:
+        for rule in rules:
+            scopes = self._rule_scopes(rule, environment_id, project_environments)
+            if not scopes:
+                #: The run targets one environment and this rule belongs to
+                #: another; ``_load_rules`` normally excludes it, and this keeps
+                #: the invariant even if that filter changes.
+                continue
+            result.rules_evaluated += 1
+            for scope in scopes:
+                try:
+                    evaluations = await self._evaluate_rule(
+                        rule, project_id=project_id, environment_id=scope
+                    )
+                except Exception as e:  # one bad rule must not stop the pass
+                    logger.exception("Rule %s evaluation failed", rule.id)
+                    result.errors.append(f"rule {rule.id}: {type(e).__name__}: {e}")
                     continue
-                result.rules_fired += 1
-                opened, updated, suppressed, recorded = await self._persist(
-                    evaluation, project_id=project_id, environment_id=environment_id
-                )
-                result.anomalies_opened += opened
-                result.anomalies_updated += updated
-                result.suppressed += suppressed
-                result.observations_recorded += recorded
+
+                for evaluation in evaluations:
+                    if evaluation is None:
+                        continue
+                    result.rules_fired += 1
+                    opened, updated, suppressed, recorded = await self._persist(
+                        evaluation, project_id=project_id, environment_id=scope
+                    )
+                    result.anomalies_opened += opened
+                    result.anomalies_updated += updated
+                    result.suppressed += suppressed
+                    result.observations_recorded += recorded
 
         result.insufficient_baselines = self._insufficient_baselines
         await self._session.flush()
         return result
+
+    # -- Scope resolution ---------------------------------------------------
+    async def _project_environment_ids(self, project_id: uuid.UUID) -> list[uuid.UUID]:
+        """The project's environments — metadata, not a telemetry scan.
+
+        A *project-wide* run has to know which environments to evaluate a
+        project-wide rule against, or it reads only environment-less rows.
+        Because real telemetry always carries the environment it came from, that
+        mistake presents as a detection run that evaluates rules and finds
+        nothing at all — which is exactly what a project-wide run did before
+        this existed.
+        """
+        stmt = (
+            select(Environment.id)
+            .where(Environment.project_id == project_id)
+            .order_by(Environment.name)
+        )
+        return list((await self._session.execute(stmt)).scalars().all())
+
+    def _rule_scopes(
+        self,
+        rule: AnomalyRule,
+        run_environment: Optional[uuid.UUID],
+        project_environments: Sequence[uuid.UUID],
+    ) -> list[Optional[uuid.UUID]]:
+        """Which telemetry scope(s) this rule must be evaluated against.
+
+        The distinction that matters: an **environment** is never pooled with
+        another. A rule that declares one is only ever read against that
+        environment, and an environment-scoped run stays exact. What changed is
+        the *project-wide* case, which now evaluates a project-wide rule once per
+        environment (plus the environment-less bucket that direct API writes
+        land in) instead of reading nothing.
+        """
+        if rule.environment_id is not None:
+            if run_environment is not None and run_environment != rule.environment_id:
+                return []
+            return [rule.environment_id]
+        if run_environment is not None:
+            return [run_environment]
+        #: Project-wide rule in a project-wide run: every environment, kept
+        #: separate, and finally the environment-less rows (direct writes).
+        return [*project_environments, None]
 
     # -- Rule loading -------------------------------------------------------
     async def _load_rules(
@@ -303,9 +374,14 @@ class AnomalyDetectionService(AnomalyDetector):
             MetricRecord.timestamp <= self._now,
         )
         # Scope is exact: an environment scope reads that environment's rows, and
-        # a project scope reads environment-less rows. ``None`` deliberately does
-        # NOT mean "all environments" — pooling production with staging would let
+        # ``None`` reads environment-less rows. ``None`` deliberately does NOT
+        # mean "all environments" — pooling production with staging would let
         # one environment's incident fire another's anomaly.
+        #
+        # ``environment_id`` is therefore always a *resolved* scope, never the
+        # raw run scope: :meth:`_rule_scopes` decides which scope(s) a rule is
+        # evaluated in, so a project-wide run evaluates per environment instead
+        # of reading only the environment-less bucket.
         stmt = stmt.where(
             MetricRecord.environment_id == environment_id
             if environment_id is not None

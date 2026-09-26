@@ -37,6 +37,7 @@ from datetime import datetime, timedelta
 from typing import Any, Optional, Sequence
 
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
@@ -164,72 +165,120 @@ class RemediationService:
         """
         now = aware(now or utcnow())
         created: list[RemediationAction] = []
+        #: Fingerprints already accepted in *this* batch. ``_is_duplicate``
+        #: queries the database, which the previous draft has been flushed to,
+        #: so this is belt-and-braces — but it is also the cheap case, and it
+        #: keeps a batch of drafts derived from several incidents with the same
+        #: fingerprint (one mechanism, one fix) from reaching the database at
+        #: all.
+        accepted: set[str] = set()
         for draft in drafts:
-            if await self._is_duplicate(draft, now=now):
+            if draft.fingerprint in accepted:
                 continue
-            columns = draft.as_columns()
-            proposal = RemediationProposal(**columns)
-            self._session.add(proposal)
-            await self._session.flush()
-
-            definition = get_definition(draft.action_type)
-            action = RemediationAction(
-                project_id=draft.project_id,
-                environment_id=draft.environment_id,
-                component_id=draft.component_id,
-                proposal_id=proposal.id,
-                action_type=draft.action_type,
-                description=draft.recommended_action,
-                reason=draft.rationale,
-                risk_level=draft.risk_level,
-                blast_radius=draft.blast_radius,
-                blast_radius_percent=draft.blast_radius_percent,
-                affected_resource_count=1,
-                source_type=draft.source_type,
-                source_id=draft.source_id,
-                incident_id=draft.incident_id,
-                forecast_id=draft.forecast_id,
-                causal_analysis_id=draft.causal_analysis_id,
-                root_cause_analysis_id=draft.root_cause_candidate_id,
-                fix_id=draft.fix_hypothesis_id,
-                patch_id=draft.patch_id,
-                parameters=draft.parameters,
-                status=RemediationStatus.PROPOSED,
-                execution_mode=RemediationExecutionMode.OBSERVE_ONLY,
-                adapter_kind=definition.adapter_kind,
-                rollback_strategy=definition.rollback_strategy,
-                rollback_available=definition.reversible,
-                rollback_plan=build_rollback_plan(draft.action_type, draft.parameters),
-                verification_plan=build_verification_plan(draft.action_type),
-                preconditions=draft.preconditions,
-                fingerprint=draft.fingerprint,
-                headline=f"{draft.action_type.value}: {draft.recommended_action}"[:400],
-                expires_at=now
-                + timedelta(seconds=settings.REMEDIATION_ACTION_EXPIRY_SECONDS),
-                created_by=created_by,
-            )
-            self._session.add(action)
-            await self._session.flush()
-            await self._audit.record(
-                action,
-                RemediationAuditEventType.ACTION_PROPOSED,
-                actor=created_by,
-                summary=f"proposed {draft.action_type.value} ({draft.strategy})",
-                detail={
-                    "strategy": draft.strategy,
-                    "risk_level": draft.risk_level.value,
-                    "confidence": draft.confidence,
-                    "confidence_reason": draft.confidence_reason,
-                    "limitations": draft.limitations,
-                    "supporting_evidence": draft.supporting_evidence,
-                    "blast_radius": draft.blast_radius.value,
-                    "source_type": draft.source_type.value,
-                },
-                to_status=RemediationStatus.PROPOSED,
-                now=now,
-            )
-            created.append(action)
+            if await self._is_duplicate(draft, now=now):
+                accepted.add(draft.fingerprint)
+                continue
+            try:
+                #: A SAVEPOINT around the insert. ``_is_duplicate`` is a check,
+                #: and a check is not a guarantee: two sweeps hold *different*
+                #: leases (the remediation sweep and the platform sweep both
+                #: propose actions), so the row that satisfies the check can be
+                #: written by the other one in between. The unique constraint
+                #: ``(project_id, fingerprint, attempt)`` is the authority, and
+                #: a collision means "this remediation is already proposed" —
+                #: the intended outcome, not a failure. The savepoint matters as
+                #: much as the catch: without it the poisoned transaction would
+                #: discard the rest of the project's work and surface as
+                #: "remediation sweep failed for project …" on a healthy run.
+                async with self._session.begin_nested():
+                    created.append(
+                        await self._create_proposal_and_action(
+                            draft, created_by=created_by, now=now
+                        )
+                    )
+                accepted.add(draft.fingerprint)
+            except IntegrityError:
+                logger.info(
+                    "Remediation proposal for %s in project %s already exists "
+                    "(fingerprint %s); treating as already proposed",
+                    draft.action_type.value,
+                    draft.project_id,
+                    draft.fingerprint[:12],
+                )
+                accepted.add(draft.fingerprint)
         return created
+
+    async def _create_proposal_and_action(
+        self, draft: Any, *, created_by: str, now: datetime
+    ) -> RemediationAction:
+        """Write one proposal, its action row and its audit event.
+
+        Kept separate from :meth:`propose` so the whole write participates in a
+        single SAVEPOINT: either the proposal and its action both exist, or
+        neither does.
+        """
+        columns = draft.as_columns()
+        proposal = RemediationProposal(**columns)
+        self._session.add(proposal)
+        await self._session.flush()
+
+        definition = get_definition(draft.action_type)
+        action = RemediationAction(
+            project_id=draft.project_id,
+            environment_id=draft.environment_id,
+            component_id=draft.component_id,
+            proposal_id=proposal.id,
+            action_type=draft.action_type,
+            description=draft.recommended_action,
+            reason=draft.rationale,
+            risk_level=draft.risk_level,
+            blast_radius=draft.blast_radius,
+            blast_radius_percent=draft.blast_radius_percent,
+            affected_resource_count=1,
+            source_type=draft.source_type,
+            source_id=draft.source_id,
+            incident_id=draft.incident_id,
+            forecast_id=draft.forecast_id,
+            causal_analysis_id=draft.causal_analysis_id,
+            root_cause_analysis_id=draft.root_cause_candidate_id,
+            fix_id=draft.fix_hypothesis_id,
+            patch_id=draft.patch_id,
+            parameters=draft.parameters,
+            status=RemediationStatus.PROPOSED,
+            execution_mode=RemediationExecutionMode.OBSERVE_ONLY,
+            adapter_kind=definition.adapter_kind,
+            rollback_strategy=definition.rollback_strategy,
+            rollback_available=definition.reversible,
+            rollback_plan=build_rollback_plan(draft.action_type, draft.parameters),
+            verification_plan=build_verification_plan(draft.action_type),
+            preconditions=draft.preconditions,
+            fingerprint=draft.fingerprint,
+            headline=f"{draft.action_type.value}: {draft.recommended_action}"[:400],
+            expires_at=now
+            + timedelta(seconds=settings.REMEDIATION_ACTION_EXPIRY_SECONDS),
+            created_by=created_by,
+        )
+        self._session.add(action)
+        await self._session.flush()
+        await self._audit.record(
+            action,
+            RemediationAuditEventType.ACTION_PROPOSED,
+            actor=created_by,
+            summary=f"proposed {draft.action_type.value} ({draft.strategy})",
+            detail={
+                "strategy": draft.strategy,
+                "risk_level": draft.risk_level.value,
+                "confidence": draft.confidence,
+                "confidence_reason": draft.confidence_reason,
+                "limitations": draft.limitations,
+                "supporting_evidence": draft.supporting_evidence,
+                "blast_radius": draft.blast_radius.value,
+                "source_type": draft.source_type.value,
+            },
+            to_status=RemediationStatus.PROPOSED,
+            now=now,
+        )
+        return action
 
     async def _is_duplicate(self, draft: Any, *, now: datetime) -> bool:
         """Whether this exact remediation is already in flight or recently proposed."""

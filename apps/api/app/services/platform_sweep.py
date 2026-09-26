@@ -35,6 +35,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.core.config import Settings, get_settings
 from app.models.platform import WorkflowStatus
 from app.models.project import ProjectStatus, SoftwareProject
+from app.services.sweep_leader import sweep_lease
 
 logger = logging.getLogger(__name__)
 
@@ -408,32 +409,38 @@ async def sweep_forever(
     interval = max(30, settings.PLATFORM_SWEEP_INTERVAL_SECONDS)
     logger.info("platform sweep started (interval=%ss)", interval)
     while True:
-        try:
-            async with session_factory() as session:
-                result = await run_platform_sweep(session, settings=settings)
-                await session.commit()
-                if (
-                    result.events_consumed
-                    or result.cases_opened
-                    or result.state_transitions
-                    or result.quality_issues_opened
-                    or result.degraded
-                ):
-                    logger.info(
-                        "platform sweep: events=%d cases=%d transitions=%d "
-                        "slo=%d quality=%d degraded=%s",
-                        result.events_consumed,
-                        result.cases_opened,
-                        result.state_transitions,
-                        result.slo_evaluations,
-                        result.quality_issues_opened,
-                        result.degraded,
-                    )
-        except asyncio.CancelledError:  # pragma: no cover - shutdown path
-            logger.info("platform sweep stopping")
-            raise
-        except Exception:  # pragma: no cover - never let a timer kill the app
-            logger.warning("platform sweep pass failed", exc_info=True)
+        # One pass per interval across the fleet (see ``sweep_leader``).
+        async with sweep_lease(session_factory, "platform") as leader:
+            if not leader:
+                logger.debug("Platform sweep: another worker holds the lease")
+                await asyncio.sleep(interval)
+                continue
+            try:
+                async with session_factory() as session:
+                    result = await run_platform_sweep(session, settings=settings)
+                    await session.commit()
+                    if (
+                        result.events_consumed
+                        or result.cases_opened
+                        or result.state_transitions
+                        or result.quality_issues_opened
+                        or result.degraded
+                    ):
+                        logger.info(
+                            "platform sweep: events=%d cases=%d transitions=%d "
+                            "slo=%d quality=%d degraded=%s",
+                            result.events_consumed,
+                            result.cases_opened,
+                            result.state_transitions,
+                            result.slo_evaluations,
+                            result.quality_issues_opened,
+                            result.degraded,
+                        )
+            except asyncio.CancelledError:  # pragma: no cover - shutdown path
+                logger.info("platform sweep stopping")
+                raise
+            except Exception:  # pragma: no cover - never let a timer kill the app
+                logger.warning("platform sweep pass failed", exc_info=True)
         await asyncio.sleep(interval)
 
 

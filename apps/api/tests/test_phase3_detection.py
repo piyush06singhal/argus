@@ -808,15 +808,28 @@ class TestDeterminism:
 class TestExactScopeIsolation:
     """Scope is exact, in both directions.
 
-    ``environment_id=None`` means "environment-less telemetry", never "every
-    environment". These three tests pin that: a project-scope pass must not read
-    environment-scoped rows, a project-scope pass must still read unattributed
-    rows, and one environment must never read another's rows.
+    An environment is never pooled with another: ``environment_id`` on a rule or
+    a run means *that* environment, and one environment never reads another's
+    rows. A project-wide pass (``environment_id=None``) is the one case that has
+    to expand, because the alternative is a pass that reads nothing at all —
+    see ``test_project_scope_reads_each_environment_separately`` and
+    ``tests/test_hardening_detection_scope.py``.
     """
 
-    async def test_project_scope_ignores_environment_telemetry(
+    async def test_project_scope_reads_each_environment_separately(
         self, db_session: AsyncSession
     ) -> None:
+        """A project-wide pass evaluates per environment, without pooling.
+
+        This test previously asserted ``anomalies_opened == 0`` — that a
+        project-scope pass must *ignore* environment-scoped telemetry. The
+        reasoning was sound (never pool environments) but the consequence was
+        not: real telemetry always carries an environment, so the default
+        ``POST /projects/{id}/anomalies/detect`` evaluated every enabled rule
+        and read no samples, reporting a clean project. The property worth
+        keeping is *no pooling*, and that is what this asserts now: the anomaly
+        fires, and it belongs to the environment the fault was observed in.
+        """
         project_id, env_id, component_id = await _seed(db_session)
         db_session.add(_rule(project_id, None, component_id))
         await _add_metric(
@@ -834,8 +847,12 @@ class TestExactScopeIsolation:
             project_id=project_id, environment_id=None
         )
         assert result.rules_evaluated == 1
-        assert result.anomalies_opened == 0
-        assert await _count_anomalies(db_session) == 0
+        assert result.anomalies_opened == 1
+        anomaly = await db_session.scalar(select(Anomaly))
+        assert anomaly is not None
+        #: Attributed to the environment it was observed in — never pooled, and
+        #: never recorded as environment-less.
+        assert anomaly.environment_id == env_id
 
     async def test_project_scope_reads_unattributed_telemetry(
         self, db_session: AsyncSession

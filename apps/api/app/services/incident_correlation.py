@@ -285,14 +285,20 @@ class IncidentCorrelationEngine(IncidentCorrelator):
             .order_by(Anomaly.detected_at)
             .limit(settings.CORRELATION_MAX_ANOMALIES)
         )
-        # Exact scope: None correlates environment-less anomalies only. Reading
-        # every environment here would let a staging anomaly be grouped into a
-        # production incident the moment they happen to be temporally close.
-        stmt = stmt.where(
-            Anomaly.environment_id == environment_id
-            if environment_id is not None
-            else Anomaly.environment_id.is_(None)
-        )
+        # A *specific* environment stays exact. A project-wide call (``None``)
+        # reads every environment, and :meth:`build_clusters` partitions the
+        # result by ``(project_id, environment_id)`` before clustering — the
+        # safety property this filter was standing in for (a staging anomaly
+        # must never be grouped into a production incident) is enforced
+        # structurally below, not by narrowing the read.
+        #
+        # Narrowing it here looked equivalent and was not: real anomalies always
+        # carry the environment they were detected in, so "environment-less rows
+        # only" meant the default project-wide correlation pass loaded nothing,
+        # reported `clusters: 0`, and opened no incident while a HIGH anomaly sat
+        # on the record un-grouped.
+        if environment_id is not None:
+            stmt = stmt.where(Anomaly.environment_id == environment_id)
         return list((await self._session.execute(stmt)).scalars().all())
 
     async def correlate_scope(

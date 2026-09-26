@@ -44,6 +44,7 @@ from app.models.reliability import (
     ReliabilityEvaluationRun,
     ReliabilityForecast,
 )
+from app.services.oidc import expire_and_prune_sessions
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -227,6 +228,32 @@ class RetentionService:
                     cutoff=cutoff,
                 )
             )
+
+        #: SSO sessions are swept by their own rule (hardening W2) rather than
+        #: through ``_RETENTION_TABLES``, because that map deletes purely by
+        #: age — and an ``ACTIVE`` credential must never be deleted by a
+        #: retention sweep however old it is. The dedicated rule retires what
+        #: has already stopped working and only then removes the dead rows.
+        sso_expired, sso_deleted = await expire_and_prune_sessions(
+            self._db, retention_days=settings.RETENTION_OIDC_SESSIONS_DAYS
+        )
+        if sso_expired or sso_deleted:
+            logger.info(
+                "Retention: retired %d expired SSO session(s), removed %d dead "
+                "one(s) older than %dd",
+                sso_expired,
+                sso_deleted,
+                settings.RETENTION_OIDC_SESSIONS_DAYS,
+            )
+        summary.add(
+            RetentionResult(
+                table="oidc_sessions",
+                deleted=sso_deleted,
+                threshold_days=settings.RETENTION_OIDC_SESSIONS_DAYS,
+                cutoff=datetime.now(timezone.utc)
+                - timedelta(days=settings.RETENTION_OIDC_SESSIONS_DAYS),
+            )
+        )
 
         return summary
 

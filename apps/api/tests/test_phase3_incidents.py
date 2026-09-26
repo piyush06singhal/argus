@@ -726,18 +726,34 @@ class TestIsolation:
 
 
 class TestScopeIsolation:
-    """The manager obeys the same exact-scope rule as detection/correlation."""
+    """The manager obeys the same scope rule as detection/correlation.
 
-    async def test_project_scope_ignores_environment_anomalies(
+    An *environment scope* is exact in both directions. A *project-wide* pass
+    expands over the project's environments and never pools them — it used to
+    read only environment-less anomalies, which made it a silent no-op on real
+    data. See ``tests/test_hardening_detection_scope.py``.
+    """
+
+    async def test_project_scope_opens_the_environment_incident(
         self, db_session: AsyncSession
     ) -> None:
+        """A project-wide pass groups the environment's anomalies (was: nothing).
+
+        This previously asserted ``incidents_created == 0`` — that a
+        project-wide pass must ignore environment-scoped anomalies. Since real
+        anomalies always carry an environment, that made the default
+        ``POST /projects/{id}/anomalies/detect`` report a clean project while a
+        HIGH anomaly sat un-grouped. The incident is opened *in the environment
+        it was observed in*, never in a pooled project scope.
+        """
         project_id, env_id, comp, _, _ = await _seed(db_session)
         await _add_anomaly(db_session, project_id, env_id, comp, at=NOW)
 
         result = await _run(db_session, project_id, None)
-        assert result.incidents_created == 0
-        count = await db_session.scalar(select(func.count()).select_from(Incident))
-        assert count == 0
+        assert result.incidents_created == 1
+        incident = await db_session.scalar(select(Incident))
+        assert incident is not None
+        assert incident.environment_id == env_id
 
     async def test_project_scope_does_not_touch_environment_incidents(
         self, db_session: AsyncSession

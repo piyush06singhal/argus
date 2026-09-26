@@ -41,6 +41,7 @@ from app.services.learning_run import (
     run_is_due,
 )
 from app.services.recommendation_engine import ReliabilityRecommendationEngine
+from app.services.sweep_leader import sweep_lease
 
 logger = logging.getLogger(__name__)
 
@@ -156,23 +157,29 @@ async def sweep_forever(
     interval = max(30, settings.INTELLIGENCE_SWEEP_INTERVAL_SECONDS)
     logger.info("learning sweep started (interval=%ss)", interval)
     while True:
-        try:
-            async with session_factory() as session:
-                result = await run_learning_sweep(session, settings=settings)
-                await session.commit()
-                if result.projects_run or result.knowledge_deprecated:
-                    logger.info(
-                        "learning sweep: projects=%d events=%d deprecated=%d expired=%d",
-                        result.projects_run,
-                        result.events_consumed,
-                        result.knowledge_deprecated,
-                        result.recommendations_expired,
-                    )
-        except asyncio.CancelledError:  # pragma: no cover - shutdown path
-            logger.info("learning sweep stopping")
-            raise
-        except Exception:  # pragma: no cover - never let a timer kill the app
-            logger.warning("learning sweep pass failed", exc_info=True)
+        # One pass per interval across the fleet (see ``sweep_leader``).
+        async with sweep_lease(session_factory, "learning") as leader:
+            if not leader:
+                logger.debug("Learning sweep: another worker holds the lease")
+                await asyncio.sleep(interval)
+                continue
+            try:
+                async with session_factory() as session:
+                    result = await run_learning_sweep(session, settings=settings)
+                    await session.commit()
+                    if result.projects_run or result.knowledge_deprecated:
+                        logger.info(
+                            "learning sweep: projects=%d events=%d deprecated=%d expired=%d",
+                            result.projects_run,
+                            result.events_consumed,
+                            result.knowledge_deprecated,
+                            result.recommendations_expired,
+                        )
+            except asyncio.CancelledError:  # pragma: no cover - shutdown path
+                logger.info("learning sweep stopping")
+                raise
+            except Exception:  # pragma: no cover - never let a timer kill the app
+                logger.warning("learning sweep pass failed", exc_info=True)
         await asyncio.sleep(interval)
 
 

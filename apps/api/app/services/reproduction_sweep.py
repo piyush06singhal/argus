@@ -26,6 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.core.config import get_settings
 from app.services.reproduction_orchestrator import ReproductionOrchestrator
+from app.services.sweep_leader import sweep_lease
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -87,7 +88,12 @@ async def sweep_reproductions_forever(
     """Run the reaper on a fixed interval until cancelled."""
     interval = max(5, int(interval_seconds or settings.REPRO_SWEEP_INTERVAL_SECONDS))
     while True:
-        await sweep_reproductions_once(session_factory)
+        # One pass per interval across the fleet (see ``sweep_leader``).
+        async with sweep_lease(session_factory, "reproduction") as leader:
+            if leader:
+                await sweep_reproductions_once(session_factory)
+            else:
+                logger.debug("Reproduction sweep: another worker holds the lease")
         await asyncio.sleep(interval)
 
 

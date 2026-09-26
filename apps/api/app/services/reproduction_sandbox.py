@@ -107,11 +107,27 @@ def artifact_root_base() -> Path:
     return base
 
 
+#: The shipped topology used when a caller does not name one. It is named for
+#: what it *is* (an HTTP service chain) rather than for the demo dataset it
+#: happens to resemble, so the product default is not the demo default.
+DEFAULT_TEMPLATE = "http_service_chain"
+
+#: Templates that existed under an older, demo-flavoured name. They keep
+#: working because an experiment stored with that name must remain replayable —
+#: renaming a shipped default is not a reason to break history.
+TEMPLATE_ALIASES: dict[str, str] = {"demo_commerce": "http_service_chain"}
+
+
+def resolve_template_name(name: str) -> str:
+    """Map a template name to its current on-disk name (aliases included)."""
+    return TEMPLATE_ALIASES.get(name, name)
+
+
 def load_template(name: str) -> dict[str, Any]:
     """Load a reproduction topology template by name."""
     if not name or "/" in name or ".." in name:
         raise SandboxError(f"Invalid sandbox template name: {name!r}")
-    path = harness_root() / "templates" / f"{name}.json"
+    path = harness_root() / "templates" / f"{resolve_template_name(name)}.json"
     if not path.exists():
         raise SandboxError(f"Unknown sandbox template: {name!r}")
     with path.open(encoding="utf-8") as handle:
@@ -120,7 +136,7 @@ def load_template(name: str) -> dict[str, Any]:
 
 def load_environment_descriptor(name: str) -> dict[str, Any]:
     """Load the declared environment shape used for snapshot/difference analysis."""
-    path = harness_root() / "environments" / f"{name}.json"
+    path = harness_root() / "environments" / f"{resolve_template_name(name)}.json"
     if not path.exists():
         return {}
     with path.open(encoding="utf-8") as handle:
@@ -1017,7 +1033,10 @@ __all__ = [
     "artifact_root_base",
     "backend_for",
     "harness_root",
+    "DEFAULT_TEMPLATE",
+    "TEMPLATE_ALIASES",
     "load_environment_descriptor",
+    "resolve_template_name",
     "load_fixture",
     "load_template",
     "match_service",

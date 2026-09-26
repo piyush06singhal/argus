@@ -335,9 +335,13 @@ class TestIncidentIntelligence:
             client, project["id"], primary_component_id=component["id"]
         )
 
+        # Hardening W5: a hand-filed incident now begins with its own creation
+        # event. An incident with an empty timeline was a state the data-quality
+        # centre had to *detect*; it is now a state the API cannot *create*.
         timeline = client.get(f"/api/v1/incidents/{incident['id']}/timeline")
         assert timeline.status_code == 200
-        assert timeline.json()["total"] == 0
+        assert timeline.json()["total"] == 1
+        assert timeline.json()["items"][0]["event_type"] == "INCIDENT_CREATED"
 
         note = client.post(
             f"/api/v1/incidents/{incident['id']}/timeline",

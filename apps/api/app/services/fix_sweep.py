@@ -26,6 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.core.config import get_settings
 from app.models.fix import PatchWorkspace, WorkspaceStatus
+from app.services.sweep_leader import sweep_lease
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -146,12 +147,18 @@ async def sweep_fix_forever(
     """Run the reaper periodically until cancelled (§54)."""
     interval = max(30, settings.FIX_SWEEP_INTERVAL_SECONDS)
     while True:
-        try:
-            await sweep_fix_workspaces_once(session_factory)
-        except asyncio.CancelledError:
-            raise
-        except Exception as error:  # noqa: BLE001 - the loop must survive
-            logger.exception("fix workspace sweep failed: %s", error)
+        # One pass per interval across the fleet (see ``sweep_leader``).
+        async with sweep_lease(session_factory, "fix") as leader:
+            if not leader:
+                logger.debug("Fix workspace sweep: another worker holds the lease")
+                await asyncio.sleep(interval)
+                continue
+            try:
+                await sweep_fix_workspaces_once(session_factory)
+            except asyncio.CancelledError:
+                raise
+            except Exception as error:  # noqa: BLE001 - the loop must survive
+                logger.exception("fix workspace sweep failed: %s", error)
         await asyncio.sleep(interval)
 
 

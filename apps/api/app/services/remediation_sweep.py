@@ -59,6 +59,7 @@ from app.services.remediation_policy import resolve_policy
 from app.services.remediation_controls import safely_is_paused
 from app.services.remediation_planner import RemediationPlanner
 from app.services.remediation_service import RemediationService
+from app.services.sweep_leader import sweep_lease
 from app.services.remediation_state import (
     IN_FLIGHT_STATUSES,
     apply_transition,
@@ -542,19 +543,27 @@ async def sweep_remediations_forever(
     """Run the remediation sweep on an interval until cancelled."""
     interval = interval_seconds or settings.REMEDIATION_SWEEP_INTERVAL_SECONDS
     while True:
-        try:
-            summary = await sweep_remediations_once(session_factory)
-            acted = sum(
-                value
-                for key, value in summary.items()
-                if isinstance(value, int) and key != "projects"
-            )
-            if acted:
-                logger.info("remediation sweep: %s", summary)
-        except asyncio.CancelledError:  # pragma: no cover - shutdown path
-            raise
-        except Exception as error:  # noqa: BLE001 - the loop must survive
-            logger.error("remediation sweep iteration failed: %s", error)
+        # One pass per interval across the fleet (see ``sweep_leader``). A
+        # remediation pass can execute or roll back real actions, so a duplicate
+        # pass here is the one this lease matters for most.
+        async with sweep_lease(session_factory, "remediation") as leader:
+            if not leader:
+                logger.debug("Remediation sweep: another worker holds the lease")
+                await asyncio.sleep(interval)
+                continue
+            try:
+                summary = await sweep_remediations_once(session_factory)
+                acted = sum(
+                    value
+                    for key, value in summary.items()
+                    if isinstance(value, int) and key != "projects"
+                )
+                if acted:
+                    logger.info("remediation sweep: %s", summary)
+            except asyncio.CancelledError:  # pragma: no cover - shutdown path
+                raise
+            except Exception as error:  # noqa: BLE001 - the loop must survive
+                logger.error("remediation sweep iteration failed: %s", error)
         await asyncio.sleep(interval)
 
 

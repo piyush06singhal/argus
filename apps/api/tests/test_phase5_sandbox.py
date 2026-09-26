@@ -304,5 +304,8 @@ class TestHarnessIsShippable:
         root = harness_root()
         assert root.is_dir()
         assert (root / "runners" / "service_runner.py").is_file()
-        assert (root / "templates" / "demo_commerce.json").is_file()
+        # The shipped template carries a neutral name; ``demo_commerce`` remains
+        # a working alias so existing plans keep resolving (see TEMPLATE_ALIASES).
+        assert (root / "templates" / "http_service_chain.json").is_file()
+        assert (root / "environments" / "http_service_chain.json").is_file()
         assert root.parts[-2:] == ("api", "reproduction")

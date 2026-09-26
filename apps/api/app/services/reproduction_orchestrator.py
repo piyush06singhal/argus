@@ -85,6 +85,7 @@ from app.services.reproduction_planner import (
     ReproductionPlanner,
 )
 from app.services.reproduction_sandbox import (
+    DEFAULT_TEMPLATE,
     SandboxError,
     SandboxHandle,
     SandboxManager,
@@ -171,7 +172,7 @@ class ReproductionOrchestrator:
         self,
         session_factory: async_sessionmaker[AsyncSession],
         *,
-        template: str = "demo_commerce",
+        template: str = DEFAULT_TEMPLATE,
         sandbox_manager: Optional[SandboxManager] = None,
         planner: Optional[ReproductionPlanner] = None,
         replay_engine: Optional[ReplayEngine] = None,

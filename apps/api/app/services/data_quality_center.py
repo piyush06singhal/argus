@@ -22,6 +22,7 @@ stopped failing, which the check itself just verified.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import uuid
 from dataclasses import dataclass, field
@@ -33,7 +34,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings, get_settings
 from app.models.anomaly import Anomaly
-from app.models.incident import Incident
+from app.models.incident import Incident, IncidentTimelineEvent
+from app.models.intelligence import ReliabilityExperience
+from app.models.remediation import RemediationAction, RemediationAuditEvent
+from app.models.reproduction import ReproductionArtifact
 from app.services.platform_time import aware as _aware
 from app.models.platform import (
     DataQualityIssue,
@@ -43,8 +47,22 @@ from app.models.platform import (
     PlatformEventType,
 )
 from app.models.system import SystemComponent
+from app.services.reproduction_artifacts import (
+    ArtifactRecord,
+    ReproductionArtifactStore,
+)
 
 logger = logging.getLogger(__name__)
+
+#: Incident statuses that mean the incident is over. Declared here rather than
+#: imported so a query can use them without pulling in the whole state model.
+TERMINAL_INCIDENT_STATUSES = ("RESOLVED", "CLOSED")
+
+#: How many artifacts the corruption check will re-hash per pass, and the byte
+#: ceiling per artifact. A diagnostic that can read gigabytes is a diagnostic
+#: that can cause the outage it is looking for.
+ARTIFACT_VERIFY_BATCH = 25
+ARTIFACT_VERIFY_MAX_BYTES = 32 * 1024 * 1024
 
 #: What each check means, in one line, for the UI and the report. Kept beside the
 #: checks so a finding is never displayed without its meaning.
@@ -78,6 +96,21 @@ ISSUE_DESCRIPTIONS: dict[DataQualityIssueKind, str] = {
     ),
     DataQualityIssueKind.INVALID_EVIDENCE: (
         "an evidence row is present but empty or unreadable"
+    ),
+    DataQualityIssueKind.MISSING_TIMESTAMP: (
+        "a row reached a state that implies a moment, but records no moment"
+    ),
+    DataQualityIssueKind.MISSING_PROVENANCE: (
+        "a derived row cites no source, so it cannot be traced back to evidence"
+    ),
+    DataQualityIssueKind.IMPOSSIBLE_TRANSITION: (
+        "a row's status and its timestamps describe states that cannot coexist"
+    ),
+    DataQualityIssueKind.MISSING_AUDIT_EVENT: (
+        "a state-changing row has no audit or timeline record of the change"
+    ),
+    DataQualityIssueKind.CORRUPTED_ARTIFACT: (
+        "a stored artifact's bytes no longer match its recorded hash"
     ),
 }
 
@@ -113,6 +146,24 @@ ISSUE_SUGGESTIONS: dict[DataQualityIssueKind, str] = {
     ),
     DataQualityIssueKind.INVALID_EVIDENCE: (
         "review the evidence row; empty evidence should not be cited"
+    ),
+    DataQualityIssueKind.MISSING_TIMESTAMP: (
+        "backfill the moment from the audit trail, or correct the status it "
+        "contradicts"
+    ),
+    DataQualityIssueKind.MISSING_PROVENANCE: (
+        "re-run the derivation for this scope so the row carries its sources, or "
+        "delete it explicitly"
+    ),
+    DataQualityIssueKind.IMPOSSIBLE_TRANSITION: (
+        "review the state machine for the path that produced this row"
+    ),
+    DataQualityIssueKind.MISSING_AUDIT_EVENT: (
+        "investigate the write path; every state change must leave a record"
+    ),
+    DataQualityIssueKind.CORRUPTED_ARTIFACT: (
+        "treat the artifact as lost: restore it from the original experiment or "
+        "mark the verification that cited it as untrustworthy"
     ),
 }
 
@@ -574,8 +625,345 @@ async def _check_inconsistent_state(
     return findings
 
 
+async def _check_missing_timestamps(
+    session: AsyncSession, *, project_id: uuid.UUID, limit: int
+) -> list[QualityFinding]:
+    """A terminal state implies a moment; a row without it is not auditable.
+
+    ``resolved_at`` is what an incident's mean-time-to-resolution is computed
+    from. A RESOLVED incident that records no resolution moment inflates or
+    skews every reliability metric quoting it, and cannot be reconciled against
+    the timeline — so it is a data-quality finding, not a cosmetic gap.
+    """
+    rows = (
+        await session.scalars(
+            select(Incident)
+            .where(
+                Incident.project_id == project_id,
+                Incident.status.in_(list(TERMINAL_INCIDENT_STATUSES)),
+                Incident.resolved_at.is_(None),
+            )
+            .order_by(Incident.detected_at.desc())
+            .limit(limit)
+        )
+    ).all()
+    return [
+        QualityFinding(
+            kind=DataQualityIssueKind.MISSING_TIMESTAMP,
+            subject_type="incident",
+            subject_id=incident.id,
+            title=(
+                f"Incident '{incident.title}' is "
+                f"{getattr(incident.status, 'value', incident.status)} with no "
+                "resolution time"
+            ),
+            severity=DataQualitySeverity.WARNING,
+            detail=(
+                "a terminal incident without 'resolved_at' cannot be timed, so "
+                "every reliability metric that quotes it is approximate"
+            ),
+            evidence={
+                "status": getattr(incident.status, "value", str(incident.status)),
+                "detected_at": incident.detected_at.isoformat()
+                if incident.detected_at
+                else None,
+                "fingerprint": incident.fingerprint,
+            },
+            component_id=incident.primary_component_id,
+            environment_id=incident.environment_id,
+        )
+        for incident in rows
+    ]
+
+
+async def _check_impossible_transitions(
+    session: AsyncSession, *, project_id: uuid.UUID, limit: int
+) -> list[QualityFinding]:
+    """States that cannot coexist — resolved before it was detected, and friends.
+
+    ``INCONSISTENT_STATE`` compares two subsystems' opinions. This compares a
+    single row's own fields, which is the cheaper and blunter question: *is this
+    row internally possible?*
+    """
+    rows = (
+        await session.scalars(
+            select(Incident)
+            .where(
+                Incident.project_id == project_id,
+                Incident.resolved_at.is_not(None),
+                Incident.resolved_at < Incident.detected_at,
+            )
+            .order_by(Incident.detected_at.desc())
+            .limit(limit)
+        )
+    ).all()
+    return [
+        QualityFinding(
+            kind=DataQualityIssueKind.IMPOSSIBLE_TRANSITION,
+            subject_type="incident",
+            subject_id=incident.id,
+            title=f"Incident '{incident.title}' was resolved before it was detected",
+            severity=DataQualitySeverity.CRITICAL,
+            detail=(
+                "'resolved_at' precedes 'detected_at', so the recorded history is "
+                "impossible and every duration derived from it is wrong"
+            ),
+            evidence={
+                "detected_at": incident.detected_at.isoformat()
+                if incident.detected_at
+                else None,
+                "resolved_at": incident.resolved_at.isoformat()
+                if incident.resolved_at
+                else None,
+            },
+            component_id=incident.primary_component_id,
+            environment_id=incident.environment_id,
+        )
+        for incident in rows
+    ]
+
+
+async def _check_missing_audit_events(
+    session: AsyncSession, *, project_id: uuid.UUID, limit: int
+) -> list[QualityFinding]:
+    """Every incident must have a history, and every executed action an audit row.
+
+    This is the platform's own promise tested against its own data: an incident
+    with an empty timeline, or a remediation action that reached execution with
+    no audit event, means a write path bypassed the record — which is exactly
+    the failure mode the audit trail exists to make impossible.
+    """
+    incident_ids = list(
+        (
+            await session.scalars(
+                select(Incident.id)
+                .where(Incident.project_id == project_id)
+                .order_by(Incident.detected_at.desc())
+                .limit(limit)
+            )
+        ).all()
+    )
+    findings: list[QualityFinding] = []
+    if incident_ids:
+        with_history = {
+            incident_id
+            for incident_id in (
+                await session.scalars(
+                    select(IncidentTimelineEvent.incident_id)
+                    .where(IncidentTimelineEvent.incident_id.in_(incident_ids))
+                    .distinct()
+                )
+            ).all()
+            if incident_id is not None
+        }
+        orphans = [i for i in incident_ids if i not in with_history]
+        if orphans:
+            silent_incidents = (
+                await session.scalars(
+                    select(Incident)
+                    .where(Incident.id.in_(orphans))
+                    .order_by(Incident.detected_at.desc())
+                )
+            ).all()
+            findings.extend(
+                QualityFinding(
+                    kind=DataQualityIssueKind.MISSING_AUDIT_EVENT,
+                    subject_type="incident",
+                    subject_id=incident.id,
+                    title=(
+                        f"Incident '{incident.title}' has no timeline events at all"
+                    ),
+                    severity=DataQualitySeverity.WARNING,
+                    detail=(
+                        "the incident exists but nothing recorded how it came to "
+                        "exist, so its history cannot be reconstructed"
+                    ),
+                    evidence={
+                        "status": getattr(
+                            incident.status, "value", str(incident.status)
+                        ),
+                        "detected_at": incident.detected_at.isoformat()
+                        if incident.detected_at
+                        else None,
+                    },
+                    component_id=incident.primary_component_id,
+                    environment_id=incident.environment_id,
+                )
+                for incident in silent_incidents
+            )
+
+    executed_ids = list(
+        (
+            await session.scalars(
+                select(RemediationAction.id)
+                .where(RemediationAction.project_id == project_id)
+                .limit(limit)
+            )
+        ).all()
+    )
+    if executed_ids:
+        audited = {
+            action_id
+            for action_id in (
+                await session.scalars(
+                    select(RemediationAuditEvent.action_id)
+                    .where(RemediationAuditEvent.action_id.in_(executed_ids))
+                    .distinct()
+                )
+            ).all()
+            if action_id is not None
+        }
+        unaudited = [i for i in executed_ids if i not in audited]
+        if unaudited:
+            silent_actions = (
+                await session.scalars(
+                    select(RemediationAction).where(RemediationAction.id.in_(unaudited))
+                )
+            ).all()
+            findings.extend(
+                QualityFinding(
+                    kind=DataQualityIssueKind.MISSING_AUDIT_EVENT,
+                    subject_type="remediation_action",
+                    subject_id=action.id,
+                    title="Remediation action has no audit events",
+                    severity=DataQualitySeverity.CRITICAL,
+                    detail=(
+                        "an action row exists with no audit trail, so who proposed, "
+                        "approved or executed it cannot be established"
+                    ),
+                    evidence={
+                        "status": getattr(action.status, "value", str(action.status)),
+                        "action_type": getattr(
+                            action.action_type, "value", str(action.action_type)
+                        ),
+                    },
+                    component_id=action.component_id,
+                    environment_id=action.environment_id,
+                )
+                for action in silent_actions
+            )
+    return findings
+
+
+async def _check_corrupted_artifacts(
+    session: AsyncSession, *, project_id: uuid.UUID, limit: int
+) -> list[QualityFinding]:
+    """Re-hash stored experiment artifacts and report any that changed.
+
+    The artifact store is content-addressed precisely so this question is
+    answerable. A mismatch means the evidence a verification cited is no longer
+    the evidence that was verified — the most serious kind of finding here, and
+    the reason the check exists rather than trusting the recorded hash.
+
+    Bounded twice on purpose: by ``limit`` and by a byte ceiling, because the
+    point of a *diagnostic* is that it cannot become the outage.
+    """
+    rows = (
+        await session.scalars(
+            select(ReproductionArtifact)
+            .where(
+                ReproductionArtifact.project_id == project_id,
+                ReproductionArtifact.size_bytes <= ARTIFACT_VERIFY_MAX_BYTES,
+            )
+            .order_by(ReproductionArtifact.created_at.desc())
+            .limit(min(limit, ARTIFACT_VERIFY_BATCH))
+        )
+    ).all()
+    if not rows:
+        return []
+
+    store = ReproductionArtifactStore()
+    findings: list[QualityFinding] = []
+    for artifact in rows:
+        record = ArtifactRecord(
+            artifact_type=artifact.artifact_type,
+            name=artifact.name,
+            storage_location=artifact.storage_location,
+            size_bytes=artifact.size_bytes,
+            content_hash=artifact.content_hash,
+            content_type=artifact.content_type,
+            metadata=dict(artifact.metadata_ or {}),
+        )
+        #: File I/O off the event loop: a diagnostic pass must not stall the
+        #: requests that share this worker.
+        intact = await asyncio.to_thread(store.verify, record)
+        if intact:
+            continue
+        findings.append(
+            QualityFinding(
+                kind=DataQualityIssueKind.CORRUPTED_ARTIFACT,
+                subject_type="reproduction_artifact",
+                subject_id=artifact.id,
+                title=f"Artifact '{artifact.name}' no longer matches its hash",
+                severity=DataQualitySeverity.CRITICAL,
+                detail=(
+                    "the stored bytes do not hash to the recorded content hash, "
+                    "so anything that verified against this artifact is no longer "
+                    "supported by it"
+                ),
+                evidence={
+                    "experiment_id": str(artifact.experiment_id),
+                    "recorded_hash": artifact.content_hash,
+                    "storage_location": artifact.storage_location,
+                    "size_bytes": artifact.size_bytes,
+                },
+                environment_id=None,
+            )
+        )
+    return findings
+
+
+async def _check_missing_provenance(
+    session: AsyncSession, *, project_id: uuid.UUID, limit: int
+) -> list[QualityFinding]:
+    """Derived rows must cite a source; that is what makes learning auditable.
+
+    A reliability experience is assembled *from* an incident. One with no
+    incident is a claim about the past that no stored evidence supports — and
+    the learned knowledge built from it inherits that gap.
+    """
+    rows = (
+        await session.scalars(
+            select(ReliabilityExperience)
+            .where(
+                ReliabilityExperience.project_id == project_id,
+                ReliabilityExperience.incident_id.is_(None),
+            )
+            .order_by(ReliabilityExperience.created_at.desc())
+            .limit(limit)
+        )
+    ).all()
+    return [
+        QualityFinding(
+            kind=DataQualityIssueKind.MISSING_PROVENANCE,
+            subject_type="reliability_experience",
+            subject_id=experience.id,
+            title="Reliability experience cites no incident",
+            severity=DataQualitySeverity.WARNING,
+            detail=(
+                "the experience was derived without a source incident, so nothing "
+                "supports the outcome it records"
+            ),
+            evidence={
+                "created_at": experience.created_at.isoformat()
+                if experience.created_at
+                else None,
+                "component_id": str(experience.primary_component_id)
+                if experience.primary_component_id
+                else None,
+            },
+            component_id=experience.primary_component_id,
+            environment_id=experience.environment_id,
+        )
+        for experience in rows
+    ]
+
+
 #: The checks, in the order they are run. Declared as data so the sweep, the API
-#: and the tests cannot disagree about what "checks 7 of 7" means.
+#: and the tests cannot disagree about what "checks 12 of 12" means.
+#:
+#: (``DUPLICATE_INCIDENT`` is absent by design — see the note on
+#: :class:`~app.models.platform.DataQualityIssueKind`.)
 CHECKS = (
     "incidents_without_component",
     "predictions_without_snapshot",
@@ -584,6 +972,11 @@ CHECKS = (
     "stale_components",
     "broken_relationships",
     "inconsistent_state",
+    "missing_timestamps",
+    "missing_provenance",
+    "impossible_transitions",
+    "missing_audit_events",
+    "corrupted_artifacts",
 )
 
 
@@ -620,6 +1013,11 @@ async def run_consistency_checks(
         ),
         ("broken_relationships", _check_broken_relationships, {}),
         ("inconsistent_state", _check_inconsistent_state, {}),
+        ("missing_timestamps", _check_missing_timestamps, {}),
+        ("missing_provenance", _check_missing_provenance, {}),
+        ("impossible_transitions", _check_impossible_transitions, {}),
+        ("missing_audit_events", _check_missing_audit_events, {}),
+        ("corrupted_artifacts", _check_corrupted_artifacts, {}),
     )
 
     for name, runner, extra in runners:

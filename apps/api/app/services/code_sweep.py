@@ -40,6 +40,7 @@ from app.models.code import (
     DebugSessionStatus,
 )
 from app.models.deployment import CodeRepository, RepositoryIndexStatus
+from app.services.sweep_leader import sweep_lease
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -214,7 +215,12 @@ async def sweep_code_intelligence_forever(
     """Run the sweep on a fixed interval until cancelled."""
     interval = max(5, int(interval_seconds or settings.CODE_SWEEP_INTERVAL_SECONDS))
     while True:
-        await sweep_code_intelligence_once(session_factory)
+        # One pass per interval across the fleet (see ``sweep_leader``).
+        async with sweep_lease(session_factory, "code") as leader:
+            if leader:
+                await sweep_code_intelligence_once(session_factory)
+            else:
+                logger.debug("Code sweep: another worker holds the lease")
         await asyncio.sleep(interval)
 
 
