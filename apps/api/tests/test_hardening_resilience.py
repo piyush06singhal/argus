@@ -409,15 +409,24 @@ class TestRequestContractAbuse:
         Without this guard a body nested ~100k levels deep raises
         ``RecursionError`` inside ``json.loads`` — an unhandled 500 that costs
         the attacker a few kilobytes to produce.
+
+        The body is therefore assembled as *text*, not as 20,000 nested dicts:
+        encoding a structure that deep recurses just as far in the test's own
+        ``json.dumps`` and raised ``RecursionError`` on Python 3.12 before the
+        request was ever sent — the test failed on the encoder it was using to
+        describe the attack, not on the guard it was testing.
         """
-        nested: dict = {"leaf": True}
-        for _ in range(20_000):
-            nested = {"next": nested}
+        depth = 20_000
+        body = (
+            '{"name": "nested", "slug": "deeply-nested", "metadata": '
+            + '{"next": ' * depth
+            + "true"
+            + "}" * depth
+            + "}"
+        )
         response = client.post(
             "/api/v1/projects",
-            content=json.dumps(
-                {"name": "nested", "slug": "deeply-nested", "metadata": nested}
-            ).encode(),
+            content=body.encode(),
             headers={"content-type": "application/json"},
         )
         assert response.status_code == 413
